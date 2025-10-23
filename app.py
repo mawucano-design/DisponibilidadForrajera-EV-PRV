@@ -32,7 +32,7 @@ with st.sidebar:
     carga_animal = st.slider("Carga animal (cabezas):", 50, 1000, 100)
     
     st.subheader("🎯 División de Potrero")
-    n_divisiones = st.slider("Número de sub-lotes:", min_value=12, max_value=56, value=48)
+    n_divisiones = st.slider("Número de sub-lotes:", min_value=12, max_value=32, value=24)
     
     st.subheader("📤 Subir Lote")
     uploaded_zip = st.file_uploader("Subir ZIP con shapefile del potrero", type=['zip'])
@@ -67,10 +67,10 @@ PARAMETROS_FORRAJEROS = {
         'DIGESTIBILIDAD': 0.55,
         'PROTEINA_CRUDA': 0.10
     },
-    'MEZCLA_NATURAL': {
+    'PASTIZAL_NATURAL': {
         'MS_POR_HA_OPTIMO': 2500,
-        'CRECIMIENTO_DIARIO': 40,
-        'CONSUMO_VACA_DIA': 7,
+        'CRECIMIENTO_DIARIO': 20,
+        'CONSUMO_VACA_DIA': 12,
         'DIGESTIBILIDAD': 0.50,
         'PROTEINA_CRUDA': 0.08
     }
@@ -367,7 +367,7 @@ def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, 
                 return "ALERTA"
             elif dias_permanencia < 35:
                 return "ADEQUADO"
-            elif tasa_utilizacion > 0.8:
+            elif tasa_utilizacion > 0.65:
                 return "SOBREUSO"
             else:
                 return "ÓPTIMO"
