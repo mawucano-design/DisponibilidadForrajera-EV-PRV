@@ -32,7 +32,7 @@ with st.sidebar:
     carga_animal = st.slider("Carga animal (cabezas):", 50, 1000, 100)
     
     st.subheader("🎯 División de Potrero")
-    n_divisiones = st.slider("Número de sub-lotes:", min_value=16, max_value=64, value=32)
+    n_divisiones = st.slider("Número de sub-lotes:", min_value=12, max_value=56, value=48)
     
     st.subheader("📤 Subir Lote")
     uploaded_zip = st.file_uploader("Subir ZIP con shapefile del potrero", type=['zip'])
@@ -313,11 +313,11 @@ def crear_mapa_forrajero_gee(gdf, tipo_analisis, tipo_pastura):
         buf.seek(0)
         plt.close()
         
-        return buf
+        return buf, titulo_sufijo
         
     except Exception as e:
         st.error(f"❌ Error creando mapa forrajero: {str(e)}")
-        return None
+        return None, None
 
 # FUNCIÓN PRINCIPAL DE ANÁLISIS FORRAJERO
 def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, n_divisiones):
@@ -393,28 +393,92 @@ def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, 
             dias_prom = gdf_analizado['dias_permanencia'].mean()
             st.metric("Permanencia Promedio", f"{dias_prom:.0f} días")
         
-        # MAPAS FORRAJEROS
+        # MAPAS FORRAJEROS CON BOTONES DE DESCARGA
         st.subheader("🗺️ MAPAS FORRAJEROS GEE")
         
         col1, col2, col3 = st.columns(3)
         
         with col1:
             st.write("**📈 PRODUCTIVIDAD**")
-            mapa_biomasa = crear_mapa_forrajero_gee(gdf_analizado, "PRODUCTIVIDAD", tipo_pastura)
+            mapa_biomasa, titulo_biomasa = crear_mapa_forrajero_gee(gdf_analizado, "PRODUCTIVIDAD", tipo_pastura)
             if mapa_biomasa:
                 st.image(mapa_biomasa, use_container_width=True)
+                # BOTÓN DE DESCARGA AGREGADO
+                st.download_button(
+                    "📥 Descargar Mapa Productividad",
+                    mapa_biomasa.getvalue(),
+                    f"mapa_productividad_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.png",
+                    "image/png",
+                    key="descarga_biomasa"
+                )
         
         with col2:
             st.write("**🐄 DISPONIBILIDAD**")
-            mapa_ev = crear_mapa_forrajero_gee(gdf_analizado, "DISPONIBILIDAD", tipo_pastura)
+            mapa_ev, titulo_ev = crear_mapa_forrajero_gee(gdf_analizado, "DISPONIBILIDAD", tipo_pastura)
             if mapa_ev:
                 st.image(mapa_ev, use_container_width=True)
+                # BOTÓN DE DESCARGA AGREGADO
+                st.download_button(
+                    "📥 Descargar Mapa Disponibilidad",
+                    mapa_ev.getvalue(),
+                    f"mapa_disponibilidad_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.png",
+                    "image/png",
+                    key="descarga_disponibilidad"
+                )
         
         with col3:
             st.write("**📅 PERMANENCIA**")
-            mapa_dias = crear_mapa_forrajero_gee(gdf_analizado, "DIAS_PERMANENCIA", tipo_pastura)
+            mapa_dias, titulo_dias = crear_mapa_forrajero_gee(gdf_analizado, "DIAS_PERMANENCIA", tipo_pastura)
             if mapa_dias:
                 st.image(mapa_dias, use_container_width=True)
+                # BOTÓN DE DESCARGA AGREGADO
+                st.download_button(
+                    "📥 Descargar Mapa Permanencia",
+                    mapa_dias.getvalue(),
+                    f"mapa_permanencia_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.png",
+                    "image/png",
+                    key="descarga_permanencia"
+                )
+        
+        # BOTÓN PARA DESCARGAR TODOS LOS MAPAS
+        st.subheader("📦 DESCARGAR TODOS LOS MAPAS")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if mapa_biomasa:
+                st.download_button(
+                    "🗂️ Descargar Pack Completo",
+                    data=create_zip_file([
+                        ("productividad.png", mapa_biomasa.getvalue()),
+                        ("disponibilidad.png", mapa_ev.getvalue()),
+                        ("permanencia.png", mapa_dias.getvalue())
+                    ]),
+                    file_name=f"mapas_forrajeros_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.zip",
+                    mime="application/zip",
+                    key="descarga_pack"
+                )
+        
+        with col2:
+            # Descargar resumen ejecutivo
+            resumen_texto = crear_resumen_ejecutivo(gdf_analizado, tipo_pastura, area_total)
+            st.download_button(
+                "📋 Descargar Resumen Ejecutivo",
+                resumen_texto,
+                f"resumen_ejecutivo_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+                "text/plain",
+                key="descarga_resumen"
+            )
+        
+        with col3:
+            # Descargar datos completos
+            csv = gdf_analizado.to_csv(index=False)
+            st.download_button(
+                "📊 Descargar Datos Completos",
+                csv,
+                f"datos_completos_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                "text/csv",
+                key="descarga_datos"
+            )
         
         # TABLA DE RESULTADOS DETALLADOS
         st.subheader("🔬 MÉTRICAS DETALLADAS POR SUB-LOTE")
@@ -492,17 +556,6 @@ def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, 
         with col3:
             st.metric("🌿 BIOMASA TOTAL", f"{biomasa_total/1000:.1f} ton MS")
         
-        # DESCARGA DE RESULTADOS
-        st.subheader("📥 DESCARGAR RESULTADOS COMPLETOS")
-        
-        csv = gdf_analizado.to_csv(index=False)
-        st.download_button(
-            "📋 Descargar CSV con Análisis Forrajero",
-            csv,
-            f"analisis_forrajero_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-            "text/csv"
-        )
-        
         # INFORMACIÓN TÉCNICA
         with st.expander("🔍 VER METODOLOGÍA GEE DETALLADA"):
             st.markdown(f"""
@@ -533,6 +586,64 @@ def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, 
         import traceback
         st.error(f"Detalle: {traceback.format_exc()}")
         return False
+
+# FUNCIÓN PARA CREAR ARCHIVO ZIP
+def create_zip_file(files):
+    """Crea un archivo ZIP con múltiples archivos"""
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w') as zip_file:
+        for file_name, file_data in files:
+            zip_file.writestr(file_name, file_data)
+    zip_buffer.seek(0)
+    return zip_buffer.getvalue()
+
+# FUNCIÓN PARA CREAR RESUMEN EJECUTIVO
+def crear_resumen_ejecutivo(gdf_analizado, tipo_pastura, area_total):
+    """Crea un resumen ejecutivo en texto"""
+    total_ev = gdf_analizado['ev_soportable'].sum()
+    dias_prom = gdf_analizado['dias_permanencia'].mean()
+    biomasa_prom = gdf_analizado['biomasa_ms_ha'].mean()
+    biomasa_total = gdf_analizado['biomasa_total_kg'].sum()
+    
+    resumen = f"""
+RESUMEN EJECUTIVO - ANÁLISIS FORRAJERO
+=====================================
+Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+Tipo de Pastura: {tipo_pastura}
+Área Total: {area_total:.1f} ha
+Sub-Lotes Analizados: {len(gdf_analizado)}
+
+MÉTRICAS PRINCIPALES
+-------------------
+• Capacidad Total: {total_ev:.0f} Equivalentes Vaca
+• Permanencia Promedio: {dias_prom:.0f} días
+• Biomasa Promedio: {biomasa_prom:.0f} kg MS/ha
+• Biomasa Total: {biomasa_total/1000:.1f} ton MS
+
+DISTRIBUCIÓN POR CATEGORÍA
+-------------------------
+"""
+    
+    categorias = gdf_analizado['categoria_manejo'].unique()
+    for cat in sorted(categorias):
+        subset = gdf_analizado[gdf_analizado['categoria_manejo'] == cat]
+        area_cat = subset['area_ha'].sum()
+        porcentaje = (area_cat/area_total*100)
+        resumen += f"• {cat}: {area_cat:.1f} ha ({porcentaje:.1f}%)\n"
+    
+    resumen += f"""
+RECOMENDACIONES GENERALES
+-----------------------
+"""
+    
+    if dias_prom < 15:
+        resumen += "• ROTACIÓN URGENTE: Considerar reducir carga animal o suplementar\n"
+    elif dias_prom < 30:
+        resumen += "• MANEJO VIGILANTE: Monitorear crecimiento y planificar rotaciones\n"
+    else:
+        resumen += "• SITUACIÓN ÓPTIMA: Mantener manejo actual y monitorear periódicamente\n"
+    
+    return resumen
 
 # INTERFAZ PRINCIPAL
 if uploaded_zip:
@@ -586,6 +697,7 @@ else:
         - **🐄 Equivalentes Vaca:** Capacidad de carga animal
         - **📅 Días de Permanencia:** Tiempo de rotación estimado
         - **🛰️ Metodología GEE:** Algoritmos científicos de Google Earth Engine
+        - **📥 Descarga de Mapas:** Exporta todos los mapas en alta calidad
         
         **🎯 TIPOS DE PASTURA SOPORTADOS:**
         - **ALFALFA:** Alta productividad, buen rebrote
@@ -601,4 +713,5 @@ else:
         4. **Define** número de sub-lotes para análisis
         5. **Ejecuta** el análisis GEE
         6. **Revisa** resultados y recomendaciones de manejo
+        7. **Descarga** mapas y reportes completos
         """)
