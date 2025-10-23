@@ -25,7 +25,7 @@ with st.sidebar:
     st.header("⚙️ Configuración")
     
     tipo_pastura = st.selectbox("Tipo de Pastura:", 
-                               ["ALFALFA", "RAYGRASS", "FESTUCA", "AGROPIRRO", "MEZCLA_NATURAL"])
+                               ["ALFALFA", "RAYGRASS", "FESTUCA", "AGROPIRRO", "PASTIZAL_NATURAL"])
     
     st.subheader("📊 Parámetros Ganaderos")
     peso_promedio = st.slider("Peso promedio animal (kg):", 300, 600, 450)
