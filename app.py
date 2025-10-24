@@ -32,7 +32,7 @@ with st.sidebar:
     carga_animal = st.slider("Carga animal (cabezas):", 50, 1000, 100)
     
     st.subheader("🎯 División de Potrero")
-    n_divisiones = st.slider("Número de sub-lotes:", min_value=12, max_value=32, value=24)
+    n_divisiones = st.slider("Número de sub-lotes:", min_value=12, max_value=120, value=60)
     
     st.subheader("📤 Subir Lote")
     uploaded_zip = st.file_uploader("Subir ZIP con shapefile del potrero", type=['zip'])
