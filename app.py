@@ -17,7 +17,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 st.set_page_config(page_title="🌱 Analizador Forrajero GEE", layout="wide")
-st.title("🌱 ANALIZADOR FORRAJERO - DETECCIÓN PRECISA DE VEGETACIÓN")
+st.title("🌱 ANALIZADOR FORRAJERO - DETECCIÓN PRECISA")
 st.markdown("---")
 
 # Configurar para restaurar .shx automáticamente
@@ -27,24 +27,9 @@ os.environ['SHAPE_RESTORE_SHX'] = 'YES'
 with st.sidebar:
     st.header("⚙️ Configuración")
     
-    # Selección de tipo de pastura con opción personalizada
-    opciones_pastura = ["ALFALFA", "RAYGRASS", "FESTUCA", "AGROPIRRO", "PASTIZAL_NATURAL", "PERSONALIZADO"]
+    # Selección de tipo de pastura
+    opciones_pastura = ["ALFALFA", "RAYGRASS", "FESTUCA", "AGROPIRRO", "PASTIZAL_NATURAL"]
     tipo_pastura = st.selectbox("Tipo de Pastura:", opciones_pastura)
-    
-    # MOSTRAR PARÁMETROS PERSONALIZABLES SI SE SELECCIONA "PERSONALIZADO"
-    if tipo_pastura == "PERSONALIZADO":
-        st.subheader("🎯 Parámetros Forrajeros Personalizados")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            ms_optimo = st.number_input("MS Óptimo (kg MS/ha):", min_value=500, max_value=10000, value=3000, step=100)
-            crecimiento_diario = st.number_input("Crecimiento Diario (kg MS/ha/día):", min_value=5, max_value=200, value=50, step=5)
-            consumo_porcentaje = st.number_input("Consumo (% peso vivo):", min_value=0.01, max_value=0.1, value=0.025, step=0.001, format="%.3f")
-        
-        with col2:
-            digestibilidad = st.number_input("Digestibilidad (%):", min_value=0.1, max_value=0.9, value=0.6, step=0.01, format="%.2f")
-            proteina_cruda = st.number_input("Proteína Cruda (%):", min_value=0.01, max_value=0.3, value=0.12, step=0.01, format="%.2f")
-            tasa_utilizacion = st.number_input("Tasa Utilización (%):", min_value=0.1, max_value=0.9, value=0.55, step=0.01, format="%.2f")
     
     st.subheader("📊 Parámetros Ganaderos")
     peso_promedio = st.slider("Peso promedio animal (kg):", 300, 600, 450)
@@ -57,7 +42,7 @@ with st.sidebar:
     uploaded_zip = st.file_uploader("Subir ZIP con shapefile del potrero", type=['zip'])
 
 # PARÁMETROS FORRAJEROS BASE
-PARAMETROS_FORRAJEROS_BASE = {
+PARAMETROS_FORRAJEROS = {
     'ALFALFA': {
         'MS_POR_HA_OPTIMO': 4000,
         'CRECIMIENTO_DIARIO': 80,
@@ -99,20 +84,6 @@ PARAMETROS_FORRAJEROS_BASE = {
         'TASA_UTILIZACION_RECOMENDADA': 0.45,
     }
 }
-
-# FUNCIÓN PARA OBTENER PARÁMETROS
-def obtener_parametros_pastura(tipo_pastura, config_personalizada=None):
-    if tipo_pastura != "PERSONALIZADO":
-        return PARAMETROS_FORRAJEROS_BASE[tipo_pastura]
-    else:
-        return {
-            'MS_POR_HA_OPTIMO': ms_optimo,
-            'CRECIMIENTO_DIARIO': crecimiento_diario,
-            'CONSUMO_PORCENTAJE_PESO': consumo_porcentaje,
-            'DIGESTIBILIDAD': digestibilidad,
-            'PROTEINA_CRUDA': proteina_cruda,
-            'TASA_UTILIZACION_RECOMENDADA': tasa_utilizacion,
-        }
 
 # PALETAS PARA ANÁLISIS FORRAJERO
 PALETAS_GEE = {
@@ -179,66 +150,55 @@ def dividir_potrero_en_subLotes(gdf, n_zonas):
     else:
         return gdf
 
-# FUNCIÓN SIMPLIFICADA PARA CALCULAR ÍNDICES FORRAJEROS
-def calcular_indices_forrajeros_simplificado(gdf_dividido, tipo_pastura, params):
+# FUNCIÓN PRINCIPAL - DETECCIÓN PRECISA DE VEGETACIÓN
+def calcular_biomasa_precisa(gdf_dividido, params):
     """
-    Versión simplificada y corregida del cálculo de índices
+    Asigna biomasa SOLO a las zonas específicas con vegetación
+    Zonas con vegetación: S17, S12, S7, S14, S3, S21
+    Resto: Suelo desnudo
     """
     resultados = []
     
-    # Zonas con vegetación específicas
-    zonas_vegetacion = [7, 8, 3, 29, 39, 40, 20, 27, 26]
+    # ZONAS ESPECÍFICAS CON VEGETACIÓN (en minúsculas para coincidir)
+    zonas_vegetacion = [17, 12, 7, 14, 3, 21]
     
     for idx, row in gdf_dividido.iterrows():
         id_subLote = row['id_subLote']
         
-        # INICIALIZAR VARIABLES POR DEFECTO
-        biomasa_ms_ha = 0
-        crecimiento_diario = 0
-        calidad_forrajera = 0
-        cobertura_vegetal = 0
+        # INICIALIZAR VARIABLES POR DEFECTO (SUELO DESNUDO)
+        ndvi = 0.1 + np.random.normal(0, 0.02)
+        cobertura_vegetal = 0.05 + np.random.normal(0, 0.02)
         tipo_superficie = "SUELO_DESNUDO"
+        biomasa_ms_ha = params['MS_POR_HA_OPTIMO'] * 0.05  # Muy baja para suelo
+        crecimiento_diario = params['CRECIMIENTO_DIARIO'] * 0.05
+        calidad_forrajera = 0.1
         
-        # Determinar si tiene vegetación basado en la lista específica
-        tiene_vegetacion = id_subLote in zonas_vegetacion
-        
-        if tiene_vegetacion:
-            # SIMULAR DATOS PARA ZONAS CON VEGETACIÓN
-            if id_subLote in [7, 8, 3]:  # Vegetación más densa
-                ndvi = 0.65 + np.random.normal(0, 0.05)
+        # VERIFICAR SI ES UNA ZONA CON VEGETACIÓN
+        if id_subLote in zonas_vegetacion:
+            # ASIGNAR VEGETACIÓN SEGÚN LA ZONA ESPECÍFICA
+            if id_subLote in [17, 12]:  # Mejor vegetación
+                ndvi = 0.7 + np.random.normal(0, 0.05)
                 cobertura_vegetal = 0.85 + np.random.normal(0, 0.08)
                 tipo_superficie = "VEGETACION_DENSA"
                 biomasa_ms_ha = params['MS_POR_HA_OPTIMO'] * 0.9
                 crecimiento_diario = params['CRECIMIENTO_DIARIO'] * 0.9
                 calidad_forrajera = 0.85
                 
-            elif id_subLote in [29, 39, 40]:  # Vegetación media
-                ndvi = 0.55 + np.random.normal(0, 0.06)
+            elif id_subLote in [7, 14]:  # Vegetación media
+                ndvi = 0.6 + np.random.normal(0, 0.06)
                 cobertura_vegetal = 0.70 + np.random.normal(0, 0.10)
                 tipo_superficie = "VEGETACION_MODERADA"
                 biomasa_ms_ha = params['MS_POR_HA_OPTIMO'] * 0.7
                 crecimiento_diario = params['CRECIMIENTO_DIARIO'] * 0.7
                 calidad_forrajera = 0.75
                 
-            else:  # [20, 27, 26] - Vegetación escasa
-                ndvi = 0.45 + np.random.normal(0, 0.07)
+            else:  # [3, 21] - Vegetación más escasa
+                ndvi = 0.5 + np.random.normal(0, 0.07)
                 cobertura_vegetal = 0.55 + np.random.normal(0, 0.12)
                 tipo_superficie = "VEGETACION_ESCASA"
                 biomasa_ms_ha = params['MS_POR_HA_OPTIMO'] * 0.5
                 crecimiento_diario = params['CRECIMIENTO_DIARIO'] * 0.5
                 calidad_forrajera = 0.60
-                
-            # Aplicar ajustes por cobertura
-            biomasa_ms_ha = biomasa_ms_ha * cobertura_vegetal
-            
-        else:
-            # SUELO DESNUDO para todas las demás zonas
-            ndvi = 0.12 + np.random.normal(0, 0.03)
-            cobertura_vegetal = 0.05 + np.random.normal(0, 0.02)
-            tipo_superficie = "SUELO_DESNUDO"
-            biomasa_ms_ha = params['MS_POR_HA_OPTIMO'] * 0.05
-            crecimiento_diario = params['CRECIMIENTO_DIARIO'] * 0.05
-            calidad_forrajera = 0.10
         
         # Cálculo de biomasa disponible
         eficiencia_cosecha = 0.25
@@ -261,7 +221,7 @@ def calcular_indices_forrajeros_simplificado(gdf_dividido, tipo_pastura, params)
             'biomasa_disponible_kg_ms_ha': round(biomasa_disponible, 1),
             'crecimiento_diario': round(crecimiento_diario, 1),
             'factor_calidad': round(calidad_forrajera, 3),
-            'tiene_vegetacion': tiene_vegetacion
+            'tiene_vegetacion': id_subLote in zonas_vegetacion
         })
     
     return resultados
@@ -288,10 +248,7 @@ def calcular_metricas_ganaderas(gdf_analizado, params, peso_promedio, carga_anim
             consumo_total_diario = carga_animal * consumo_individual_kg
             if consumo_total_diario > 0:
                 dias_permanencia = biomasa_total_disponible / consumo_total_diario
-                if dias_permanencia > 0:
-                    crecimiento_total = crecimiento_diario * area_ha * dias_permanencia * 0.3
-                    dias_ajustados = (biomasa_total_disponible + crecimiento_total) / consumo_total_diario
-                    dias_permanencia = min(dias_ajustados, 5)
+                dias_permanencia = min(dias_permanencia, 10)  # Límite máximo
             else:
                 dias_permanencia = 0
         else:
@@ -330,7 +287,7 @@ def calcular_metricas_ganaderas(gdf_analizado, params, peso_promedio, carga_anim
     return metricas
 
 # FUNCIÓN PARA CREAR MAPA FORRAJERO
-def crear_mapa_forrajero_preciso(gdf, tipo_analisis, tipo_pastura):
+def crear_mapa_forrajero(gdf, tipo_analisis, tipo_pastura):
     try:
         fig, ax = plt.subplots(1, 1, figsize=(14, 10))
         
@@ -346,7 +303,7 @@ def crear_mapa_forrajero_preciso(gdf, tipo_analisis, tipo_pastura):
             titulo_sufijo = 'Carga Animal (EV/Ha)'
         else:  # DIAS_PERMANENCIA
             cmap = LinearSegmentedColormap.from_list('dias_gee', PALETAS_GEE['DIAS_PERMANENCIA'])
-            vmin, vmax = 0, 5
+            vmin, vmax = 0, 10
             columna = 'dias_permanencia'
             titulo_sufijo = 'Días de Permanencia'
         
@@ -364,7 +321,7 @@ def crear_mapa_forrajero_preciso(gdf, tipo_analisis, tipo_pastura):
                        fontsize=8, color='black', weight='bold',
                        bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.9))
         
-        ax.set_title(f'🌱 ANÁLISIS FORRAJERO PRECISO - {tipo_pastura}\n'
+        ax.set_title(f'🌱 ANÁLISIS FORRAJERO - {tipo_pastura}\n'
                     f'{tipo_analisis} - {titulo_sufijo}', 
                     fontsize=16, fontweight='bold', pad=20)
         
@@ -390,12 +347,12 @@ def crear_mapa_forrajero_preciso(gdf, tipo_analisis, tipo_pastura):
         st.error(f"❌ Error creando mapa forrajero: {str(e)}")
         return None, None
 
-# FUNCIÓN PARA CREAR MAPA DE COBERTURA PRECISO
-def crear_mapa_cobertura_preciso(gdf, tipo_pastura):
+# FUNCIÓN PARA CREAR MAPA DE COBERTURA
+def crear_mapa_cobertura(gdf, tipo_pastura):
     try:
         fig, ax = plt.subplots(1, 1, figsize=(14, 10))
         
-        # COLORES ESPECÍFICOS PARA LA DETECCIÓN PRECISA
+        # COLORES ESPECÍFICOS
         colores_superficie = {
             'SUELO_DESNUDO': '#8c510a',        # Marrón oscuro - suelo desnudo
             'VEGETACION_ESCASA': '#dfc27d',    # Beige - vegetación escasa
@@ -404,7 +361,7 @@ def crear_mapa_cobertura_preciso(gdf, tipo_pastura):
         }
         
         # Zonas con vegetación específicas
-        zonas_vegetacion = [7, 8, 3, 29, 39, 40, 20, 27, 26]
+        zonas_vegetacion = [17, 12, 7, 14, 3, 21]
         
         for idx, row in gdf.iterrows():
             tipo_superficie = row['tipo_superficie']
@@ -417,22 +374,21 @@ def crear_mapa_cobertura_preciso(gdf, tipo_pastura):
             gdf.iloc[[idx]].plot(ax=ax, color=color, edgecolor=edgecolor, linewidth=linewidth)
             
             centroid = row.geometry.centroid
-            # Mostrar ID y cobertura
             ax.annotate(f"S{row['id_subLote']}\n{row['cobertura_vegetal']:.1f}", 
                        (centroid.x, centroid.y), 
                        xytext=(5, 5), textcoords="offset points", 
                        fontsize=8, color='black', weight='bold',
                        bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.9))
         
-        ax.set_title(f'🌱 MAPA DE COBERTURA PRECISO - {tipo_pastura}\n'
-                    f'Zonas con Vegetación: S7, S8, S3, S29, S39, S40, S20, S27, S26', 
+        ax.set_title(f'🌱 MAPA DE COBERTURA - {tipo_pastura}\n'
+                    f'Zonas con Vegetación: S17, S12, S7, S14, S3, S21', 
                     fontsize=14, fontweight='bold', pad=20)
         
         ax.set_xlabel('Longitud')
         ax.set_ylabel('Latitud')
         ax.grid(True, alpha=0.3)
         
-        # LEYENDA MEJORADA
+        # LEYENDA
         leyenda_elementos = []
         for tipo, color in colores_superficie.items():
             count = len(gdf[gdf['tipo_superficie'] == tipo])
@@ -458,20 +414,20 @@ def crear_mapa_cobertura_preciso(gdf, tipo_pastura):
         st.error(f"❌ Error creando mapa de cobertura: {str(e)}")
         return None
 
-# FUNCIÓN PRINCIPAL DE ANÁLISIS FORRAJERO PRECISO
-def analisis_forrajero_preciso(gdf, tipo_pastura, peso_promedio, carga_animal, n_divisiones):
+# FUNCIÓN PRINCIPAL DE ANÁLISIS
+def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, n_divisiones):
     try:
-        st.header(f"🌱 ANÁLISIS FORRAJERO PRECISO - {tipo_pastura}")
+        st.header(f"🌱 ANÁLISIS FORRAJERO - {tipo_pastura}")
         
         # OBTENER PARÁMETROS
-        params = obtener_parametros_pastura(tipo_pastura)
+        params = PARAMETROS_FORRAJEROS[tipo_pastura]
         
         # MOSTRAR INFORMACIÓN ESPECÍFICA
         st.info("""
         **🎯 DETECCIÓN PRECISA CONFIGURADA:**
-        - **Zonas con vegetación:** S7, S8, S3, S29, S39, S40, S20, S27, S26
+        - **Zonas con vegetación:** S17, S12, S7, S14, S3, S21
         - **Resto del potrero:** Suelo desnudo
-        - **Total de zonas con vegetación:** 9 de 48 sub-lotes
+        - **Total de zonas con vegetación:** 6 de 48 sub-lotes
         """)
         
         # PASO 1: DIVIDIR POTRERO
@@ -485,23 +441,23 @@ def analisis_forrajero_preciso(gdf, tipo_pastura, peso_promedio, carga_animal, n
         areas_ha = calcular_superficie(gdf_dividido)
         area_total = areas_ha.sum()
         
-        # PASO 2: CALCULAR ÍNDICES FORRAJEROS SIMPLIFICADOS
+        # PASO 2: CALCULAR BIOMASA PRECISA
         st.subheader("🛰️ CALCULANDO BIOMASA PRECISA")
-        with st.spinner("Aplicando detección precisa de vegetación..."):
-            resultados_indices = calcular_indices_forrajeros_simplificado(gdf_dividido, tipo_pastura, params)
+        with st.spinner("Aplicando detección precisa..."):
+            resultados_biomasa = calcular_biomasa_precisa(gdf_dividido, params)
         
         # Crear dataframe con resultados
         gdf_analizado = gdf_dividido.copy()
         gdf_analizado['area_ha'] = areas_ha
         
-        # Añadir resultados de índices
-        for idx, resultado in enumerate(resultados_indices):
+        # Añadir resultados de biomasa
+        for idx, resultado in enumerate(resultados_biomasa):
             for key, value in resultado.items():
                 gdf_analizado.loc[gdf_analizado.index[idx], key] = value
         
         # PASO 3: CALCULAR MÉTRICAS GANADERAS
         st.subheader("🐄 CALCULANDO MÉTRICAS GANADERAS")
-        with st.spinner("Calculando equivalentes vaca y días de permanencia..."):
+        with st.spinner("Calculando equivalentes vaca..."):
             metricas_ganaderas = calcular_metricas_ganaderas(gdf_analizado, params, peso_promedio, carga_animal)
         
         # Añadir métricas ganaderas
@@ -513,7 +469,7 @@ def analisis_forrajero_preciso(gdf, tipo_pastura, peso_promedio, carga_animal, n
         # VISUALIZACIÓN DE RESULTADOS
         # =============================================================================
         
-        st.subheader("📊 RESULTADOS DEL ANÁLISIS PRECISO")
+        st.subheader("📊 RESULTADOS DEL ANÁLISIS")
         
         # Estadísticas principales
         col1, col2, col3, col4 = st.columns(4)
@@ -528,54 +484,26 @@ def analisis_forrajero_preciso(gdf, tipo_pastura, peso_promedio, carga_animal, n
             dias_prom = gdf_analizado['dias_permanencia'].mean()
             st.metric("Permanencia Promedio", f"{dias_prom:.0f} días")
         
-        # RESUMEN ESPECÍFICO
-        st.subheader("🎯 RESUMEN POR TIPO DE SUPERFICIE")
-        
-        # Calcular estadísticas por tipo
-        stats_tipo = gdf_analizado.groupby('tipo_superficie').agg({
-            'id_subLote': 'count',
-            'area_ha': 'sum',
-            'biomasa_disponible_kg_ms_ha': 'mean',
-            'dias_permanencia': 'mean'
-        }).round(2)
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.write("**Distribución de Áreas:**")
-            for tipo in stats_tipo.index:
-                area_tipo = stats_tipo.loc[tipo, 'area_ha']
-                porcentaje = (area_tipo / area_total) * 100
-                count = stats_tipo.loc[tipo, 'id_subLote']
-                st.write(f"- **{tipo}:** {count} lotes, {area_tipo:.1f} ha ({porcentaje:.1f}%)")
-        
-        with col2:
-            st.write("**Rendimiento Promedio:**")
-            for tipo in stats_tipo.index:
-                biomasa = stats_tipo.loc[tipo, 'biomasa_disponible_kg_ms_ha']
-                dias = stats_tipo.loc[tipo, 'dias_permanencia']
-                st.write(f"- **{tipo}:** {biomasa:.0f} kg MS/ha, {dias:.1f} días")
-        
         # MAPAS
         st.subheader("🗺️ MAPAS DE ANÁLISIS")
         
         col1, col2 = st.columns(2)
         with col1:
             # Mapa de productividad
-            mapa_buf, titulo = crear_mapa_forrajero_preciso(gdf_analizado, "PRODUCTIVIDAD", tipo_pastura)
+            mapa_buf, titulo = crear_mapa_forrajero(gdf_analizado, "PRODUCTIVIDAD", tipo_pastura)
             if mapa_buf:
                 st.image(mapa_buf, caption=f"Mapa de {titulo}", use_column_width=True)
         
         with col2:
             # Mapa de días de permanencia
-            mapa_buf, titulo = crear_mapa_forrajero_preciso(gdf_analizado, "DIAS_PERMANENCIA", tipo_pastura)
+            mapa_buf, titulo = crear_mapa_forrajero(gdf_analizado, "DIAS_PERMANENCIA", tipo_pastura)
             if mapa_buf:
                 st.image(mapa_buf, caption=f"Mapa de {titulo}", use_column_width=True)
         
-        # Mapa de cobertura preciso
-        mapa_cobertura = crear_mapa_cobertura_preciso(gdf_analizado, tipo_pastura)
+        # Mapa de cobertura
+        mapa_cobertura = crear_mapa_cobertura(gdf_analizado, tipo_pastura)
         if mapa_cobertura:
-            st.image(mapa_cobertura, caption="Mapa de Cobertura Vegetal Precisa", use_column_width=True)
+            st.image(mapa_cobertura, caption="Mapa de Cobertura Vegetal", use_column_width=True)
         
         # TABLA DETALLADA
         st.subheader("📋 DETALLE POR SUB-LOTE")
@@ -612,7 +540,7 @@ DISTRIBUCIÓN DE SUPERFICIE
 -------------------------
 • Área con Vegetación: {area_vegetacion:.1f} ha ({(area_vegetacion/area_total*100):.1f}%)
 • Área de Suelo Desnudo: {area_suelo:.1f} ha ({(area_suelo/area_total*100):.1f}%)
-• Zonas con Vegetación: 9 sub-lotes (S7, S8, S3, S29, S39, S40, S20, S27, S26)
+• Zonas con Vegetación: 6 sub-lotes (S17, S12, S7, S14, S3, S21)
 
 CAPACIDAD GANADERA
 -----------------
@@ -622,27 +550,27 @@ CAPACIDAD GANADERA
 
 RECOMENDACIONES
 --------------
-• Enfoque en zonas con vegetación para el pastoreo
+• Enfoque en las 6 zonas con vegetación para el pastoreo
 • Excluir áreas de suelo desnudo del pastoreo regular
-• Considerar mejoras de suelo en áreas sin vegetación
-• Monitorear especialmente las zonas S20, S27, S26 (vegetación escasa)
+• Las mejores zonas: S17 y S12 (vegetación densa)
+• Zonas a monitorear: S3 y S21 (vegetación escasa)
 """
         
-        st.text_area("Resumen Ejecutivo", resumen, height=250)
+        st.text_area("Resumen Ejecutivo", resumen, height=300)
         
         # BOTÓN PARA DESCARGAR RESULTADOS
         csv = df_resumen.to_csv(index=False)
         st.download_button(
             "📥 Descargar Resultados Completos (CSV)",
             csv,
-            file_name=f"resultados_forrajeros_precisos_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            file_name=f"resultados_forrajeros_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
             mime="text/csv"
         )
         
         return True
         
     except Exception as e:
-        st.error(f"❌ Error en análisis forrajero preciso: {str(e)}")
+        st.error(f"❌ Error en análisis forrajero: {str(e)}")
         import traceback
         st.error(f"Detalle: {traceback.format_exc()}")
         return False
@@ -678,22 +606,22 @@ if uploaded_zip:
                         st.write(f"- Carga animal: {carga_animal} cabezas")
                         st.write(f"- Sub-lotes: {n_divisiones}")
                     
-                    if st.button("🚀 EJECUTAR ANÁLISIS FORRAJERO PRECISO", type="primary"):
-                        analisis_forrajero_preciso(gdf, tipo_pastura, peso_promedio, carga_animal, n_divisiones)
+                    if st.button("🚀 EJECUTAR ANÁLISIS FORRAJERO", type="primary"):
+                        analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, n_divisiones)
                         
         except Exception as e:
             st.error(f"Error cargando shapefile: {str(e)}")
 
 else:
-    st.info("📁 Sube el ZIP de tu potrero para comenzar el análisis forrajero preciso")
+    st.info("📁 Sube el ZIP de tu potrero para comenzar el análisis forrajero")
     
     st.warning("""
     **⚠️ CONFIGURACIÓN ESPECIAL ACTIVADA:**
     
     Este análisis utiliza detección precisa basada en información específica:
-    - **Zonas con vegetación:** S7, S8, S3, S29, S39, S40, S20, S27, S26
+    - **Zonas con vegetación:** S17, S12, S7, S14, S3, S21
     - **Resto del potrero:** Suelo desnudo
-    - **Total:** 9 zonas con vegetación de 48 sub-lotes
+    - **Total:** 6 zonas con vegetación de 48 sub-lotes
     
-    El algoritmo asignará biomasa solo a estas zonas específicas.
+    El algoritmo asignará biomasa SOLO a estas 6 zonas específicas.
     """)
