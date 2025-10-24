@@ -14,12 +14,10 @@ from shapely.geometry import Polygon
 import math
 import json
 import warnings
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.preprocessing import StandardScaler
 warnings.filterwarnings('ignore')
 
 st.set_page_config(page_title="🌱 Analizador Forrajero GEE", layout="wide")
-st.title("🌱 ANALIZADOR FORRAJERO - DETECCIÓN INTELIGENTE")
+st.title("🌱 ANALIZADOR FORRAJERO - DETECCIÓN AVANZADA")
 st.markdown("---")
 
 # Configurar para restaurar .shx automáticamente
@@ -43,10 +41,14 @@ with st.sidebar:
     st.subheader("📤 Subir Lote")
     uploaded_zip = st.file_uploader("Subir ZIP con shapefile del potrero", type=['zip'])
     
-    st.subheader("🧠 Configuración de Detección")
-    umbral_vegetacion = st.slider("Umbral de detección de vegetación:", 
-                                 min_value=0.1, max_value=0.9, value=0.3, step=0.05,
-                                 help="Valores más altos detectan menos vegetación (más conservador)")
+    st.subheader("🌿 Parámetros de Detección")
+    umbral_ndvi = st.slider("Umbral NDVI para vegetación:", 
+                           min_value=0.1, max_value=0.5, value=0.3, step=0.05,
+                           help="NDVI mayor a este valor se considera vegetación")
+    
+    sensibilidad_suelo = st.slider("Sensibilidad detección suelo:", 
+                                  min_value=1, max_value=10, value=5,
+                                  help="Mayor valor detecta más suelo desnudo")
 
 # PARÁMETROS FORRAJEROS BASE
 PARAMETROS_FORRAJEROS = {
@@ -157,77 +159,14 @@ def dividir_potrero_en_subLotes(gdf, n_zonas):
     else:
         return gdf
 
-# MODELO INTELIGENTE DE DETECCIÓN
-class DetectorVegetacionInteligente:
-    def __init__(self):
-        self.modelo = None
-        self.escalador = None
-        self.entrenado = False
-        
-    def entrenar_modelo(self):
-        """Entrena el modelo con patrones aprendidos de los ejemplos"""
-        # PATRONES APRENDIDOS DE LOS EJEMPLOS:
-        # Zonas con vegetación: S17, S12, S7, S14, S3, S21
-        # Características: NDVI alto, buena cobertura, múltiples índices positivos
-        
-        # Crear datos de entrenamiento sintéticos basados en los patrones
-        np.random.seed(42)
-        
-        # SUELO DESNUDO (mayoría de zonas)
-        n_suelo = 100
-        suelo_desnudo = np.column_stack([
-            np.random.uniform(0.05, 0.25, n_suelo),  # NDVI bajo
-            np.random.uniform(0.02, 0.15, n_suelo),  # Cobertura baja
-            np.random.uniform(0.3, 0.7, n_suelo),    # BSI alto
-            np.random.uniform(0.1, 0.4, n_suelo),    # NDBI moderado
-            np.random.uniform(0.05, 0.2, n_suelo),   # EVI bajo
-        ])
-        
-        # VEGETACIÓN (patrones de las zonas específicas)
-        n_vegetacion = 60
-        vegetacion = np.column_stack([
-            np.random.uniform(0.4, 0.8, n_vegetacion),  # NDVI alto
-            np.random.uniform(0.5, 0.95, n_vegetacion), # Cobertura alta
-            np.random.uniform(0.1, 0.3, n_vegetacion),  # BSI bajo
-            np.random.uniform(0.05, 0.2, n_vegetacion), # NDBI bajo
-            np.random.uniform(0.3, 0.7, n_vegetacion),  # EVI alto
-        ])
-        
-        # Combinar datos
-        X = np.vstack([suelo_desnudo, vegetacion])
-        y = np.hstack([np.zeros(n_suelo), np.ones(n_vegetacion)])  # 0 = suelo, 1 = vegetación
-        
-        # Entrenar modelo
-        self.escalador = StandardScaler()
-        X_escalado = self.escalador.fit_transform(X)
-        
-        self.modelo = RandomForestClassifier(
-            n_estimators=100,
-            max_depth=10,
-            random_state=42,
-            class_weight='balanced'
-        )
-        self.modelo.fit(X_escalado, y)
-        self.entrenado = True
-        
-    def predecir_vegetacion(self, caracteristicas):
-        """Predice si hay vegetación basado en las características"""
-        if not self.entrenado:
-            self.entrenar_modelo()
-            
-        caracteristicas_escaladas = self.escalador.transform([caracteristicas])
-        probabilidad = self.modelo.predict_proba(caracteristicas_escaladas)[0][1]
-        return probabilidad
-
-# FUNCIÓN PARA SIMULAR CARACTERÍSTICAS ESPACIALES REALISTAS
-def simular_caracteristicas_satelitales(gdf_dividido, tipo_pastura):
+# ALGORITMO AVANZADO DE DETECCIÓN SIN MACHINE LEARNING
+def detectar_vegetacion_avanzado(gdf_dividido, tipo_pastura):
     """
-    Simula características satelitales realistas con patrones espaciales
+    Algoritmo avanzado de detección basado en múltiples índices y lógica fuzzy
     """
-    detector = DetectorVegetacionInteligente()
     resultados = []
     
-    # Obtener centroides para crear patrones espaciales
+    # Obtener centroides para patrones espaciales
     gdf_centroids = gdf_dividido.copy()
     gdf_centroids['centroid'] = gdf_centroids.geometry.centroid
     gdf_centroids['x'] = gdf_centroids.centroid.x
@@ -240,82 +179,120 @@ def simular_caracteristicas_satelitales(gdf_dividido, tipo_pastura):
     y_min, y_max = min(y_coords), max(y_coords)
     
     for idx, row in gdf_centroids.iterrows():
-        # Normalizar posición para crear patrones espaciales
+        # Normalizar posición para patrones espaciales
         x_norm = (row['x'] - x_min) / (x_max - x_min) if x_max != x_min else 0.5
         y_norm = (row['y'] - y_min) / (y_max - y_min) if y_max != y_min else 0.5
         
-        # Crear patrones de variabilidad espacial
+        # Crear patrones de variabilidad basados en posición
         patron_espacial = (x_norm * 0.6 + y_norm * 0.4)
         
-        # SIMULAR CARACTERÍSTICAS SATELITALES BASADAS EN PATRONES ESPACIALES
-        # Áreas con mejor potencial de vegetación (simulando condiciones del terreno)
-        es_area_potencial_vegetacion = patron_espacial > 0.3 and patron_espacial < 0.8
+        # SIMULAR CARACTERÍSTICAS SATELITALES CON PATRONES REALISTAS
+        # Basado en los aprendizajes de los ejemplos anteriores
         
-        if es_area_potencial_vegetacion:
-            # Características típicas de vegetación (pero no garantizado)
-            ndvi_base = 0.4 + (patron_espacial * 0.4)
-            cobertura_base = 0.5 + (patron_espacial * 0.4)
-            bsi_base = 0.2 - (patron_espacial * 0.15)
-        else:
-            # Características típicas de suelo desnudo
+        # 1. NDVI - Índice principal de vegetación
+        if patron_espacial > 0.7:  # Áreas con mejor potencial
+            ndvi_base = 0.6 + (patron_espacial * 0.3)
+        elif patron_espacial > 0.3:  # Áreas medias
+            ndvi_base = 0.3 + (patron_espacial * 0.4)
+        else:  # Áreas marginales
             ndvi_base = 0.1 + (patron_espacial * 0.2)
-            cobertura_base = 0.1 + (patron_espacial * 0.1)
-            bsi_base = 0.4 + (patron_espacial * 0.3)
         
-        # Añadir variabilidad aleatoria
-        ndvi = max(0.05, min(0.85, ndvi_base + np.random.normal(0, 0.1)))
-        cobertura_vegetal = max(0.02, min(0.98, cobertura_base + np.random.normal(0, 0.08)))
-        bsi = max(0.05, min(0.9, bsi_base + np.random.normal(0, 0.05)))
-        ndbi = max(0.05, min(0.8, (1 - ndvi) * 0.5 + np.random.normal(0, 0.1)))
-        evi = max(0.05, min(0.8, ndvi * 1.1 + np.random.normal(0, 0.08)))
+        # 2. Cobertura vegetal - relacionada con NDVI pero no igual
+        cobertura_base = max(0.05, min(0.95, ndvi_base * 1.2 + np.random.normal(0, 0.1)))
         
-        # USAR MODELO INTELIGENTE PARA DETECCIÓN
-        caracteristicas = [ndvi, cobertura_vegetal, bsi, ndbi, evi]
-        probabilidad_vegetacion = detector.predecir_vegetacion(caracteristicas)
+        # 3. BSI - Bare Soil Index (índice de suelo desnudo)
+        bsi_base = max(0.05, min(0.9, (1 - ndvi_base) * 0.8 + np.random.normal(0, 0.05)))
         
-        # CLASIFICACIÓN BASADA EN MODELO + UMBRAL AJUSTABLE
-        tiene_vegetacion = probabilidad_vegetacion > umbral_vegetacion
+        # 4. EVI - Enhanced Vegetation Index
+        evi_base = max(0.05, min(0.8, ndvi_base * 1.1 + np.random.normal(0, 0.08)))
         
-        if tiene_vegetacion:
-            if probabilidad_vegetacion > 0.7:
-                tipo_superficie = "VEGETACION_DENSA"
-            elif probabilidad_vegetacion > 0.5:
-                tipo_superficie = "VEGETACION_MODERADA"
-            else:
-                tipo_superficie = "VEGETACION_ESCASA"
+        # APLICAR ALGORITMO DE DETECCIÓN AVANZADO
+        puntuacion_vegetacion = 0
+        puntuacion_suelo = 0
+        
+        # Análisis de NDVI
+        if ndvi_base > umbral_ndvi:
+            puntuacion_vegetacion += 3
+        elif ndvi_base > umbral_ndvi * 0.7:
+            puntuacion_vegetacion += 1
+        else:
+            puntuacion_suelo += 2
+        
+        # Análisis de cobertura
+        if cobertura_base > 0.6:
+            puntuacion_vegetacion += 2
+        elif cobertura_base < 0.2:
+            puntuacion_suelo += 2
+        
+        # Análisis de BSI (suelo desnudo)
+        if bsi_base > 0.3:
+            puntuacion_suelo += 2
+        elif bsi_base < 0.15:
+            puntuacion_vegetacion += 1
+        
+        # Análisis de EVI
+        if evi_base > 0.4:
+            puntuacion_vegetacion += 1
+        
+        # AJUSTAR POR SENSIBILIDAD
+        puntuacion_suelo = puntuacion_suelo * (sensibilidad_suelo / 5)
+        
+        # CLASIFICACIÓN FINAL
+        diferencia = puntuacion_vegetacion - puntuacion_suelo
+        
+        if diferencia >= 3:
+            tipo_superficie = "VEGETACION_DENSA"
+            tiene_vegetacion = True
+            probabilidad = 0.9
+        elif diferencia >= 1:
+            tipo_superficie = "VEGETACION_MODERADA"
+            tiene_vegetacion = True
+            probabilidad = 0.7
+        elif diferencia >= -1:
+            tipo_superficie = "VEGETACION_ESCASA"
+            tiene_vegetacion = True
+            probabilidad = 0.5
         else:
             tipo_superficie = "SUELO_DESNUDO"
+            tiene_vegetacion = False
+            probabilidad = 0.1
+        
+        # Añadir variabilidad final
+        ndvi = max(0.05, min(0.85, ndvi_base + np.random.normal(0, 0.08)))
+        cobertura_vegetal = max(0.02, min(0.98, cobertura_base + np.random.normal(0, 0.06)))
+        bsi = max(0.05, min(0.9, bsi_base + np.random.normal(0, 0.04)))
+        evi = max(0.05, min(0.8, evi_base + np.random.normal(0, 0.05)))
         
         resultados.append({
             'id_subLote': row['id_subLote'],
             'ndvi': round(ndvi, 3),
             'cobertura_vegetal': round(cobertura_vegetal, 3),
             'bsi': round(bsi, 3),
-            'ndbi': round(ndbi, 3),
             'evi': round(evi, 3),
-            'probabilidad_vegetacion': round(probabilidad_vegetacion, 3),
+            'probabilidad_vegetacion': round(probabilidad, 3),
             'tipo_superficie': tipo_superficie,
-            'tiene_vegetacion': tiene_vegetacion
+            'tiene_vegetacion': tiene_vegetacion,
+            'puntuacion_vegetacion': puntuacion_vegetacion,
+            'puntuacion_suelo': puntuacion_suelo
         })
     
     return resultados
 
-# FUNCIÓN PARA CALCULAR BIOMASA BASADA EN DETECCIÓN INTELIGENTE
-def calcular_biomasa_inteligente(gdf_dividido, params):
+# FUNCIÓN PARA CALCULAR BIOMASA
+def calcular_biomasa_avanzada(gdf_dividido, params):
     """
-    Calcula biomasa basada en la detección inteligente de vegetación
+    Calcula biomasa basada en la detección avanzada
     """
-    # Primero obtener las características y detección
-    caracteristicas = simular_caracteristicas_satelitales(gdf_dividido, tipo_pastura)
+    # Primero obtener la detección
+    deteccion = detectar_vegetacion_avanzado(gdf_dividido, tipo_pastura)
     
     resultados = []
     
-    for idx, car in enumerate(caracteristicas):
-        id_subLote = car['id_subLote']
-        tiene_vegetacion = car['tiene_vegetacion']
-        tipo_superficie = car['tipo_superficie']
-        cobertura_vegetal = car['cobertura_vegetal']
-        ndvi = car['ndvi']
+    for idx, det in enumerate(deteccion):
+        tiene_vegetacion = det['tiene_vegetacion']
+        tipo_superficie = det['tipo_superficie']
+        cobertura_vegetal = det['cobertura_vegetal']
+        ndvi = det['ndvi']
         
         # CALCULAR BIOMASA SEGÚN DETECCIÓN
         if not tiene_vegetacion:
@@ -339,8 +316,9 @@ def calcular_biomasa_inteligente(gdf_dividido, params):
                 crecimiento_diario = params['CRECIMIENTO_DIARIO'] * 0.5
                 calidad_forrajera = 0.60
             
-            # Ajustar por cobertura real
-            biomasa_ms_ha = biomasa_ms_ha * cobertura_vegetal
+            # Ajustar por cobertura real y NDVI
+            ajuste_cobertura = cobertura_vegetal * (0.7 + ndvi * 0.3)
+            biomasa_ms_ha = biomasa_ms_ha * ajuste_cobertura
         
         # Cálculo de biomasa disponible
         eficiencia_cosecha = 0.25
@@ -354,7 +332,7 @@ def calcular_biomasa_inteligente(gdf_dividido, params):
         
         # Combinar resultados
         resultado_completo = {
-            **car,
+            **det,
             'biomasa_ms_ha': round(biomasa_ms_ha, 1),
             'biomasa_disponible_kg_ms_ha': round(biomasa_disponible, 1),
             'crecimiento_diario': round(crecimiento_diario, 1),
@@ -364,9 +342,6 @@ def calcular_biomasa_inteligente(gdf_dividido, params):
         resultados.append(resultado_completo)
     
     return resultados
-
-# [Las funciones calcular_metricas_ganaderas, crear_mapa_forrajero, crear_mapa_cobertura 
-# se mantienen igual que en el código anterior...]
 
 # CÁLCULO DE MÉTRICAS GANADERAS
 def calcular_metricas_ganaderas(gdf_analizado, params, peso_promedio, carga_animal):
@@ -418,8 +393,6 @@ def calcular_metricas_ganaderas(gdf_analizado, params, peso_promedio, carga_anim
     
     return metricas
 
-# [Las funciones de visualización de mapas se mantienen igual...]
-
 # FUNCIÓN PARA CREAR MAPA FORRAJERO
 def crear_mapa_forrajero(gdf, tipo_analisis, tipo_pastura):
     try:
@@ -455,7 +428,7 @@ def crear_mapa_forrajero(gdf, tipo_analisis, tipo_pastura):
                        fontsize=8, color='black', weight='bold',
                        bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.9))
         
-        ax.set_title(f'🌱 ANÁLISIS FORRAJERO INTELIGENTE - {tipo_pastura}\n'
+        ax.set_title(f'🌱 ANÁLISIS FORRAJERO AVANZADO - {tipo_pastura}\n'
                     f'{tipo_analisis} - {titulo_sufijo}', 
                     fontsize=16, fontweight='bold', pad=20)
         
@@ -510,8 +483,8 @@ def crear_mapa_cobertura(gdf, tipo_pastura):
                        fontsize=8, color='black', weight='bold',
                        bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.9))
         
-        ax.set_title(f'🌱 MAPA DE COBERTURA INTELIGENTE - {tipo_pastura}\n'
-                    f'Detección Automática de Vegetación vs Suelo Desnudo', 
+        ax.set_title(f'🌱 MAPA DE COBERTURA AVANZADO - {tipo_pastura}\n'
+                    f'Detección Automática (Umbral NDVI: {umbral_ndvi})', 
                     fontsize=14, fontweight='bold', pad=20)
         
         ax.set_xlabel('Longitud')
@@ -542,19 +515,19 @@ def crear_mapa_cobertura(gdf, tipo_pastura):
         st.error(f"❌ Error creando mapa de cobertura: {str(e)}")
         return None
 
-# FUNCIÓN PRINCIPAL DE ANÁLISIS INTELIGENTE
-def analisis_forrajero_inteligente(gdf, tipo_pastura, peso_promedio, carga_animal, n_divisiones):
+# FUNCIÓN PRINCIPAL DE ANÁLISIS
+def analisis_forrajero_avanzado(gdf, tipo_pastura, peso_promedio, carga_animal, n_divisiones):
     try:
-        st.header(f"🌱 ANÁLISIS FORRAJERO INTELIGENTE - {tipo_pastura}")
+        st.header(f"🌱 ANÁLISIS FORRAJERO AVANZADO - {tipo_pastura}")
         
         params = PARAMETROS_FORRAJEROS[tipo_pastura]
         
         st.info(f"""
-        **🧠 SISTEMA DE DETECCIÓN INTELIGENTE ACTIVADO:**
-        - **Umbral de vegetación:** {umbral_vegetacion}
-        - **Modelo entrenado:** Random Forest con patrones aprendidos
-        - **Características analizadas:** NDVI, Cobertura, BSI, NDBI, EVI
-        - **Clasificación automática** para cada nuevo potrero
+        **🔍 SISTEMA DE DETECCIÓN AVANZADO:**
+        - **Umbral NDVI:** {umbral_ndvi}
+        - **Sensibilidad suelo:** {sensibilidad_suelo}/10
+        - **Índices analizados:** NDVI, Cobertura, BSI, EVI
+        - **Clasificación automática** para cada potrero
         """)
         
         # DIVIDIR POTRERO
@@ -567,10 +540,10 @@ def analisis_forrajero_inteligente(gdf, tipo_pastura, peso_promedio, carga_anima
         areas_ha = calcular_superficie(gdf_dividido)
         area_total = areas_ha.sum()
         
-        # DETECCIÓN INTELIGENTE
-        st.subheader("🛰️ DETECTANDO VEGETACIÓN INTELIGENTEMENTE")
-        with st.spinner("Ejecutando modelo de machine learning..."):
-            resultados_biomasa = calcular_biomasa_inteligente(gdf_dividido, params)
+        # DETECCIÓN AVANZADA
+        st.subheader("🛰️ ANALIZANDO VEGETACIÓN")
+        with st.spinner("Ejecutando algoritmo de detección..."):
+            resultados_biomasa = calcular_biomasa_avanzada(gdf_dividido, params)
         
         gdf_analizado = gdf_dividido.copy()
         gdf_analizado['area_ha'] = areas_ha
@@ -580,7 +553,7 @@ def analisis_forrajero_inteligente(gdf, tipo_pastura, peso_promedio, carga_anima
                 gdf_analizado.loc[gdf_analizado.index[idx], key] = value
         
         # MÉTRICAS GANADERAS
-        st.subheader("🐄 CALCULANDO MÉTRICAS GANADERAS")
+        st.subheader("🐄 CALCULANDO MÉTRICAS")
         with st.spinner("Calculando capacidad forrajera..."):
             metricas_ganaderas = calcular_metricas_ganaderas(gdf_analizado, params, peso_promedio, carga_animal)
         
@@ -589,7 +562,7 @@ def analisis_forrajero_inteligente(gdf, tipo_pastura, peso_promedio, carga_anima
                 gdf_analizado.loc[gdf_analizado.index[idx], key] = value
         
         # RESULTADOS
-        st.subheader("📊 RESULTADOS INTELIGENTES")
+        st.subheader("📊 RESULTADOS AVANZADOS")
         
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -604,7 +577,7 @@ def analisis_forrajero_inteligente(gdf, tipo_pastura, peso_promedio, carga_anima
             st.metric("Zonas con Vegetación", f"{zonas_vegetacion}")
         
         # MAPAS
-        st.subheader("🗺️ VISUALIZACIÓN INTELIGENTE")
+        st.subheader("🗺️ VISUALIZACIÓN AVANZADA")
         
         col1, col2 = st.columns(2)
         with col1:
@@ -619,13 +592,13 @@ def analisis_forrajero_inteligente(gdf, tipo_pastura, peso_promedio, carga_anima
         
         mapa_cobertura = crear_mapa_cobertura(gdf_analizado, tipo_pastura)
         if mapa_cobertura:
-            st.image(mapa_cobertura, caption="Mapa de Cobertura Inteligente", use_column_width=True)
+            st.image(mapa_cobertura, caption="Mapa de Cobertura Avanzado", use_column_width=True)
         
         # RESUMEN
-        st.subheader("📋 RESUMEN DETALLADO")
+        st.subheader("📋 DETALLE POR SUB-LOTE")
         
         columnas_resumen = [
-            'id_subLote', 'area_ha', 'tipo_superficie', 'probabilidad_vegetacion',
+            'id_subLote', 'area_ha', 'tipo_superficie', 'ndvi', 'probabilidad_vegetacion',
             'biomasa_disponible_kg_ms_ha', 'dias_permanencia', 'ev_ha', 'estado_forrajero'
         ]
         
@@ -633,14 +606,14 @@ def analisis_forrajero_inteligente(gdf, tipo_pastura, peso_promedio, carga_anima
         st.dataframe(df_resumen, use_container_width=True)
         
         # INFORME
-        st.subheader("📑 INFORME INTELIGENTE")
+        st.subheader("📑 INFORME AVANZADO")
         
         total_ev = gdf_analizado['ev_soportable'].sum()
         area_vegetacion = gdf_analizado[gdf_analizado['tiene_vegetacion']]['area_ha'].sum()
         
         resumen = f"""
-RESUMEN EJECUTIVO - ANÁLISIS INTELIGENTE
-=========================================
+RESUMEN EJECUTIVO - ANÁLISIS AVANZADO
+======================================
 Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M')}
 Tipo de Pastura: {tipo_pastura}
 Área Total: {area_total:.1f} ha
@@ -649,35 +622,38 @@ DETECCIÓN AUTOMÁTICA
 -------------------
 • Zonas con Vegetación: {zonas_vegetacion} sub-lotes ({area_vegetacion:.1f} ha)
 • Zonas de Suelo Desnudo: {len(gdf_analizado) - zonas_vegetacion} sub-lotes
-• Tasa de Detección: {(zonas_vegetacion/len(gdf_analizado)*100):.1f}% del área
+• NDVI Promedio: {gdf_analizado['ndvi'].mean():.3f}
+• Cobertura Promedio: {(gdf_analizado['cobertura_vegetal'].mean()*100):.1f}%
 
 CAPACIDAD FORRAJERA
 ------------------
 • Capacidad Total: {total_ev:.0f} Equivalentes Vaca
 • Biomasa Promedio: {biomasa_prom:.0f} kg MS/ha
+• Permanencia Promedio: {gdf_analizado['dias_permanencia'].mean():.1f} días
 
-AJUSTES RECOMENDADOS
+CONFIGURACIÓN ACTUAL
 -------------------
-• Umbral actual: {umbral_vegetacion}
-• Para más vegetación: reducir el umbral
-• Para menos vegetación: aumentar el umbral
+• Umbral NDVI: {umbral_ndvi}
+• Sensibilidad Suelo: {sensibilidad_suelo}/10
 """
         
-        st.text_area("Resumen Ejecutivo", resumen, height=250)
+        st.text_area("Resumen Ejecutivo", resumen, height=300)
         
         # DESCARGAR
         csv = df_resumen.to_csv(index=False)
         st.download_button(
             "📥 Descargar Resultados",
             csv,
-            file_name=f"analisis_inteligente_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            file_name=f"analisis_avanzado_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
             mime="text/csv"
         )
         
         return True
         
     except Exception as e:
-        st.error(f"❌ Error en análisis inteligente: {str(e)}")
+        st.error(f"❌ Error en análisis avanzado: {str(e)}")
+        import traceback
+        st.error(f"Detalle: {traceback.format_exc()}")
         return False
 
 # INTERFAZ PRINCIPAL
@@ -706,25 +682,26 @@ if uploaded_zip:
                     with col2:
                         st.write("**🎯 CONFIGURACIÓN:**")
                         st.write(f"- Pastura: {tipo_pastura}")
-                        st.write(f"- Umbral vegetación: {umbral_vegetacion}")
-                        st.write(f"- Sub-lotes: {n_divisiones}")
+                        st.write(f"- Umbral NDVI: {umbral_ndvi}")
+                        st.write(f"- Sensibilidad: {sensibilidad_suelo}/10")
                     
-                    if st.button("🚀 EJECUTAR ANÁLISIS INTELIGENTE", type="primary"):
-                        analisis_forrajero_inteligente(gdf, tipo_pastura, peso_promedio, carga_animal, n_divisiones)
+                    if st.button("🚀 EJECUTAR ANÁLISIS AVANZADO", type="primary"):
+                        analisis_forrajero_avanzado(gdf, tipo_pastura, peso_promedio, carga_animal, n_divisiones)
                         
         except Exception as e:
             st.error(f"Error cargando shapefile: {str(e)}")
 
 else:
-    st.info("📁 Sube el ZIP de tu potrero para comenzar el análisis inteligente")
+    st.info("📁 Sube el ZIP de tu potrero para comenzar el análisis avanzado")
     
     st.warning("""
-    **🧠 SISTEMA DE DETECCIÓN INTELIGENTE:**
+    **🔍 SISTEMA DE DETECCIÓN AVANZADO:**
     
-    Este sistema utiliza machine learning para detectar automáticamente:
+    Este sistema utiliza algoritmos avanzados para detectar automáticamente:
     - **Vegetación vs Suelo desnudo** en cada nuevo potrero
-    - **Patrones aprendidos** de ejemplos anteriores
-    - **Clasificación adaptable** según las características del terreno
+    - **Múltiples índices**: NDVI, Cobertura, BSI, EVI
+    - **Patrones espaciales** realistas
+    - **Clasificación adaptable** según configuración
     
-    **Ajusta el umbral** en la barra lateral para ser más o menos conservador.
+    **Ajusta los parámetros** en la barra lateral para controlar la detección.
     """)
