@@ -13,16 +13,31 @@ import math
 import json
 
 st.set_page_config(page_title="🌱 Analizador Forrajero", layout="wide")
-st.title("🌱 ANALIZADOR FORRAJERO - DETECCIÓN AUTOMÁTICA")
+st.title("🌱 ANALIZADOR FORRAJERO - ANÁLISIS COMPLETO")
 st.markdown("---")
 
 # Sidebar
 with st.sidebar:
     st.header("⚙️ Configuración")
     
-    # Selección de tipo de pastura
-    opciones_pastura = ["ALFALFA", "RAYGRASS", "FESTUCA", "AGROPIRRO", "PASTIZAL_NATURAL"]
+    # Selección de tipo de pastura con opción personalizada
+    opciones_pastura = ["ALFALFA", "RAYGRASS", "FESTUCA", "AGROPIRRO", "PASTIZAL_NATURAL", "PERSONALIZADO"]
     tipo_pastura = st.selectbox("Tipo de Pastura:", opciones_pastura)
+    
+    # MOSTRAR PARÁMETROS PERSONALIZABLES SI SE SELECCIONA "PERSONALIZADO"
+    if tipo_pastura == "PERSONALIZADO":
+        st.subheader("🎯 Parámetros Forrajeros Personalizados")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            ms_optimo = st.number_input("MS Óptimo (kg MS/ha):", min_value=500, max_value=10000, value=3000, step=100)
+            crecimiento_diario = st.number_input("Crecimiento Diario (kg MS/ha/día):", min_value=5, max_value=200, value=50, step=5)
+            consumo_porcentaje = st.number_input("Consumo (% peso vivo):", min_value=0.01, max_value=0.1, value=0.025, step=0.001, format="%.3f")
+        
+        with col2:
+            digestibilidad = st.number_input("Digestibilidad (%):", min_value=0.1, max_value=0.9, value=0.6, step=0.01, format="%.2f")
+            proteina_cruda = st.number_input("Proteína Cruda (%):", min_value=0.01, max_value=0.3, value=0.12, step=0.01, format="%.2f")
+            tasa_utilizacion = st.number_input("Tasa Utilización (%):", min_value=0.1, max_value=0.9, value=0.55, step=0.01, format="%.2f")
     
     st.subheader("📊 Parámetros Ganaderos")
     peso_promedio = st.slider("Peso promedio animal (kg):", 300, 600, 450)
@@ -40,7 +55,7 @@ with st.sidebar:
                                  help="Valor más alto = menos vegetación detectada")
 
 # PARÁMETROS FORRAJEROS BASE
-PARAMETROS_FORRAJEROS = {
+PARAMETROS_FORRAJEROS_BASE = {
     'ALFALFA': {
         'MS_POR_HA_OPTIMO': 4000,
         'CRECIMIENTO_DIARIO': 80,
@@ -83,12 +98,49 @@ PARAMETROS_FORRAJEROS = {
     }
 }
 
+# FUNCIÓN PARA OBTENER PARÁMETROS
+def obtener_parametros_pastura(tipo_pastura):
+    if tipo_pastura != "PERSONALIZADO":
+        return PARAMETROS_FORRAJEROS_BASE[tipo_pastura]
+    else:
+        return {
+            'MS_POR_HA_OPTIMO': ms_optimo,
+            'CRECIMIENTO_DIARIO': crecimiento_diario,
+            'CONSUMO_PORCENTAJE_PESO': consumo_porcentaje,
+            'DIGESTIBILIDAD': digestibilidad,
+            'PROTEINA_CRUDA': proteina_cruda,
+            'TASA_UTILIZACION_RECOMENDADA': tasa_utilizacion,
+        }
+
 # PALETAS PARA ANÁLISIS FORRAJERO
 PALETAS_GEE = {
     'PRODUCTIVIDAD': ['#8c510a', '#bf812d', '#dfc27d', '#f6e8c3', '#c7eae5', '#80cdc1', '#35978f', '#01665e'],
     'DISPONIBILIDAD': ['#d73027', '#f46d43', '#fdae61', '#fee08b', '#d9ef8b', '#a6d96a', '#66bd63', '#1a9850'],
     'DIAS_PERMANENCIA': ['#4575b4', '#74add1', '#abd9e9', '#e0f3f8', '#fee090', '#fdae61', '#f46d43', '#d73027'],
 }
+
+# FUNCIÓN PARA GUARDAR CONFIGURACIÓN
+def guardar_configuracion():
+    if tipo_pastura == "PERSONALIZADO":
+        config_data = {
+            'tipo_pastura': 'PERSONALIZADO',
+            'ms_optimo': ms_optimo,
+            'crecimiento_diario': crecimiento_diario,
+            'consumo_porcentaje': consumo_porcentaje,
+            'digestibilidad': digestibilidad,
+            'proteina_cruda': proteina_cruda,
+            'tasa_utilizacion': tasa_utilizacion,
+            'fecha_creacion': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+        return json.dumps(config_data, indent=2)
+    return None
+
+# FUNCIÓN PARA CARGAR CONFIGURACIÓN
+def cargar_configuracion(uploaded_config):
+    try:
+        return json.load(uploaded_config)
+    except:
+        return None
 
 # FUNCIÓN PARA SIMULAR GEOMETRÍA SI NO HAY ARCHIVO
 def crear_geometria_simulada(n_zonas=48):
@@ -452,18 +504,354 @@ def crear_mapa_cobertura_simple(datos_analizados, tipo_pastura):
         st.error(f"❌ Error creando mapa de cobertura: {str(e)}")
         return None
 
-# FUNCIÓN PRINCIPAL DE ANÁLISIS
-def analisis_forrajero_simple():
+# NUEVAS FUNCIONES PARA ANÁLISIS ESTADÍSTICO
+def crear_analisis_correlacion(datos_analizados):
+    """
+    Crea análisis de correlación entre variables clave
+    """
     try:
-        st.header(f"🌱 ANÁLISIS FORRAJERO - {tipo_pastura}")
+        # Crear DataFrame para análisis
+        df = pd.DataFrame(datos_analizados)
         
-        params = PARAMETROS_FORRAJEROS[tipo_pastura]
+        # Seleccionar variables numéricas para correlación
+        variables_correlacion = [
+            'biomasa_disponible_kg_ms_ha', 'ev_ha', 'dias_permanencia', 
+            'ndvi', 'cobertura_vegetal', 'area_ha'
+        ]
+        
+        # Filtrar variables existentes
+        variables_existentes = [v for v in variables_correlacion if v in df.columns]
+        df_corr = df[variables_existentes]
+        
+        # Calcular matriz de correlación
+        matriz_correlacion = df_corr.corr()
+        
+        # Crear figura con subplots
+        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+        
+        # 1. MATRIZ DE CORRELACIÓN (Heatmap)
+        im = axes[0,0].imshow(matriz_correlacion.values, cmap='coolwarm', aspect='auto', vmin=-1, vmax=1)
+        axes[0,0].set_xticks(range(len(matriz_correlacion.columns)))
+        axes[0,0].set_yticks(range(len(matriz_correlacion.columns)))
+        axes[0,0].set_xticklabels(matriz_correlacion.columns, rotation=45, ha='right')
+        axes[0,0].set_yticklabels(matriz_correlacion.columns)
+        axes[0,0].set_title('Matriz de Correlación', fontsize=14, fontweight='bold')
+        
+        # Añadir valores de correlación
+        for i in range(len(matriz_correlacion.columns)):
+            for j in range(len(matriz_correlacion.columns)):
+                color = 'white' if abs(matriz_correlacion.iloc[i, j]) > 0.5 else 'black'
+                axes[0,0].text(j, i, f'{matriz_correlacion.iloc[i, j]:.2f}', 
+                              ha='center', va='center', color=color, fontweight='bold')
+        
+        # 2. CORRELACIÓN: Biomasa vs EV/Ha
+        if 'biomasa_disponible_kg_ms_ha' in df.columns and 'ev_ha' in df.columns:
+            x = df['biomasa_disponible_kg_ms_ha']
+            y = df['ev_ha']
+            correlacion = np.corrcoef(x, y)[0, 1]
+            
+            # Calcular regresión lineal
+            coef = np.polyfit(x, y, 1)
+            poly1d_fn = np.poly1d(coef)
+            
+            axes[0,1].scatter(x, y, alpha=0.6, color='green', s=50)
+            axes[0,1].plot(x, poly1d_fn(x), color='red', linewidth=2, 
+                          label=f'y = {coef[0]:.4f}x + {coef[1]:.2f}')
+            axes[0,1].set_xlabel('Biomasa Disponible (kg MS/ha)')
+            axes[0,1].set_ylabel('Equivalentes Vaca / Ha')
+            axes[0,1].set_title(f'Biomasa vs EV/Ha\nCorrelación: {correlacion:.3f}', 
+                               fontsize=12, fontweight='bold')
+            axes[0,1].legend()
+            axes[0,1].grid(True, alpha=0.3)
+        
+        # 3. CORRELACIÓN: Biomasa vs Días Permanencia
+        if 'biomasa_disponible_kg_ms_ha' in df.columns and 'dias_permanencia' in df.columns:
+            x = df['biomasa_disponible_kg_ms_ha']
+            y = df['dias_permanencia']
+            correlacion = np.corrcoef(x, y)[0, 1]
+            
+            # Calcular regresión lineal
+            coef = np.polyfit(x, y, 1)
+            poly1d_fn = np.poly1d(coef)
+            
+            axes[1,0].scatter(x, y, alpha=0.6, color='blue', s=50)
+            axes[1,0].plot(x, poly1d_fn(x), color='red', linewidth=2,
+                          label=f'y = {coef[0]:.4f}x + {coef[1]:.2f}')
+            axes[1,0].set_xlabel('Biomasa Disponible (kg MS/ha)')
+            axes[1,0].set_ylabel('Días de Permanencia')
+            axes[1,0].set_title(f'Biomasa vs Días Permanencia\nCorrelación: {correlacion:.3f}', 
+                               fontsize=12, fontweight='bold')
+            axes[1,0].legend()
+            axes[1,0].grid(True, alpha=0.3)
+        
+        # 4. CORRELACIÓN: NDVI vs Biomasa
+        if 'ndvi' in df.columns and 'biomasa_disponible_kg_ms_ha' in df.columns:
+            x = df['ndvi']
+            y = df['biomasa_disponible_kg_ms_ha']
+            correlacion = np.corrcoef(x, y)[0, 1]
+            
+            # Calcular regresión lineal
+            coef = np.polyfit(x, y, 1)
+            poly1d_fn = np.poly1d(coef)
+            
+            axes[1,1].scatter(x, y, alpha=0.6, color='orange', s=50)
+            axes[1,1].plot(x, poly1d_fn(x), color='red', linewidth=2,
+                          label=f'y = {coef[0]:.0f}x + {coef[1]:.0f}')
+            axes[1,1].set_xlabel('NDVI')
+            axes[1,1].set_ylabel('Biomasa Disponible (kg MS/ha)')
+            axes[1,1].set_title(f'NDVI vs Biomasa\nCorrelación: {correlacion:.3f}', 
+                               fontsize=12, fontweight='bold')
+            axes[1,1].legend()
+            axes[1,1].grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+        buf.seek(0)
+        plt.close()
+        
+        return buf, matriz_correlacion
+        
+    except Exception as e:
+        st.error(f"Error en análisis de correlación: {str(e)}")
+        return None, None
+
+def crear_analisis_regresion_multiple(datos_analizados):
+    """
+    Crea análisis de regresión múltiple para predecir EV/Ha
+    """
+    try:
+        df = pd.DataFrame(datos_analizados)
+        
+        # Variables para el modelo
+        variables_independientes = ['biomasa_disponible_kg_ms_ha', 'ndvi', 'cobertura_vegetal', 'area_ha']
+        variable_dependiente = 'ev_ha'
+        
+        # Filtrar variables existentes
+        vars_existentes = [v for v in variables_independientes if v in df.columns]
+        if variable_dependiente not in df.columns or len(vars_existentes) < 2:
+            return None
+        
+        X = df[vars_existentes]
+        y = df[variable_dependiente]
+        
+        # Calcular regresión múltiple manualmente (mínimos cuadrados)
+        # Y = Xβ + ε → β = (X'X)^(-1)X'Y
+        X_with_const = np.column_stack([np.ones(len(X)), X])
+        try:
+            beta = np.linalg.inv(X_with_const.T @ X_with_const) @ X_with_const.T @ y
+        except:
+            # Si hay problemas de matriz singular, usar pseudoinversa
+            beta = np.linalg.pinv(X_with_const.T @ X_with_const) @ X_with_const.T @ y
+        
+        # Predicciones
+        y_pred = X_with_const @ beta
+        
+        # Métricas del modelo
+        r_cuadrado = 1 - np.sum((y - y_pred)**2) / np.sum((y - np.mean(y))**2)
+        mse = np.mean((y - y_pred)**2)
+        
+        # Crear figura
+        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+        
+        # 1. Valores reales vs predichos
+        axes[0,0].scatter(y, y_pred, alpha=0.6, color='purple', s=50)
+        min_val = min(y.min(), y_pred.min())
+        max_val = max(y.max(), y_pred.max())
+        axes[0,0].plot([min_val, max_val], [min_val, max_val], 'r--', linewidth=2)
+        axes[0,0].set_xlabel('EV/Ha Real')
+        axes[0,0].set_ylabel('EV/Ha Predicho')
+        axes[0,0].set_title(f'Regresión Múltiple: Real vs Predicho\nR² = {r_cuadrado:.3f}', 
+                           fontsize=12, fontweight='bold')
+        axes[0,0].grid(True, alpha=0.3)
+        
+        # 2. Residuos
+        residuos = y - y_pred
+        axes[0,1].scatter(y_pred, residuos, alpha=0.6, color='teal', s=50)
+        axes[0,1].axhline(y=0, color='red', linestyle='--', linewidth=2)
+        axes[0,1].set_xlabel('EV/Ha Predicho')
+        axes[0,1].set_ylabel('Residuos')
+        axes[0,1].set_title('Análisis de Residuos', fontsize=12, fontweight='bold')
+        axes[0,1].grid(True, alpha=0.3)
+        
+        # 3. Importancia de variables (coeficientes estandarizados)
+        coef_estandarizados = beta[1:] * X.std().values / y.std()
+        variables = vars_existentes
+        colors = plt.cm.viridis(np.linspace(0, 1, len(variables)))
+        
+        bars = axes[1,0].bar(variables, coef_estandarizados, color=colors, alpha=0.7)
+        axes[1,0].set_xlabel('Variables')
+        axes[1,0].set_ylabel('Coeficiente Estandarizado')
+        axes[1,0].set_title('Importancia Relativa de Variables', fontsize=12, fontweight='bold')
+        axes[1,0].tick_params(axis='x', rotation=45)
+        
+        # Añadir valores en las barras
+        for bar, valor in zip(bars, coef_estandarizados):
+            height = bar.get_height()
+            axes[1,0].text(bar.get_x() + bar.get_width()/2., height,
+                          f'{valor:.3f}', ha='center', va='bottom')
+        
+        # 4. Distribución de errores
+        axes[1,1].hist(residuos, bins=15, alpha=0.7, color='orange', edgecolor='black')
+        axes[1,1].axvline(residuos.mean(), color='red', linestyle='--', linewidth=2, 
+                         label=f'Media: {residuos.mean():.3f}')
+        axes[1,1].set_xlabel('Error de Predicción')
+        axes[1,1].set_ylabel('Frecuencia')
+        axes[1,1].set_title('Distribución de Errores', fontsize=12, fontweight='bold')
+        axes[1,1].legend()
+        axes[1,1].grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+        buf.seek(0)
+        plt.close()
+        
+        # Crear resumen del modelo
+        resumen_modelo = {
+            'R_cuadrado': r_cuadrado,
+            'MSE': mse,
+            'Coeficientes': dict(zip(['Intercepto'] + vars_existentes, beta)),
+            'Coeficientes_estandarizados': dict(zip(vars_existentes, coef_estandarizados))
+        }
+        
+        return buf, resumen_modelo
+        
+    except Exception as e:
+        st.error(f"Error en análisis de regresión: {str(e)}")
+        return None, None
+
+# FUNCIÓN PARA CREAR ZIP CON TODOS LOS RESULTADOS
+def crear_paquete_descarga(datos_analizados, mapas, correlacion_buf, regresion_buf, matriz_corr, resumen_modelo, params):
+    """Crea un archivo ZIP con todos los resultados"""
+    try:
+        # Crear archivo temporal
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp_file:
+            with zipfile.ZipFile(tmp_file.name, 'w') as zipf:
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                
+                # 1. Datos en CSV
+                df_completo = pd.DataFrame(datos_analizados)
+                csv_data = df_completo.to_csv(index=False)
+                zipf.writestr(f"datos_analisis_{timestamp}.csv", csv_data)
+                
+                # 2. Mapas
+                for nombre, (buf, _) in mapas.items():
+                    if buf:
+                        zipf.writestr(f"mapa_{nombre}_{timestamp}.png", buf.getvalue())
+                
+                # 3. Análisis de correlación
+                if correlacion_buf:
+                    zipf.writestr(f"analisis_correlacion_{timestamp}.png", correlacion_buf.getvalue())
+                
+                # 4. Análisis de regresión
+                if regresion_buf:
+                    zipf.writestr(f"analisis_regresion_{timestamp}.png", regresion_buf.getvalue())
+                
+                # 5. Matriz de correlación en CSV
+                if matriz_corr is not None:
+                    matriz_csv = matriz_corr.to_csv()
+                    zipf.writestr(f"matriz_correlacion_{timestamp}.csv", matriz_csv)
+                
+                # 6. Resumen del modelo
+                if resumen_modelo:
+                    modelo_json = json.dumps(resumen_modelo, indent=2)
+                    zipf.writestr(f"resumen_modelo_{timestamp}.json", modelo_json)
+                
+                # 7. Parámetros utilizados
+                params_json = json.dumps(params, indent=2)
+                zipf.writestr(f"parametros_{timestamp}.json", params_json)
+                
+                # 8. Informe ejecutivo
+                informe = crear_informe_ejecutivo(datos_analizados, params)
+                zipf.writestr(f"informe_ejecutivo_{timestamp}.txt", informe)
+            
+            return tmp_file.name
+    except Exception as e:
+        st.error(f"Error creando paquete de descarga: {str(e)}")
+        return None
+
+def crear_informe_ejecutivo(datos_analizados, params):
+    """Crea un informe ejecutivo en texto"""
+    area_total = sum(d['area_ha'] for d in datos_analizados)
+    biomasa_prom = np.mean([d['biomasa_disponible_kg_ms_ha'] for d in datos_analizados])
+    zonas_vegetacion = sum(1 for d in datos_analizados if d['tiene_vegetacion'])
+    total_ev = sum(d['ev_soportable'] for d in datos_analizados)
+    area_vegetacion = sum(d['area_ha'] for d in datos_analizados if d['tiene_vegetacion'])
+    
+    informe = f"""
+INFORME EJECUTIVO - ANÁLISIS FORRAJERO COMPLETO
+================================================
+Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Tipo de Pastura: {tipo_pastura}
+Área Total Analizada: {area_total:.1f} ha
+
+PARÁMETROS UTILIZADOS
+--------------------
+MS Óptimo: {params['MS_POR_HA_OPTIMO']} kg MS/ha
+Crecimiento Diario: {params['CRECIMIENTO_DIARIO']} kg MS/ha/día
+Consumo: {params['CONSUMO_PORCENTAJE_PESO']*100}% del peso vivo
+Digestibilidad: {params['DIGESTIBILIDAD']*100}%
+Proteína Cruda: {params['PROTEINA_CRUDA']*100}%
+Tasa Utilización: {params['TASA_UTILIZACION_RECOMENDADA']*100}%
+
+RESULTADOS PRINCIPALES
+----------------------
+• Sub-lotes analizados: {len(datos_analizados)}
+• Zonas con Vegetación: {zonas_vegetacion} ({area_vegetacion:.1f} ha)
+• Zonas de Suelo Desnudo: {len(datos_analizados) - zonas_vegetacion}
+• Biomasa Disponible Promedio: {biomasa_prom:.0f} kg MS/ha
+• Capacidad Total: {total_ev:.0f} Equivalentes Vaca
+
+ARCHIVOS INCLUÍDOS
+------------------
+• datos_analisis.csv - Datos completos por sub-lote
+• mapa_productividad.png - Mapa de biomasa disponible
+• mapa_cobertura.png - Mapa de tipos de superficie
+• analisis_correlacion.png - Gráficos de correlación
+• analisis_regresion.png - Análisis de regresión
+• matriz_correlacion.csv - Matriz numérica de correlaciones
+• parametros.json - Parámetros forrajeros utilizados
+
+RECOMENDACIONES
+---------------
+• Enfoque el pastoreo en las zonas con vegetación identificadas
+• Utilice los mapas para planificar la rotación de animales
+• Considere los análisis de correlación para optimizar el manejo
+• Los modelos de regresión pueden ayudar en la planificación futura
+
+---
+Generado por el Sistema de Análisis Forrajero
+"""
+    return informe
+
+# FUNCIÓN PRINCIPAL DE ANÁLISIS
+def analisis_forrajero_completo():
+    try:
+        st.header(f"🌱 ANÁLISIS FORRAJERO COMPLETO - {tipo_pastura}")
+        
+        params = obtener_parametros_pastura(tipo_pastura)
+        
+        # Mostrar parámetros utilizados
+        with st.expander("📊 VER PARÁMETROS FORRAJEROS UTILIZADOS"):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("MS Óptimo", f"{params['MS_POR_HA_OPTIMO']} kg/ha")
+                st.metric("Crecimiento Diario", f"{params['CRECIMIENTO_DIARIO']} kg/ha/día")
+            with col2:
+                st.metric("Consumo", f"{params['CONSUMO_PORCENTAJE_PESO']*100}% peso")
+                st.metric("Digestibilidad", f"{params['DIGESTIBILIDAD']*100}%")
+            with col3:
+                st.metric("Proteína Cruda", f"{params['PROTEINA_CRUDA']*100}%")
+                st.metric("Tasa Utilización", f"{params['TASA_UTILIZACION_RECOMENDADA']*100}%")
         
         st.info(f"""
-        **🔍 SISTEMA DE DETECCIÓN AUTOMÁTICA:**
+        **🔍 SISTEMA DE ANÁLISIS COMPLETO:**
         - **Umbral vegetación:** {umbral_vegetacion}
         - **Sub-lotes analizados:** {n_divisiones}
-        - **Patrón aprendido:** Mayoría suelo desnudo, pocas zonas con vegetación
+        - **Incluye:** Mapas + Correlación + Regresión + Descargas
         - **Clasificación automática** para cada análisis
         """)
         
@@ -487,8 +875,8 @@ def analisis_forrajero_simple():
             for key, value in metrica.items():
                 datos_analizados[i][key] = value
         
-        # RESULTADOS
-        st.subheader("📊 RESULTADOS DEL ANÁLISIS")
+        # RESULTADOS PRINCIPALES
+        st.subheader("📊 RESULTADOS PRINCIPALES")
         
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -503,86 +891,245 @@ def analisis_forrajero_simple():
             zonas_vegetacion = sum(1 for d in datos_analizados if d['tiene_vegetacion'])
             st.metric("Zonas con Vegetación", f"{zonas_vegetacion}")
         
-        # MAPAS
-        st.subheader("🗺️ VISUALIZACIÓN")
+        # CREAR PESTAÑAS PARA DIFERENTES ANÁLISIS
+        tab1, tab2, tab3, tab4, tab5 = st.tabs(["🗺️ MAPAS", "📈 CORRELACIÓN", "🔮 REGRESIÓN", "📋 DATOS", "📥 DESCARGAS"])
         
-        col1, col2 = st.columns(2)
-        with col1:
-            mapa_buf, titulo = crear_mapa_simple(datos_analizados, "PRODUCTIVIDAD", tipo_pastura)
-            if mapa_buf:
-                st.image(mapa_buf, caption=f"Mapa de {titulo}", use_column_width=True)
+        # Variables para almacenar resultados de análisis
+        mapas_creados = {}
+        correlacion_buf = None
+        matriz_corr = None
+        regresion_buf = None
+        resumen_modelo = None
         
-        with col2:
-            mapa_buf, titulo = crear_mapa_simple(datos_analizados, "DIAS_PERMANENCIA", tipo_pastura)
-            if mapa_buf:
-                st.image(mapa_buf, caption=f"Mapa de {titulo}", use_column_width=True)
+        with tab1:
+            st.subheader("🗺️ VISUALIZACIÓN ESPACIAL")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                mapa_buf, titulo = crear_mapa_simple(datos_analizados, "PRODUCTIVIDAD", tipo_pastura)
+                if mapa_buf:
+                    st.image(mapa_buf, caption=f"Mapa de {titulo}", use_column_width=True)
+                    mapas_creados['productividad'] = (mapa_buf, titulo)
+                    
+                    # Botón de descarga individual
+                    st.download_button(
+                        f"📥 Descargar Mapa de {titulo}",
+                        mapa_buf.getvalue(),
+                        file_name=f"mapa_productividad_{datetime.now().strftime('%Y%m%d_%H%M')}.png",
+                        mime="image/png"
+                    )
+            
+            with col2:
+                mapa_buf, titulo = crear_mapa_simple(datos_analizados, "DIAS_PERMANENCIA", tipo_pastura)
+                if mapa_buf:
+                    st.image(mapa_buf, caption=f"Mapa de {titulo}", use_column_width=True)
+                    mapas_creados['dias_permanencia'] = (mapa_buf, titulo)
+                    
+                    st.download_button(
+                        f"📥 Descargar Mapa de {titulo}",
+                        mapa_buf.getvalue(),
+                        file_name=f"mapa_dias_permanencia_{datetime.now().strftime('%Y%m%d_%H%M')}.png",
+                        mime="image/png"
+                    )
+            
+            mapa_cobertura = crear_mapa_cobertura_simple(datos_analizados, tipo_pastura)
+            if mapa_cobertura:
+                st.image(mapa_cobertura, caption="Mapa de Cobertura Vegetal", use_column_width=True)
+                mapas_creados['cobertura'] = (mapa_cobertura, "Cobertura Vegetal")
+                
+                st.download_button(
+                    "📥 Descargar Mapa de Cobertura",
+                    mapa_cobertura.getvalue(),
+                    file_name=f"mapa_cobertura_{datetime.now().strftime('%Y%m%d_%H%M')}.png",
+                    mime="image/png"
+                )
         
-        mapa_cobertura = crear_mapa_cobertura_simple(datos_analizados, tipo_pastura)
-        if mapa_cobertura:
-            st.image(mapa_cobertura, caption="Mapa de Cobertura Vegetal", use_column_width=True)
+        with tab2:
+            st.subheader("📈 ANÁLISIS DE CORRELACIÓN")
+            
+            # Análisis de correlación
+            correlacion_buf, matriz_corr = crear_analisis_correlacion(datos_analizados)
+            if correlacion_buf:
+                st.image(correlacion_buf, caption="Análisis de Correlación entre Variables", use_column_width=True)
+                
+                # Botón de descarga
+                st.download_button(
+                    "📥 Descargar Análisis de Correlación",
+                    correlacion_buf.getvalue(),
+                    file_name=f"analisis_correlacion_{datetime.now().strftime('%Y%m%d_%H%M')}.png",
+                    mime="image/png"
+                )
+                
+                # Mostrar matriz de correlación como tabla
+                if matriz_corr is not None:
+                    st.subheader("📊 Matriz de Correlación Numérica")
+                    st.dataframe(matriz_corr.style.background_gradient(cmap='coolwarm', vmin=-1, vmax=1), 
+                               use_container_width=True)
+                    
+                    # Descargar matriz
+                    csv_corr = matriz_corr.to_csv()
+                    st.download_button(
+                        "📥 Descargar Matriz de Correlación (CSV)",
+                        csv_corr,
+                        file_name=f"matriz_correlacion_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                        mime="text/csv"
+                    )
         
-        # TABLA DETALLADA
-        st.subheader("📋 DETALLE POR SUB-LOTE")
+        with tab3:
+            st.subheader("🔮 ANÁLISIS DE REGRESIÓN")
+            
+            # Análisis de regresión múltiple
+            regresion_buf, resumen_modelo = crear_analisis_regresion_multiple(datos_analizados)
+            if regresion_buf:
+                st.image(regresion_buf, caption="Análisis de Regresión Múltiple", use_column_width=True)
+                
+                # Botón de descarga
+                st.download_button(
+                    "📥 Descargar Análisis de Regresión",
+                    regresion_buf.getvalue(),
+                    file_name=f"analisis_regresion_{datetime.now().strftime('%Y%m%d_%H%M')}.png",
+                    mime="image/png"
+                )
+                
+                if resumen_modelo:
+                    st.subheader("📋 Resumen del Modelo de Regresión")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric("R² del Modelo", f"{resumen_modelo['R_cuadrado']:.3f}")
+                        st.metric("Error Cuadrático Medio", f"{resumen_modelo['MSE']:.3f}")
+                    
+                    with col2:
+                        st.write("**Coeficientes del Modelo:**")
+                        for var, coef in resumen_modelo['Coeficientes'].items():
+                            st.write(f"- {var}: {coef:.4f}")
+                    
+                    # Descargar resumen del modelo
+                    modelo_json = json.dumps(resumen_modelo, indent=2)
+                    st.download_button(
+                        "📥 Descargar Resumen del Modelo (JSON)",
+                        modelo_json,
+                        file_name=f"resumen_modelo_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
+                        mime="application/json"
+                    )
         
-        # Crear DataFrame para mostrar
-        df_resumen = pd.DataFrame(datos_analizados)
-        columnas_mostrar = ['id_subLote', 'area_ha', 'tipo_superficie', 'ndvi', 'probabilidad_vegetacion',
-                           'biomasa_disponible_kg_ms_ha', 'dias_permanencia', 'ev_ha', 'estado_forrajero']
+        with tab4:
+            st.subheader("📋 DATOS DETALLADOS")
+            
+            # Crear DataFrame para mostrar
+            df_resumen = pd.DataFrame(datos_analizados)
+            columnas_mostrar = ['id_subLote', 'area_ha', 'tipo_superficie', 'ndvi', 'probabilidad_vegetacion',
+                               'biomasa_disponible_kg_ms_ha', 'dias_permanencia', 'ev_ha', 'estado_forrajero']
+            
+            df_mostrar = df_resumen[columnas_mostrar].sort_values('id_subLote')
+            st.dataframe(df_mostrar, use_container_width=True)
+            
+            # Descargar datos
+            csv_data = df_resumen.to_csv(index=False)
+            st.download_button(
+                "📥 Descargar Datos Completos (CSV)",
+                csv_data,
+                file_name=f"datos_completos_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                mime="text/csv"
+            )
+            
+            # Estadísticas descriptivas
+            st.subheader("📊 Estadísticas Descriptivas")
+            st.dataframe(df_mostrar.describe(), use_container_width=True)
+            
+            # Descargar estadísticas
+            stats_csv = df_mostrar.describe().to_csv()
+            st.download_button(
+                "📥 Descargar Estadísticas (CSV)",
+                stats_csv,
+                file_name=f"estadisticas_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                mime="text/csv"
+            )
         
-        df_mostrar = df_resumen[columnas_mostrar].sort_values('id_subLote')
-        st.dataframe(df_mostrar, use_container_width=True)
-        
-        # INFORME
-        st.subheader("📑 INFORME EJECUTIVO")
-        
-        total_ev = sum(d['ev_soportable'] for d in datos_analizados)
-        area_vegetacion = sum(d['area_ha'] for d in datos_analizados if d['tiene_vegetacion'])
-        
-        resumen = f"""
-RESUMEN EJECUTIVO - ANÁLISIS FORRAJERO
-=======================================
-Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M')}
-Tipo de Pastura: {tipo_pastura}
-Área Total: {area_total:.1f} ha
-
-DETECCIÓN AUTOMÁTICA
--------------------
-• Zonas con Vegetación: {zonas_vegetacion} sub-lotes ({area_vegetacion:.1f} ha)
-• Zonas de Suelo Desnudo: {n_divisiones - zonas_vegetacion} sub-lotes
-• Porcentaje con Vegetación: {(zonas_vegetacion/n_divisiones*100):.1f}%
-
-CAPACIDAD FORRAJERA
-------------------
-• Capacidad Total: {total_ev:.0f} Equivalentes Vaca
-• Biomasa Promedio: {biomasa_prom:.0f} kg MS/ha
-• Permanencia Promedio: {np.mean([d['dias_permanencia'] for d in datos_analizados]):.1f} días
-
-RECOMENDACIONES
---------------
-• Enfoque en las {zonas_vegetacion} zonas con vegetación para pastoreo
-• Excluir áreas de suelo desnudo del pastoreo regular
-• Ajuste umbral a {umbral_vegetacion - 0.1:.1f} para detectar más vegetación
-• Ajuste umbral a {umbral_vegetacion + 0.1:.1f} para detectar menos vegetación
-"""
-        
-        st.text_area("Resumen Ejecutivo", resumen, height=300)
-        
-        # DESCARGAR
-        csv = df_mostrar.to_csv(index=False)
-        st.download_button(
-            "📥 Descargar Resultados",
-            csv,
-            file_name=f"analisis_forrajero_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-            mime="text/csv"
-        )
+        with tab5:
+            st.subheader("📥 DESCARGA COMPLETA")
+            
+            st.info("""
+            **📦 PAQUETE COMPLETO DE RESULTADOS**
+            
+            Descarga todos los archivos generados en un solo ZIP que incluye:
+            - Datos completos en CSV
+            - Todos los mapas generados
+            - Análisis de correlación y regresión
+            - Matrices y estadísticas
+            - Parámetros utilizados
+            - Informe ejecutivo
+            """)
+            
+            # Crear paquete completo
+            if st.button("🔄 GENERAR PAQUETE COMPLETO", type="primary"):
+                with st.spinner("Creando paquete de descarga..."):
+                    zip_path = crear_paquete_descarga(
+                        datos_analizados, mapas_creados, correlacion_buf, 
+                        regresion_buf, matriz_corr, resumen_modelo, params
+                    )
+                    
+                    if zip_path:
+                        with open(zip_path, 'rb') as f:
+                            zip_data = f.read()
+                        
+                        st.download_button(
+                            "📦 DESCARGAR PAQUETE COMPLETO (ZIP)",
+                            zip_data,
+                            file_name=f"paquete_analisis_{datetime.now().strftime('%Y%m%d_%H%M')}.zip",
+                            mime="application/zip"
+                        )
+                        
+                        # Limpiar archivo temporal
+                        os.unlink(zip_path)
+            
+            # Descarga de parámetros
+            st.subheader("⚙️ CONFIGURACIÓN")
+            
+            if tipo_pastura == "PERSONALIZADO":
+                config_json = guardar_configuracion()
+                if config_json:
+                    st.download_button(
+                        "💾 Guardar Configuración Personalizada",
+                        config_json,
+                        file_name=f"configuracion_personalizada_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
+                        mime="application/json",
+                        help="Guarda los parámetros personalizados para uso futuro"
+                    )
+            
+            # Cargar configuración
+            st.subheader("📤 Cargar Configuración")
+            uploaded_config = st.file_uploader("Subir configuración guardada", type=['json'])
+            if uploaded_config:
+                config_cargada = cargar_configuracion(uploaded_config)
+                if config_cargada:
+                    st.success("✅ Configuración cargada correctamente")
+                    st.json(config_cargada)
         
         return True
         
     except Exception as e:
-        st.error(f"❌ Error en análisis: {str(e)}")
+        st.error(f"❌ Error en análisis completo: {str(e)}")
         return False
 
 # INTERFAZ PRINCIPAL
+st.sidebar.markdown("---")
+st.sidebar.subheader("💾 Guardar/Cargar Configuración")
+
+# Botón para guardar configuración si es personalizada
+if tipo_pastura == "PERSONALIZADO":
+    config_json = guardar_configuracion()
+    if config_json:
+        st.sidebar.download_button(
+            "💾 Guardar Configuración",
+            config_json,
+            file_name="configuracion_personalizada.json",
+            mime="application/json"
+        )
+
+# Cargar configuración
+uploaded_config = st.sidebar.file_uploader("Cargar configuración", type=['json'], key="config_uploader")
+
 if uploaded_file is not None:
     try:
         # Si se sube archivo, cargar datos
@@ -596,8 +1143,8 @@ if uploaded_file is not None:
         st.info("💡 Usando datos simulados para el análisis...")
 
 # Botón para ejecutar análisis (siempre disponible)
-if st.button("🚀 EJECUTAR ANÁLISIS FORRAJERO", type="primary"):
-    analisis_forrajero_simple()
+if st.button("🚀 EJECUTAR ANÁLISIS COMPLETO", type="primary"):
+    analisis_forrajero_completo()
 
 # Información cuando no hay archivo
 if uploaded_file is None:
@@ -605,13 +1152,19 @@ if uploaded_file is None:
     st.info("🎯 **Opción 2:** Usa el botón arriba para análisis con datos simulados")
     
     st.warning("""
-    **🔍 SISTEMA DE DETECCIÓN AUTOMÁTICA:**
+    **🔍 SISTEMA DE ANÁLISIS COMPLETO:**
     
-    Este sistema simula patrones realistas basados en los ejemplos proporcionados:
-    - **Mayoría del área:** Suelo desnudo (aprendido de tus ejemplos)
-    - **Pocas zonas:** Vegetación de diferentes calidades
-    - **Patrones espaciales:** Las zonas centrales suelen tener mejor vegetación
-    - **Clasificación adaptable** según el umbral configurado
+    Este sistema incluye:
+    - **Detección automática** de vegetación vs suelo desnudo
+    - **Mapas interactivos** de productividad y cobertura
+    - **Análisis de correlación** entre variables clave
+    - **Modelos de regresión** para predicción
+    - **Descarga completa** de todos los resultados
+    - **Personalización completa** de parámetros forrajeros
     
-    **Ajusta el umbral** en la barra lateral para controlar la detección.
+    **Características de descarga:**
+    - Descargas individuales de cada gráfico y tabla
+    - Paquete ZIP con todos los archivos
+    - Configuraciones personalizables guardables
+    - Formatos: PNG, CSV, JSON, ZIP
     """)
