@@ -73,12 +73,12 @@ PARAMETROS_FORRAJEROS = {
         'TASA_UTILIZACION_RECOMENDADA': 0.50
     },
     'PASTIZAL_NATURAL': {
-        'MS_POR_HA_OPTIMO': 2500,
-        'CRECIMIENTO_DIARIO': 20,
+        'MS_POR_HA_OPTIMO': 1500,
+        'CRECIMIENTO_DIARIO': 15,
         'CONSUMO_PORCENTAJE_PESO': 0.020,
-        'DIGESTIBILIDAD': 0.50,
+        'DIGESTIBILIDAD': 0.30,
         'PROTEINA_CRUDA': 0.08,
-        'TASA_UTILIZACION_RECOMENDADA': 0.45
+        'TASA_UTILIZACION_RECOMENDADA': 0.35
     }
 }
 
@@ -514,7 +514,7 @@ def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, 
             elif dias_permanencia < 20:
                 return "ALERTA"
             elif dias_permanencia < 35:
-                return "ADEQUADO"
+                return "ADECUADO"
             elif tasa_utilizacion > 0.65:
                 return "SOBREUSO"
             else:
