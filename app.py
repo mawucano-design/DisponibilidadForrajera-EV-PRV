@@ -1,4 +1,21 @@
 import streamlit as st
+import subprocess
+import sys
+
+# Instalar dependencias faltantes
+def install_packages():
+    packages = ['seaborn', 'scipy', 'scikit-learn']
+    for package in packages:
+        try:
+            __import__(package)
+        except ImportError:
+            st.warning(f"Instalando {package}...")
+            subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+
+# Instalar paquetes necesarios
+install_packages()
+
+# Ahora importar todas las librerías
 import geopandas as gpd
 import pandas as pd
 import numpy as np
