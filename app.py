@@ -1,21 +1,4 @@
 import streamlit as st
-import subprocess
-import sys
-
-# Instalar dependencias faltantes
-def install_packages():
-    packages = ['seaborn', 'scipy', 'scikit-learn']
-    for package in packages:
-        try:
-            __import__(package)
-        except ImportError:
-            st.warning(f"Instalando {package}...")
-            subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-
-# Instalar paquetes necesarios
-install_packages()
-
-# Ahora importar todas las librerías
 import geopandas as gpd
 import pandas as pd
 import numpy as np
@@ -30,10 +13,6 @@ import io
 from shapely.geometry import Polygon
 import math
 import json
-import seaborn as sns
-from scipy import stats
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import r2_score
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -866,186 +845,82 @@ def crear_mapa_cobertura(gdf, tipo_pastura):
         return None
 
 # =============================================================================
-# NUEVAS FUNCIONES DE VISUALIZACIÓN Y ANÁLISIS
+# FUNCIONES SIMPLIFICADAS DE VISUALIZACIÓN (sin dependencias externas)
 # =============================================================================
 
-def crear_visualizacion_regresion(gdf_analizado):
-    """Crea análisis de regresión entre variables forrajeras"""
+def crear_analisis_correlacion_simple(gdf_analizado):
+    """Crea análisis de correlación simple usando solo matplotlib y numpy"""
     try:
-        fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+        fig, axes = plt.subplots(2, 2, figsize=(15, 12))
         
-        # 1. Regresión: NDVI vs Biomasa
-        x_ndvi = gdf_analizado['ndvi'].values.reshape(-1, 1)
-        y_biomasa = gdf_analizado['biomasa_disponible_kg_ms_ha'].values
+        # 1. Correlación NDVI vs Biomasa
+        ndvi = gdf_analizado['ndvi'].values
+        biomasa = gdf_analizado['biomasa_disponible_kg_ms_ha'].values
+        correlacion_ndvi = np.corrcoef(ndvi, biomasa)[0, 1]
         
-        model_ndvi = LinearRegression()
-        model_ndvi.fit(x_ndvi, y_biomasa)
-        y_pred_ndvi = model_ndvi.predict(x_ndvi)
-        r2_ndvi = r2_score(y_biomasa, y_pred_ndvi)
-        
-        axes[0,0].scatter(x_ndvi, y_biomasa, alpha=0.6, color='green')
-        axes[0,0].plot(x_ndvi, y_pred_ndvi, color='red', linewidth=2)
+        axes[0,0].scatter(ndvi, biomasa, alpha=0.6, color='green')
         axes[0,0].set_xlabel('NDVI')
         axes[0,0].set_ylabel('Biomasa Disponible (kg MS/ha)')
-        axes[0,0].set_title(f'Regresión NDVI vs Biomasa\nR² = {r2_ndvi:.3f}')
+        axes[0,0].set_title(f'NDVI vs Biomasa\nCorrelación: {correlacion_ndvi:.3f}')
         axes[0,0].grid(True, alpha=0.3)
         
-        # 2. Regresión: Cobertura vs Días Permanencia
-        x_cobertura = gdf_analizado['cobertura_vegetal'].values.reshape(-1, 1)
-        y_dias = gdf_analizado['dias_permanencia'].values
+        # 2. Correlación Cobertura vs Días Permanencia
+        cobertura = gdf_analizado['cobertura_vegetal'].values
+        dias = gdf_analizado['dias_permanencia'].values
+        correlacion_cob = np.corrcoef(cobertura, dias)[0, 1]
         
-        model_cob = LinearRegression()
-        model_cob.fit(x_cobertura, y_dias)
-        y_pred_cob = model_cob.predict(x_cobertura)
-        r2_cob = r2_score(y_dias, y_pred_cob)
-        
-        axes[0,1].scatter(x_cobertura, y_dias, alpha=0.6, color='blue')
-        axes[0,1].plot(x_cobertura, y_pred_cob, color='red', linewidth=2)
+        axes[0,1].scatter(cobertura, dias, alpha=0.6, color='blue')
         axes[0,1].set_xlabel('Cobertura Vegetal')
         axes[0,1].set_ylabel('Días de Permanencia')
-        axes[0,1].set_title(f'Regresión Cobertura vs Días\nR² = {r2_cob:.3f}')
+        axes[0,1].set_title(f'Cobertura vs Días Permanencia\nCorrelación: {correlacion_cob:.3f}')
         axes[0,1].grid(True, alpha=0.3)
         
-        # 3. Regresión: Biomasa vs EV/Ha
-        x_biomasa = gdf_analizado['biomasa_disponible_kg_ms_ha'].values.reshape(-1, 1)
-        y_ev = gdf_analizado['ev_ha'].values
+        # 3. Matriz de correlación simple
+        variables = ['ndvi', 'cobertura_vegetal', 'biomasa_disponible_kg_ms_ha', 'dias_permanencia', 'ev_ha']
+        variables_existentes = [v for v in variables if v in gdf_analizado.columns]
         
-        model_ev = LinearRegression()
-        model_ev.fit(x_biomasa, y_ev)
-        y_pred_ev = model_ev.predict(x_biomasa)
-        r2_ev = r2_score(y_ev, y_pred_ev)
+        if len(variables_existentes) > 1:
+            data_corr = gdf_analizado[variables_existentes]
+            corr_matrix = data_corr.corr()
+            
+            # Crear heatmap manualmente
+            im = axes[1,0].imshow(corr_matrix.values, cmap='coolwarm', aspect='auto', vmin=-1, vmax=1)
+            axes[1,0].set_xticks(range(len(corr_matrix.columns)))
+            axes[1,0].set_yticks(range(len(corr_matrix.columns)))
+            axes[1,0].set_xticklabels(corr_matrix.columns, rotation=45)
+            axes[1,0].set_yticklabels(corr_matrix.columns)
+            axes[1,0].set_title('Matriz de Correlación')
+            
+            # Añadir valores de correlación
+            for i in range(len(corr_matrix.columns)):
+                for j in range(len(corr_matrix.columns)):
+                    axes[1,0].text(j, i, f'{corr_matrix.iloc[i, j]:.2f}', 
+                                  ha='center', va='center', 
+                                  color='white' if abs(corr_matrix.iloc[i, j]) > 0.5 else 'black')
         
-        axes[0,2].scatter(x_biomasa, y_ev, alpha=0.6, color='orange')
-        axes[0,2].plot(x_biomasa, y_pred_ev, color='red', linewidth=2)
-        axes[0,2].set_xlabel('Biomasa Disponible (kg MS/ha)')
-        axes[0,2].set_ylabel('EV/Ha')
-        axes[0,2].set_title(f'Regresión Biomasa vs EV/Ha\nR² = {r2_ev:.3f}')
-        axes[0,2].grid(True, alpha=0.3)
-        
-        # 4. Regresión múltiple: Múltiples índices vs Biomasa
-        X_multi = gdf_analizado[['ndvi', 'evi', 'savi', 'cobertura_vegetal']].values
-        y_multi = gdf_analizado['biomasa_disponible_kg_ms_ha'].values
-        
-        model_multi = LinearRegression()
-        model_multi.fit(X_multi, y_multi)
-        y_pred_multi = model_multi.predict(X_multi)
-        r2_multi = r2_score(y_multi, y_pred_multi)
-        
-        axes[1,0].scatter(y_multi, y_pred_multi, alpha=0.6, color='purple')
-        axes[1,0].plot([y_multi.min(), y_multi.max()], [y_multi.min(), y_multi.max()], 'red', linewidth=2)
-        axes[1,0].set_xlabel('Biomasa Real (kg MS/ha)')
-        axes[1,0].set_ylabel('Biomasa Predicha (kg MS/ha)')
-        axes[1,0].set_title(f'Regresión Múltiple: Índices vs Biomasa\nR² = {r2_multi:.3f}')
-        axes[1,0].grid(True, alpha=0.3)
-        
-        # 5. Residuales
-        residuals = y_multi - y_pred_multi
-        axes[1,1].scatter(y_pred_multi, residuals, alpha=0.6, color='brown')
-        axes[1,1].axhline(y=0, color='red', linestyle='--')
-        axes[1,1].set_xlabel('Biomasa Predicha (kg MS/ha)')
-        axes[1,1].set_ylabel('Residuales')
-        axes[1,1].set_title('Análisis de Residuales')
-        axes[1,1].grid(True, alpha=0.3)
-        
-        # 6. Coeficientes de regresión múltiple
-        coef_names = ['NDVI', 'EVI', 'SAVI', 'Cobertura']
-        coef_values = model_multi.coef_
-        
-        axes[1,2].barh(coef_names, coef_values, color='teal')
-        axes[1,2].set_xlabel('Coeficiente de Regresión')
-        axes[1,2].set_title('Importancia de Variables en Regresión Múltiple')
-        axes[1,2].grid(True, alpha=0.3)
+        # 4. Distribución de biomasa por tipo de superficie
+        if 'tipo_superficie' in gdf_analizado.columns:
+            tipos = gdf_analizado['tipo_superficie'].unique()
+            data_boxplot = [gdf_analizado[gdf_analizado['tipo_superficie'] == tipo]['biomasa_disponible_kg_ms_ha'] for tipo in tipos]
+            
+            axes[1,1].boxplot(data_boxplot, labels=tipos)
+            axes[1,1].set_ylabel('Biomasa Disponible (kg MS/ha)')
+            axes[1,1].set_title('Biomasa por Tipo de Superficie')
+            axes[1,1].tick_params(axis='x', rotation=45)
+            axes[1,1].grid(True, alpha=0.3)
         
         plt.tight_layout()
-        
-        # Crear dataframe con resultados de regresión
-        resultados_regresion = pd.DataFrame({
-            'Variable': ['NDVI', 'Cobertura', 'Biomasa', 'Múltiple'],
-            'R²': [r2_ndvi, r2_cob, r2_ev, r2_multi],
-            'Ecuación': [
-                f"y = {model_ndvi.coef_[0]:.1f}x + {model_ndvi.intercept_:.1f}",
-                f"y = {model_cob.coef_[0]:.1f}x + {model_cob.intercept_:.1f}",
-                f"y = {model_ev.coef_[0]:.3f}x + {model_ev.intercept_:.3f}",
-                f"Múltiple: {len(model_multi.coef_)} variables"
-            ]
-        })
         
         buf = io.BytesIO()
         plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
         buf.seek(0)
         plt.close()
         
-        return buf, resultados_regresion
+        return buf, corr_matrix if 'corr_matrix' in locals() else None
         
     except Exception as e:
-        st.error(f"Error en análisis de regresión: {str(e)}")
+        st.error(f"Error en análisis de correlación: {str(e)}")
         return None, None
-
-def crear_matriz_correlacion(gdf_analizado):
-    """Crea matriz de correlación mejorada"""
-    try:
-        # Seleccionar variables numéricas para correlación
-        variables_corr = [
-            'ndvi', 'evi', 'savi', 'bsi', 'cobertura_vegetal', 
-            'biomasa_disponible_kg_ms_ha', 'ev_ha', 'dias_permanencia', 'area_ha'
-        ]
-        
-        # Filtrar variables existentes
-        variables_existentes = [var for var in variables_corr if var in gdf_analizado.columns]
-        df_corr = gdf_analizado[variables_existentes]
-        
-        # Calcular matriz de correlación
-        corr_matrix = df_corr.corr()
-        
-        # Crear visualización
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 8))
-        
-        # Heatmap de correlación
-        mask = np.triu(np.ones_like(corr_matrix, dtype=bool))
-        sns.heatmap(corr_matrix, mask=mask, annot=True, cmap='coolwarm', center=0,
-                   square=True, ax=ax1, cbar_kws={"shrink": .8})
-        ax1.set_title('Matriz de Correlación - Heatmap', fontsize=14, fontweight='bold')
-        
-        # Gráfico de barras de correlaciones con biomasa
-        if 'biomasa_disponible_kg_ms_ha' in corr_matrix.columns:
-            corr_biomasa = corr_matrix['biomasa_disponible_kg_ms_ha'].drop('biomasa_disponible_kg_ms_ha')
-            colors = ['green' if x > 0 else 'red' for x in corr_biomasa]
-            ax2.barh(corr_biomasa.index, corr_biomasa.values, color=colors, alpha=0.7)
-            ax2.axvline(x=0, color='black', linestyle='-', alpha=0.3)
-            ax2.set_xlabel('Coeficiente de Correlación')
-            ax2.set_title('Correlación con Biomasa Disponible', fontsize=14, fontweight='bold')
-            ax2.grid(True, alpha=0.3)
-        
-        plt.tight_layout()
-        
-        # Crear tabla de correlaciones significativas
-        correlaciones_significativas = []
-        for i in range(len(corr_matrix.columns)):
-            for j in range(i+1, len(corr_matrix.columns)):
-                corr_val = corr_matrix.iloc[i, j]
-                if abs(corr_val) > 0.3:  # Solo correlaciones moderadas/altas
-                    correlaciones_significativas.append({
-                        'Variable 1': corr_matrix.columns[i],
-                        'Variable 2': corr_matrix.columns[j],
-                        'Correlación': round(corr_val, 3),
-                        'Tipo': 'Fuerte Positiva' if corr_val > 0.7 else 
-                               'Moderada Positiva' if corr_val > 0.3 else
-                               'Moderada Negativa' if corr_val < -0.3 else
-                               'Fuerte Negativa'
-                    })
-        
-        df_corr_signif = pd.DataFrame(correlaciones_significativas)
-        
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
-        buf.seek(0)
-        plt.close()
-        
-        return buf, corr_matrix, df_corr_signif
-        
-    except Exception as e:
-        st.error(f"Error en matriz de correlación: {str(e)}")
-        return None, None, None
 
 def crear_tabla_resultados_detallada(gdf_analizado):
     """Crea tabla detallada de resultados con estadísticas"""
@@ -1054,7 +929,7 @@ def crear_tabla_resultados_detallada(gdf_analizado):
         columnas_resumen = [
             'id_subLote', 'area_ha', 'ndvi', 'cobertura_vegetal', 
             'tipo_superficie', 'biomasa_disponible_kg_ms_ha',
-            'ev_ha', 'dias_permanencia', 'categoria_manejo'
+            'ev_ha', 'dias_permanencia', 'estado_forrajero'
         ]
         
         # Filtrar columnas existentes
@@ -1099,7 +974,7 @@ def crear_tabla_resultados_detallada(gdf_analizado):
 def crear_dashboard_metricas(gdf_analizado):
     """Crea dashboard visual con las métricas principales"""
     try:
-        fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+        fig, axes = plt.subplots(2, 2, figsize=(15, 12))
         
         # 1. Distribución de biomasa
         axes[0,0].hist(gdf_analizado['biomasa_disponible_kg_ms_ha'], bins=15, alpha=0.7, color='green', edgecolor='black')
@@ -1119,40 +994,19 @@ def crear_dashboard_metricas(gdf_analizado):
         axes[0,1].legend()
         axes[0,1].grid(True, alpha=0.3)
         
-        # 3. Boxplot de biomasa por tipo de superficie
-        if 'tipo_superficie' in gdf_analizado.columns:
-            data_boxplot = []
-            labels = []
-            for tipo in gdf_analizado['tipo_superficie'].unique():
-                data_boxplot.append(gdf_analizado[gdf_analizado['tipo_superficie'] == tipo]['biomasa_disponible_kg_ms_ha'])
-                labels.append(tipo)
-            
-            axes[0,2].boxplot(data_boxplot, labels=labels)
-            axes[0,2].set_ylabel('Biomasa Disponible (kg MS/ha)')
-            axes[0,2].set_title('Biomasa por Tipo de Superficie')
-            axes[0,2].tick_params(axis='x', rotation=45)
-            axes[0,2].grid(True, alpha=0.3)
-        
-        # 4. Scatter: Área vs Biomasa
-        axes[1,0].scatter(gdf_analizado['area_ha'], gdf_analizado['biomasa_disponible_kg_ms_ha'], alpha=0.6, color='orange')
-        axes[1,0].set_xlabel('Área (ha)')
+        # 3. Scatter: NDVI vs Biomasa
+        axes[1,0].scatter(gdf_analizado['ndvi'], gdf_analizado['biomasa_disponible_kg_ms_ha'], alpha=0.6, color='orange')
+        axes[1,0].set_xlabel('NDVI')
         axes[1,0].set_ylabel('Biomasa Disponible (kg MS/ha)')
-        axes[1,0].set_title('Relación Área vs Biomasa')
+        axes[1,0].set_title('Relación NDVI vs Biomasa')
         axes[1,0].grid(True, alpha=0.3)
         
-        # 5. Distribución de categorías de manejo
-        if 'categoria_manejo' in gdf_analizado.columns:
-            counts = gdf_analizado['categoria_manejo'].value_counts()
-            colors = ['red', 'orange', 'yellow', 'lightgreen', 'green']
+        # 4. Distribución por tipo de superficie (pie chart)
+        if 'tipo_superficie' in gdf_analizado.columns:
+            counts = gdf_analizado['tipo_superficie'].value_counts()
+            colors = ['#8c510a', '#bf812d', '#dfc27d', '#80cdc1', '#01665e']
             axes[1,1].pie(counts.values, labels=counts.index, autopct='%1.1f%%', colors=colors[:len(counts)])
-            axes[1,1].set_title('Distribución de Categorías de Manejo')
-        
-        # 6. Evolución espacial (usando ID como proxy de ubicación)
-        axes[1,2].plot(gdf_analizado['id_subLote'], gdf_analizado['biomasa_disponible_kg_ms_ha'], marker='o', linewidth=2, alpha=0.7)
-        axes[1,2].set_xlabel('ID Sub-Lote')
-        axes[1,2].set_ylabel('Biomasa Disponible (kg MS/ha)')
-        axes[1,2].set_title('Variación de Biomasa por Sub-Lote')
-        axes[1,2].grid(True, alpha=0.3)
+            axes[1,1].set_title('Distribución por Tipo de Superficie')
         
         plt.tight_layout()
         
@@ -1293,26 +1147,8 @@ def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, 
             for key, value in metrica.items():
                 gdf_analizado.loc[gdf_analizado.index[idx], key] = value
         
-        # PASO 4: CATEGORIZAR PARA RECOMENDACIONES
-        def categorizar_forrajero(estado_forrajero, dias_permanencia):
-            if estado_forrajero == 0 or dias_permanencia < 1:
-                return "CRÍTICO"
-            elif estado_forrajero == 1 or dias_permanencia < 2:
-                return "ALERTA"
-            elif estado_forrajero == 2 or dias_permanencia < 3:
-                return "ADECUADO"
-            elif estado_forrajero == 3:
-                return "BUENO"
-            else:
-                return "ÓPTIMO"
-        
-        gdf_analizado['categoria_manejo'] = [
-            categorizar_forrajero(row['estado_forrajero'], row['dias_permanencia']) 
-            for idx, row in gdf_analizado.iterrows()
-        ]
-        
         # =============================================================================
-        # NUEVO: SECCIÓN DE VISUALIZACIONES Y ANÁLISIS
+        # SECCIÓN DE VISUALIZACIONES Y ANÁLISIS
         # =============================================================================
         
         st.subheader("📊 RESULTADOS DEL ANÁLISIS FORRAJERO")
@@ -1331,9 +1167,8 @@ def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, 
             st.metric("Permanencia Promedio", f"{dias_prom:.0f} días")
         
         # Pestañas para diferentes tipos de visualización
-        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-            "🗺️ MAPAS", "📈 REGRESIÓN", "🔗 CORRELACIÓN", 
-            "📋 TABLAS", "📊 DASHBOARD", "📑 INFORME"
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            "🗺️ MAPAS", "📈 ANÁLISIS", "📋 TABLAS", "📊 DASHBOARD", "📑 INFORME"
         ])
         
         with tab1:
@@ -1358,46 +1193,19 @@ def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, 
                 st.image(mapa_cobertura, caption="Mapa de Cobertura Vegetal y Tipos de Superficie", use_column_width=True)
         
         with tab2:
-            st.subheader("📈 Análisis de Regresión")
+            st.subheader("📈 Análisis Estadístico")
             
-            # Análisis de regresión
-            regresion_buf, resultados_regresion = crear_visualizacion_regresion(gdf_analizado)
-            if regresion_buf:
-                st.image(regresion_buf, caption="Análisis de Regresión entre Variables Forrajeras", use_column_width=True)
+            # Análisis de correlación
+            correlacion_buf, corr_matrix = crear_analisis_correlacion_simple(gdf_analizado)
+            if correlacion_buf:
+                st.image(correlacion_buf, caption="Análisis de Correlación entre Variables", use_column_width=True)
                 
-                # Mostrar resultados numéricos
-                st.subheader("Resultados de Regresión")
-                st.dataframe(resultados_regresion, use_container_width=True)
-                
-                # Interpretación
-                st.info("""
-                **Interpretación de R²:**
-                - **0.8-1.0:** Correlación muy fuerte
-                - **0.6-0.8:** Correlación fuerte  
-                - **0.4-0.6:** Correlación moderada
-                - **0.2-0.4:** Correlación débil
-                - **<0.2:** Correlación muy débil o nula
-                """)
+                if corr_matrix is not None:
+                    st.subheader("Matriz de Correlación")
+                    st.dataframe(corr_matrix.style.background_gradient(cmap='coolwarm', vmin=-1, vmax=1), 
+                               use_container_width=True)
         
         with tab3:
-            st.subheader("🔗 Matriz de Correlación")
-            
-            # Matriz de correlación
-            corr_buf, corr_matrix, corr_signif = crear_matriz_correlacion(gdf_analizado)
-            if corr_buf:
-                st.image(corr_buf, caption="Matriz de Correlación entre Variables", use_column_width=True)
-                
-                # Mostrar correlaciones significativas
-                if not corr_signif.empty:
-                    st.subheader("Correlaciones Significativas")
-                    st.dataframe(corr_signif, use_container_width=True)
-                
-                # Mostrar matriz completa
-                st.subheader("Matriz de Correlación Completa")
-                st.dataframe(corr_matrix.style.background_gradient(cmap='coolwarm', vmin=-1, vmax=1), 
-                           use_container_width=True)
-        
-        with tab4:
             st.subheader("📋 Tablas de Resultados Detallados")
             
             # Crear tablas de resultados
@@ -1426,7 +1234,7 @@ def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, 
                     mime="text/csv"
                 )
         
-        with tab5:
+        with tab4:
             st.subheader("📊 Dashboard de Métricas")
             
             # Dashboard visual
@@ -1434,7 +1242,7 @@ def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, 
             if dashboard_buf:
                 st.image(dashboard_buf, caption="Dashboard de Métricas Forrajeras", use_column_width=True)
         
-        with tab6:
+        with tab5:
             st.subheader("📑 Informe Ejecutivo")
             
             # Resumen ejecutivo
@@ -1445,17 +1253,17 @@ def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, 
             st.subheader("🎯 Recomendaciones de Manejo")
             
             # Análisis de categorías
-            if 'categoria_manejo' in gdf_analizado.columns:
-                cats = gdf_analizado['categoria_manejo'].value_counts()
+            if 'estado_forrajero' in gdf_analizado.columns:
+                cats = gdf_analizado['estado_forrajero'].value_counts()
                 
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.metric("Lotes Óptimos/Buenos", f"{cats.get('ÓPTIMO', 0) + cats.get('BUENO', 0)}")
-                    st.metric("Lotes en Alerta/Crítico", f"{cats.get('ALERTA', 0) + cats.get('CRÍTICO', 0)}")
+                    st.metric("Lotes Óptimos/Buenos", f"{cats.get(4, 0) + cats.get(3, 0)}")
+                    st.metric("Lotes en Alerta/Crítico", f"{cats.get(1, 0) + cats.get(0, 0)}")
                 
                 with col2:
-                    st.metric("Lotes Adecuados", f"{cats.get('ADECUADO', 0)}")
-                    st.metric("Tasa de Éxito", f"{(cats.get('ÓPTIMO', 0) + cats.get('BUENO', 0) + cats.get('ADECUADO', 0)) / len(gdf_analizado) * 100:.1f}%")
+                    st.metric("Lotes Adecuados", f"{cats.get(2, 0)}")
+                    st.metric("Tasa de Éxito", f"{(cats.get(4, 0) + cats.get(3, 0) + cats.get(2, 0)) / len(gdf_analizado) * 100:.1f}%")
             
             # Recomendaciones basadas en análisis
             st.info("""
@@ -1464,7 +1272,7 @@ def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, 
             **✅ ACCIONES INMEDIATAS:**
             - Priorizar rotación en lotes con menos de 2 días de permanencia
             - Considerar suplementación en áreas críticas
-            - Monitorear intensivamente lotes en categoría ALERTA
+            - Monitorear intensivamente lotes con estado forrajero bajo
             
             **📅 PLANEACIÓN MEDIO PLAZO:**
             - Optimizar rotación usando el mapa de días de permanencia
