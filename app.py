@@ -32,7 +32,7 @@ with st.sidebar:
     carga_animal = st.slider("Carga animal (cabezas):", 50, 1000, 100)
     
     st.subheader("🎯 División de Potrero")
-    n_divisiones = st.slider("Número de sub-lotes:", min_value=12, max_value=32, value=24)
+    n_divisiones = st.slider("Número de sub-lotes:", min_value=12, max_value=72, value=48)
     
     st.subheader("📤 Subir Lote")
     uploaded_zip = st.file_uploader("Subir ZIP con shapefile del potrero", type=['zip'])
@@ -767,7 +767,7 @@ def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, 
             elif estado_forrajero == 1 or dias_permanencia < 2:
                 return "ALERTA"
             elif estado_forrajero == 2 or dias_permanencia < 3:
-                return "ADEQUADO"
+                return "ADECUADO"
             elif estado_forrajero == 3:
                 return "BUENO"
             else:
