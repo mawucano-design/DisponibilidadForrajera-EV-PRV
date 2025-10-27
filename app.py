@@ -1,27 +1,4 @@
 import streamlit as st
-import subprocess
-import sys
-
-# Verificar e instalar dependencias faltantes
-def install_missing_packages():
-    required_packages = {
-        'seaborn': 'seaborn',
-        'scipy': 'scipy',
-        'sklearn': 'scikit-learn'
-    }
-    
-    for package_name, import_name in required_packages.items():
-        try:
-            __import__(import_name)
-        except ImportError:
-            st.warning(f"📦 Instalando {package_name}...")
-            subprocess.check_call([sys.executable, "-m", "pip", "install", package_name])
-            st.success(f"✅ {package_name} instalado correctamente")
-
-# Ejecutar la instalación de paquetes faltantes
-install_missing_packages()
-
-# Ahora importar todas las librerías
 import geopandas as gpd
 import pandas as pd
 import numpy as np
@@ -39,12 +16,6 @@ import requests
 import rasterio
 from rasterio.mask import mask
 import json
-import seaborn as sns
-from scipy import stats
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import r2_score
-import warnings
-warnings.filterwarnings('ignore')
 
 st.set_page_config(page_title="🌱 Analizador Forrajero GEE", layout="wide")
 st.title("🌱 ANALIZADOR FORRAJERO - DETECCIÓN MEJORADA DE VEGETACIÓN")
@@ -66,8 +37,6 @@ if 'gdf_cargado' not in st.session_state:
     st.session_state.gdf_cargado = None
 if 'analisis_completado' not in st.session_state:
     st.session_state.analisis_completado = False
-if 'df_analisis' not in st.session_state:
-    st.session_state.df_analisis = None
 
 # Sidebar
 with st.sidebar:
@@ -635,206 +604,6 @@ def calcular_metricas_ganaderas(gdf_analizado, tipo_pastura, peso_promedio, carg
     return metricas
 
 # =============================================================================
-# FUNCIONES DE ANÁLISIS ESTADÍSTICO Y CORRELACIÓN
-# =============================================================================
-
-def crear_analisis_correlacion(df_analisis):
-    """
-    Crea análisis de correlación, matriz y regresiones
-    """
-    try:
-        # Seleccionar variables numéricas para análisis
-        variables_numericas = ['ndvi', 'evi', 'savi', 'msavi2', 'bsi', 'ndbi', 
-                             'cobertura_vegetal', 'biomasa_ms_ha', 'biomasa_disponible_kg_ms_ha',
-                             'crecimiento_diario', 'factor_calidad', 'area_ha', 'ev_ha', 'dias_permanencia']
-        
-        # Filtrar variables que existen en el dataframe
-        variables_existentes = [var for var in variables_numericas if var in df_analisis.columns]
-        df_corr = df_analisis[variables_existentes]
-        
-        # Crear pestañas para diferentes análisis
-        tab1, tab2, tab3, tab4 = st.tabs(["📈 Matriz de Correlación", "🔍 Correlaciones NDVI", 
-                                         "📊 Regresiones Múltiples", "📋 Estadísticas Descriptivas"])
-        
-        with tab1:
-            st.subheader("🔗 MATRIZ DE CORRELACIÓN ENTRE VARIABLES")
-            
-            # Calcular matriz de correlación
-            corr_matrix = df_corr.corr()
-            
-            # Crear heatmap de correlación
-            fig, ax = plt.subplots(figsize=(12, 10))
-            mask = np.triu(np.ones_like(corr_matrix, dtype=bool))
-            sns.heatmap(corr_matrix, mask=mask, annot=True, cmap='RdYlBu_r', center=0,
-                       square=True, linewidths=0.5, cbar_kws={"shrink": .8}, ax=ax,
-                       fmt='.2f', annot_kws={'size': 8})
-            ax.set_title('Matriz de Correlación - Variables Forrajeras', fontsize=14, fontweight='bold', pad=20)
-            plt.xticks(rotation=45, ha='right')
-            plt.yticks(rotation=0)
-            plt.tight_layout()
-            st.pyplot(fig)
-            
-            # Análisis de correlaciones fuertes
-            st.subheader("🎯 CORRELACIONES DESTACADAS")
-            strong_correlations = []
-            for i in range(len(corr_matrix.columns)):
-                for j in range(i+1, len(corr_matrix.columns)):
-                    if abs(corr_matrix.iloc[i, j]) > 0.7 and corr_matrix.iloc[i, j] != 1:
-                        strong_correlations.append((
-                            corr_matrix.columns[i],
-                            corr_matrix.columns[j],
-                            corr_matrix.iloc[i, j]
-                        ))
-            
-            if strong_correlations:
-                for var1, var2, corr in sorted(strong_correlations, key=lambda x: abs(x[2]), reverse=True):
-                    st.write(f"**{var1}** ↔ **{var2}**: {corr:.3f}")
-            else:
-                st.info("No se encontraron correlaciones fuertes (> 0.7)")
-        
-        with tab2:
-            st.subheader("📊 CORRELACIONES CON NDVI")
-            
-            # Calcular correlaciones con NDVI
-            ndvi_correlations = []
-            for col in df_corr.columns:
-                if col != 'ndvi' and df_corr[col].notna().all():
-                    correlation = df_corr['ndvi'].corr(df_corr[col])
-                    ndvi_correlations.append((col, correlation))
-            
-            # Ordenar por valor absoluto de correlación
-            ndvi_correlations.sort(key=lambda x: abs(x[1]), reverse=True)
-            
-            # Mostrar tabla de correlaciones
-            corr_df = pd.DataFrame(ndvi_correlations, columns=['Variable', 'Correlación con NDVI'])
-            st.dataframe(corr_df, use_container_width=True)
-            
-            # Crear gráficos de dispersión para las 4 variables más correlacionadas
-            top_variables = [var for var, _ in ndvi_correlations[:4] if var != 'ndvi']
-            
-            if top_variables:
-                fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-                axes = axes.ravel()
-                
-                for i, var in enumerate(top_variables):
-                    if i < 4:
-                        # Gráfico de dispersión
-                        axes[i].scatter(df_corr['ndvi'], df_corr[var], alpha=0.6, color='green', s=50)
-                        
-                        # Línea de tendencia
-                        z = np.polyfit(df_corr['ndvi'], df_corr[var], 1)
-                        p = np.poly1d(z)
-                        axes[i].plot(df_corr['ndvi'], p(df_corr['ndvi']), "r--", alpha=0.8)
-                        
-                        axes[i].set_xlabel('NDVI')
-                        axes[i].set_ylabel(var)
-                        axes[i].set_title(f'NDVI vs {var}\nCorr: {ndvi_correlations[i][1]:.3f}')
-                        axes[i].grid(True, alpha=0.3)
-                
-                plt.tight_layout()
-                st.pyplot(fig)
-        
-        with tab3:
-            st.subheader("📈 ANÁLISIS DE REGRESIÓN")
-            
-            # Regresión 1: NDVI vs Biomasa Disponible
-            if 'ndvi' in df_corr.columns and 'biomasa_disponible_kg_ms_ha' in df_corr.columns:
-                st.write("#### Regresión: NDVI → Biomasa Disponible")
-                
-                X = df_corr[['ndvi']].values
-                y = df_corr['biomasa_disponible_kg_ms_ha'].values
-                
-                # Filtrar valores NaN
-                mask = ~np.isnan(X.flatten()) & ~np.isnan(y)
-                X_clean = X[mask]
-                y_clean = y[mask]
-                
-                if len(X_clean) > 1:
-                    model = LinearRegression()
-                    model.fit(X_clean, y_clean)
-                    y_pred = model.predict(X_clean)
-                    r2 = r2_score(y_clean, y_pred)
-                    
-                    fig, ax = plt.subplots(figsize=(10, 6))
-                    ax.scatter(X_clean, y_clean, alpha=0.6, color='blue', label='Datos reales')
-                    ax.plot(X_clean, y_pred, 'r-', linewidth=2, label=f'Regresión (R² = {r2:.3f})')
-                    ax.set_xlabel('NDVI')
-                    ax.set_ylabel('Biomasa Disponible (kg MS/ha)')
-                    ax.set_title('Regresión Lineal: NDVI vs Biomasa Disponible')
-                    ax.legend()
-                    ax.grid(True, alpha=0.3)
-                    st.pyplot(fig)
-                    
-                    st.write(f"**Ecuación:** Biomasa = {model.coef_[0]:.1f} × NDVI + {model.intercept_:.1f}")
-                    st.write(f"**Coeficiente de determinación (R²):** {r2:.3f}")
-            
-            # Regresión múltiple: Múltiples índices vs Biomasa
-            st.write("#### Regresión Múltiple: Índices → Biomasa")
-            
-            vars_regresion = ['ndvi', 'evi', 'savi', 'cobertura_vegetal']
-            vars_existentes = [var for var in vars_regresion if var in df_corr.columns]
-            
-            if len(vars_existentes) > 1 and 'biomasa_disponible_kg_ms_ha' in df_corr.columns:
-                X_multi = df_corr[vars_existentes].values
-                y_multi = df_corr['biomasa_disponible_kg_ms_ha'].values
-                
-                # Filtrar NaN
-                mask = ~np.isnan(X_multi).any(axis=1) & ~np.isnan(y_multi)
-                X_multi_clean = X_multi[mask]
-                y_multi_clean = y_multi[mask]
-                
-                if len(X_multi_clean) > len(vars_existentes):
-                    model_multi = LinearRegression()
-                    model_multi.fit(X_multi_clean, y_multi_clean)
-                    y_multi_pred = model_multi.predict(X_multi_clean)
-                    r2_multi = r2_score(y_multi_clean, y_multi_pred)
-                    
-                    # Mostrar coeficientes
-                    coef_df = pd.DataFrame({
-                        'Variable': vars_existentes,
-                        'Coeficiente': model_multi.coef_,
-                        'Importancia Absoluta': np.abs(model_multi.coef_)
-                    }).sort_values('Importancia Absoluta', ascending=False)
-                    
-                    st.dataframe(coef_df, use_container_width=True)
-                    st.write(f"**R² del modelo múltiple:** {r2_multi:.3f}")
-        
-        with tab4:
-            st.subheader("📋 ESTADÍSTICAS DESCRIPTIVAS")
-            
-            # Estadísticas básicas
-            st.write("#### Estadísticas Principales")
-            stats_df = df_corr.describe().T
-            stats_df['cv'] = (stats_df['std'] / stats_df['mean']) * 100  # Coeficiente de variación
-            st.dataframe(stats_df, use_container_width=True)
-            
-            # Análisis de distribución
-            st.write("#### Distribución de Variables Clave")
-            variables_clave = ['ndvi', 'biomasa_disponible_kg_ms_ha', 'cobertura_vegetal', 'dias_permanencia']
-            vars_clave_existentes = [var for var in variables_clave if var in df_corr.columns]
-            
-            if vars_clave_existentes:
-                fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-                axes = axes.ravel()
-                
-                for i, var in enumerate(vars_clave_existentes):
-                    if i < 4:
-                        axes[i].hist(df_corr[var].dropna(), bins=15, alpha=0.7, color='skyblue', edgecolor='black')
-                        axes[i].set_xlabel(var)
-                        axes[i].set_ylabel('Frecuencia')
-                        axes[i].set_title(f'Distribución de {var}')
-                        axes[i].grid(True, alpha=0.3)
-                
-                plt.tight_layout()
-                st.pyplot(fig)
-        
-        return True
-        
-    except Exception as e:
-        st.error(f"❌ Error en análisis de correlación: {str(e)}")
-        return False
-
-# =============================================================================
 # FUNCIÓN PRINCIPAL MEJORADA
 # =============================================================================
 
@@ -1107,17 +876,6 @@ def analisis_forrajero_completo_mejorado(gdf, tipo_pastura, peso_promedio, carga
                 key="descarga_detallado"
             )
         
-        # PASO 5: ANÁLISIS ESTADÍSTICO Y CORRELACIONES
-        st.subheader("📊 ANÁLISIS ESTADÍSTICO Y CORRELACIONES")
-        
-        # Crear DataFrame para análisis
-        df_analisis = pd.DataFrame(gdf_analizado.drop(columns='geometry'))
-        st.session_state.df_analisis = df_analisis
-        
-        # Ejecutar análisis de correlación
-        with st.spinner("Calculando correlaciones y regresiones..."):
-            crear_analisis_correlacion(df_analisis)
-        
         # Mostrar resumen de resultados
         st.subheader("📊 RESUMEN DE RESULTADOS MEJORADOS")
         
@@ -1246,5 +1004,4 @@ else:
     - Patrones realistas de vegetación escasa
     - Cálculos de biomasa más conservadores
     - Detección estricta de suelo desnudo
-    - Análisis de correlación y regresión
     """)
