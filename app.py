@@ -289,44 +289,44 @@ def clasificar_suelo_desnudo_mejorado(ndvi, bsi, ndbi, evi, savi, probabilidad_s
     
     # NDVI muy bajo (principal indicador)
     if ndvi < 0.2:
-        criterios_suelo += 3
+        criterios_suelo += 4
     elif ndvi < 0.3:
-        criterios_suelo += 2
+        criterios_suelo += 3
     elif ndvi < 0.4:
-        criterios_suelo += 1
+        criterios_suelo += 2
     
     # BSI alto (suelo desnudo)
     if bsi > 0.3:
-        criterios_suelo += 2
+        criterios_suelo += 3
     elif bsi > 0.2:
-        criterios_suelo += 1
+        criterios_suelo += 2
     
     # NDBI alto (áreas construidas/suelo)
     if ndbi > 0.1:
-        criterios_suelo += 2
+        criterios_suelo += 3
     elif ndbi > 0.05:
         criterios_suelo += 1
     
     # EVI y SAVI bajos (confirmación)
     if evi < 0.15:
-        criterios_suelo += 1
+        criterios_suelo += 2
     if savi < 0.15:
-        criterios_suelo += 1
+        criterios_suelo += 2
     
     # Probabilidad espacial alta
     if probabilidad_suelo > 0.7:
-        criterios_suelo += 2
+        criterios_suelo += 3
     elif probabilidad_suelo > 0.5:
-        criterios_suelo += 1
+        criterios_suelo += 2
     
     # Clasificación final
-    if criterios_suelo >= 8:
+    if criterios_suelo >= 7:
         return "SUELO_DESNUDO", 0.05  # Muy alta probabilidad, cobertura muy baja
-    elif criterios_suelo >= 6:
+    elif criterios_suelo >= 5:
         return "SUELO_PARCIAL", 0.15
-    elif criterios_suelo >= 4:
+    elif criterios_suelo >= 3:
         return "VEGETACION_ESCASA", 0.35
-    elif criterios_suelo >= 2:
+    elif criterios_suelo >= 1:
         return "VEGETACION_MODERADA", 0.65
     else:
         return "VEGETACION_DENSA", 0.85
@@ -368,20 +368,20 @@ def calcular_indices_forrajeros_gee(gdf, tipo_pastura):
         # 2. SIMULAR BANDAS SENTINEL-2 CON PATRONES MÁS REALISTAS
         if probabilidad_suelo_desnudo > 0.7:
             # PATRÓN SUELO DESNUDO: Características muy marcadas
-            blue = 0.18 + np.random.normal(0, 0.02)
-            green = 0.22 + np.random.normal(0, 0.02)
-            red = 0.28 + np.random.normal(0, 0.03)
-            nir = 0.10 + np.random.normal(0, 0.01)  # MUY BAJO para suelo
-            swir1 = 0.38 + np.random.normal(0, 0.04)  # MUY ALTO para suelo
-            swir2 = 0.32 + np.random.normal(0, 0.03)
+            blue = 0.20 + np.random.normal(0, 0.02)
+            green = 0.25 + np.random.normal(0, 0.02)
+            red = 0.30 + np.random.normal(0, 0.03)
+            nir = 0.05 + np.random.normal(0, 0.01)  # MUY BAJO para suelo
+            swir1 = 0.40 + np.random.normal(0, 0.04)  # MUY ALTO para suelo
+            swir2 = 0.35 + np.random.normal(0, 0.03)
         elif probabilidad_suelo_desnudo > 0.5:
             # PATRÓN SUELO PARCIAL: Valores intermedios
-            blue = 0.14 + np.random.normal(0, 0.02)
-            green = 0.18 + np.random.normal(0, 0.025)
-            red = 0.24 + np.random.normal(0, 0.03)
-            nir = 0.18 + np.random.normal(0, 0.03)
-            swir1 = 0.30 + np.random.normal(0, 0.04)
-            swir2 = 0.26 + np.random.normal(0, 0.03)
+            blue = 0.12 + np.random.normal(0, 0.02)
+            green = 0.15 + np.random.normal(0, 0.025)
+            red = 0.20 + np.random.normal(0, 0.03)
+            nir = 0.33 + np.random.normal(0, 0.03)
+            swir1 = 0.25 + np.random.normal(0, 0.04)
+            swir2 = 0.22 + np.random.normal(0, 0.03)
         else:
             # PATRÓN VEGETACIÓN: Características saludables
             blue = 0.08 + (patron_espacial * 0.08) + np.random.normal(0, 0.015)
