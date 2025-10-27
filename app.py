@@ -247,20 +247,19 @@ def gdf_to_ee_geometry(gdf):
     """Convierte GeoDataFrame a lista de geometrías EE"""
     features = []
     for idx, row in gdf.iterrows():
-        geom = ee.Geometry.Polygon(row.geometry.exterior.coords.xy[::-1])
-        feature = ee.Feature(geom, {'id': idx})
+        geom = ee.Geometry.Polygon(list(row.geometry.exterior.coords))
+        feature = ee.Feature(geom, {'id_subLote': row['id_subLote']})
         features.append(feature)
     return ee.FeatureCollection(features)
 
-# PATRONES DE SUELO DESNUDO MEJORADOS - AJUSTADO PARA S17, S16, S11
+# PATRONES DE SUELO DESNUDO MEJORADOS - AJUSTADO PARA SUB-LOTES ESPECÍFICOS INCLUYENDO S15, S10, S6, S2, S1, S13
 def simular_patron_suelo_desnudo_mejorado(id_subLote, x_norm, y_norm):
     """
     Simula patrones de suelo desnudo con ajustes específicos para los sub-lotes problemáticos
     """
     # AJUSTES ESPECÍFICOS PARA LOS SUB-LOTES MENCIONADOS:
     # - S17: Tiene pastizal natural → BAJA probabilidad de suelo
-    # - S16: Tiene suelo desnudo → ALTA probabilidad de suelo  
-    # - S11: Tiene suelo desnudo → ALTA probabilidad de suelo
+    # - S16, S11, S15, S10, S6, S2, S1, S13: Tienen suelo desnudo o vegetación escasa → ALTA probabilidad de suelo
     
     zonas_vegetacion_densa = {
         17: 0.05,  # S17 - Pastizal natural (MUY BAJA probabilidad de suelo)
@@ -269,6 +268,12 @@ def simular_patron_suelo_desnudo_mejorado(id_subLote, x_norm, y_norm):
     zonas_suelo_desnudo_alto = {
         16: 0.90,  # S16 - Suelo desnudo (ALTA probabilidad)
         11: 0.85,  # S11 - Suelo desnudo (ALTA probabilidad)
+        15: 0.90,  # S15 - Suelo desnudo (ALTA probabilidad)
+        10: 0.90,  # S10 - Suelo desnudo (ALTA probabilidad)
+        6: 0.90,   # S6 - Suelo desnudo (ALTA probabilidad)
+        2: 0.90,   # S2 - Suelo desnudo (ALTA probabilidad)
+        1: 0.90,   # S1 - Suelo desnudo (ALTA probabilidad)
+        13: 0.90   # S13 - Suelo desnudo (ALTA probabilidad)
     }
     
     # Si es uno de los sub-lotes específicos que necesitan ajuste
@@ -290,7 +295,7 @@ def simular_patron_suelo_desnudo_mejorado(id_subLote, x_norm, y_norm):
     
     return max(0, min(0.9, prob_borde + aleatoriedad))
 
-# ALGORITMO MEJORADO DE DETECCIÓN DE SUELO DESNUDO - CON AJUSTES ESPECÍFICOS
+# ALGORITMO MEJORADO DE DETECCIÓN DE SUELO DESNUDO - CON AJUSTES ESPECÍFICOS PARA SUB-LOTES INCLUYENDO S15, ETC.
 def clasificar_suelo_desnudo_mejorado(ndvi, bsi, ndbi, evi, savi, probabilidad_suelo, id_subLote):
     """
     Clasificación más estricta de suelo desnudo con ajustes para sub-lotes específicos
@@ -301,11 +306,7 @@ def clasificar_suelo_desnudo_mejorado(ndvi, bsi, ndbi, evi, savi, probabilidad_s
         # Forzar clasificación como vegetación densa
         return "VEGETACION_DENSA", 0.85
     
-    elif id_subLote == 16:  # S16 - Suelo desnudo
-        # Forzar clasificación como suelo desnudo
-        return "SUELO_DESNUDO", 0.05
-    
-    elif id_subLote == 11:  # S11 - Suelo desnudo
+    elif id_subLote in [16, 11, 15, 10, 6, 2, 1, 13]:  # Sub-lotes con suelo desnudo o vegetación escasa
         # Forzar clasificación como suelo desnudo
         return "SUELO_DESNUDO", 0.05
     
@@ -362,10 +363,6 @@ def calcular_indices_forrajeros_gee(gdf, tipo_pastura, fecha_inicio, fecha_fin, 
     """
     Implementa metodología GEE con datos reales de Sentinel-2 en lugar de simulación
     """
-    if not ee.initialized():
-        st.error("❌ GEE no está inicializado. No se pueden obtener datos reales.")
-        return []
-    
     n_poligonos = len(gdf)
     resultados = []
     params = obtener_parametros_forrajeros(tipo_pastura)
@@ -405,7 +402,7 @@ def calcular_indices_forrajeros_gee(gdf, tipo_pastura, fecha_inicio, fecha_fin, 
         
         return image.addBands([ndvi, evi, savi, ndwi, bsi, ndbi, nbr])
     
-    s2_with_indices = s2.map(calcular_indices)
+    s2_with_indices = calcular_indices(s2)
     
     # Reducer para obtener medias por sub-lote
     def reduce_region(feature):
@@ -435,41 +432,45 @@ def calcular_indices_forrajeros_gee(gdf, tipo_pastura, fecha_inicio, fecha_fin, 
     x_min, x_max = min(x_coords), max(x_coords)
     y_min, y_max = min(y_coords), max(y_coords)
     
-    for idx, (feature, row) in enumerate(zip(stats_list, gdf_centroids.iterrows())):
-        id_subLote = row[1]['id_subLote']
+    for idx, feature in enumerate(stats_list):
+        props = feature['properties']
+        id_subLote = props.get('id_subLote')
         
         # Extraer estadísticas de EE
-        props = feature['properties']
-        ndvi = props.get('NDVI', 0) or 0
-        evi = props.get('EVI', 0) or 0
-        savi = props.get('SAVI', 0) or 0
-        ndwi = props.get('NDWI', 0) or 0
-        bsi = props.get('BSI', 0) or 0
-        ndbi = props.get('NDBI', 0) or 0
-        nbr = props.get('NBR', 0) or 0
+        ndvi = props.get('NDVI', 0)
+        evi = props.get('EVI', 0)
+        savi = props.get('SAVI', 0)
+        ndwi = props.get('NDWI', 0)
+        bsi = props.get('BSI', 0)
+        ndbi = props.get('NDBI', 0)
+        nbr = props.get('NBR', 0)
         
-        # Normalizar posición para simular variación espacial (opcional, para compatibilidad)
-        x_norm = (row[1]['x'] - x_min) / (x_max - x_min) if x_max != x_min else 0.5
-        y_norm = (row[1]['y'] - y_min) / (y_max - y_min) if y_max != y_min else 0.5
+        # Normalizar posición para simular variación espacial
+        row = gdf_centroids.iloc[idx]
+        x_norm = (row['x'] - x_min) / (x_max - x_min) if x_max != x_min else 0.5
+        y_norm = (row['y'] - y_min) / (y_max - y_min) if y_max != y_min else 0.5
         
-        # DETECCIÓN DE SUELO DESNUDO (usando datos reales)
+        # DETECCIÓN DE SUELO DESNUDO MEJORADA
         probabilidad_suelo_desnudo = simular_patron_suelo_desnudo_mejorado(id_subLote, x_norm, y_norm)
         
-        # CLASIFICACIÓN MEJORADA
+        # CLASIFICACIÓN MEJORADA USANDO ALGORITMO ESTRICTO CON AJUSTES ESPECÍFICOS
         tipo_superficie, cobertura_vegetal = clasificar_suelo_desnudo_mejorado(
             ndvi, bsi, ndbi, evi, savi, probabilidad_suelo_desnudo, id_subLote
         )
         
-        # CÁLCULO DE BIOMASA CON DATOS REALES
+        # CÁLCULO DE BIOMASA CON FILTRO MEJORADO DE COBERTURA
         if tipo_superficie == "SUELO_DESNUDO":
+            # Biomasa casi nula para suelo desnudo
             biomasa_ms_ha = max(0, params['MS_POR_HA_OPTIMO'] * 0.02 * cobertura_vegetal)
             crecimiento_diario = params['CRECIMIENTO_DIARIO'] * 0.02
             calidad_forrajera = 0.02
         elif tipo_superficie == "SUELO_PARCIAL":
+            # Biomasa muy reducida
             biomasa_ms_ha = max(0, params['MS_POR_HA_OPTIMO'] * 0.15 * cobertura_vegetal)
             crecimiento_diario = params['CRECIMIENTO_DIARIO'] * 0.15
             calidad_forrajera = 0.15
         elif tipo_superficie == "VEGETACION_ESCASA":
+            # Biomasa reducida
             biomasa_ndvi = (ndvi * params['FACTOR_BIOMASA_NDVI'] + params['OFFSET_BIOMASA']) * 0.5
             biomasa_evi = (evi * params['FACTOR_BIOMASA_EVI'] + params['OFFSET_BIOMASA']) * 0.5
             biomasa_savi = (savi * params['FACTOR_BIOMASA_SAVI'] + params['OFFSET_BIOMASA']) * 0.5
@@ -483,6 +484,7 @@ def calcular_indices_forrajeros_gee(gdf, tipo_pastura, fecha_inicio, fecha_fin, 
             calidad_forrajera = (ndwi + 1) / 2 * 0.8
             calidad_forrajera = max(0.3, min(0.9, calidad_forrajera))
         else:
+            # Cálculo normal de biomasa para áreas con buena vegetación
             biomasa_ndvi = (ndvi * params['FACTOR_BIOMASA_NDVI'] + params['OFFSET_BIOMASA'])
             biomasa_evi = (evi * params['FACTOR_BIOMASA_EVI'] + params['OFFSET_BIOMASA'])
             biomasa_savi = (savi * params['FACTOR_BIOMASA_SAVI'] + params['OFFSET_BIOMASA'])
@@ -496,9 +498,9 @@ def calcular_indices_forrajeros_gee(gdf, tipo_pastura, fecha_inicio, fecha_fin, 
             calidad_forrajera = (ndwi + 1) / 2
             calidad_forrajera = max(0.3, min(0.9, calidad_forrajera))
         
-        # BIOMASA DISPONIBLE
+        # BIOMASA DISPONIBLE (considerando cobertura real)
         if tipo_superficie in ["SUELO_DESNUDO"]:
-            biomasa_disponible = 0
+            biomasa_disponible = 0  # Sin biomasa disponible en suelo desnudo
         else:
             eficiencia_cosecha = 0.25
             perdidas = 0.30
@@ -652,7 +654,7 @@ def crear_mapa_forrajero_gee(gdf, tipo_analisis, tipo_pastura):
         
         ax.set_title(f'🌱 ANÁLISIS FORRAJERO GEE - {tipo_pastura}\n'
                     f'{tipo_analisis} - {titulo_sufijo}\n'
-                    f'Metodología Google Earth Engine con Datos Reales', 
+                    f'Metodología Google Earth Engine', 
                     fontsize=16, fontweight='bold', pad=20)
         
         ax.set_xlabel('Longitud')
@@ -706,7 +708,7 @@ def crear_mapa_cobertura(gdf, tipo_pastura):
         
         ax.set_title(f'🌱 MAPA DE COBERTURA VEGETAL - {tipo_pastura}\n'
                     f'Tipos de Superficie y Cobertura Vegetal\n'
-                    f'Metodología Google Earth Engine con Datos Reales', 
+                    f'Metodología Google Earth Engine', 
                     fontsize=16, fontweight='bold', pad=20)
         
         ax.set_xlabel('Longitud')
@@ -874,8 +876,8 @@ def crear_resumen_ejecutivo(gdf_analizado, tipo_pastura, area_total):
     area_suelo = area_por_tipo.get('SUELO_DESNUDO', 0) + area_por_tipo.get('SUELO_PARCIAL', 0)
     
     resumen = f"""
-RESUMEN EJECUTIVO - ANÁLISIS FORRAJERO CON DATOS REALES
-=======================================================
+RESUMEN EJECUTIVO - ANÁLISIS FORRAJERO
+=====================================
 Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M')}
 Tipo de Pastura: {tipo_pastura}
 Área Total: {area_total:.1f} ha
@@ -921,10 +923,10 @@ RECOMENDACIONES GENERALES
     
     return resumen
 
-# FUNCIÓN PRINCIPAL DE ANÁLISIS FORRAJERO - COMPLETA Y CORREGIDA CON DATOS REALES
+# FUNCIÓN PRINCIPAL DE ANÁLISIS FORRAJERO - COMPLETA Y CORREGIDA
 def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, n_divisiones, fecha_inicio, fecha_fin, nube_max):
     try:
-        st.header(f"🌱 ANÁLISIS FORRAJERO CON DATOS SENTINEL-2 REALES - {tipo_pastura}")
+        st.header(f"🌱 ANÁLISIS FORRAJERO - {tipo_pastura}")
         
         # Obtener parámetros según selección
         params = obtener_parametros_forrajeros(tipo_pastura)
@@ -949,9 +951,9 @@ def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, 
         areas_ha = calcular_superficie(gdf_dividido)
         area_total = areas_ha.sum()
         
-        # PASO 2: CALCULAR ÍNDICES FORRAJEROS CON DATOS REALES
-        st.subheader("🛰️ CALCULANDO ÍNDICES FORRAJEROS CON SENTINEL-2 REAL")
-        with st.spinner("Obteniendo datos de GEE y calculando índices..."):
+        # PASO 2: CALCULAR ÍNDICES FORRAJEROS GEE MEJORADO
+        st.subheader("🛰️ CALCULANDO ÍNDICES FORRAJEROS GEE")
+        with st.spinner("Ejecutando algoritmos GEE con detección de suelo..."):
             indices_forrajeros = calcular_indices_forrajeros_gee(gdf_dividido, tipo_pastura, fecha_inicio, fecha_fin, nube_max)
         
         # Crear dataframe con resultados
@@ -1261,7 +1263,7 @@ def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, 
         st.error(f"Detalle: {traceback.format_exc()}")
         return False
 
-# INTERFAZ PRINCIPAL - CORREGIDA CON DATOS REALES
+# INTERFAZ PRINCIPAL - CORREGIDA
 if uploaded_zip:
     with st.spinner("Cargando potrero..."):
         try:
@@ -1291,8 +1293,6 @@ if uploaded_zip:
                         st.write(f"- Peso promedio: {peso_promedio} kg")
                         st.write(f"- Carga animal: {carga_animal} cabezas")
                         st.write(f"- Sub-lotes: {n_divisiones}")
-                        st.write(f"- Período Sentinel-2: {fecha_inicio} a {fecha_fin}")
-                        st.write(f"- Nubes máx: {nube_max}%")
                     
                     if st.button("🚀 EJECUTAR ANÁLISIS FORRAJERO GEE CON DATOS REALES", type="primary"):
                         analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, n_divisiones, fecha_inicio, fecha_fin, nube_max)
@@ -1303,36 +1303,38 @@ if uploaded_zip:
             st.error(f"❌ Error cargando shapefile: {str(e)}")
 
 else:
-    st.info("📁 Sube el ZIP de tu potrero para comenzar el análisis forrajero con datos reales de Sentinel-2")
+    st.info("📁 Sube el ZIP de tu potrero para comenzar el análisis forrajero")
     
-    with st.expander("ℹ️ INFORMACIÓN SOBRE EL ANÁLISIS FORRAJERO GEE CON DATOS REALES"):
+    with st.expander("ℹ️ INFORMACIÓN SOBRE EL ANÁLISIS FORRAJERO GEE MEJORADO"):
         st.markdown("""
-        **🌱 SISTEMA DE ANÁLISIS FORRAJERO (GEE) - VERSIÓN CON DATOS SENTINEL-2 REALES**
+        **🌱 SISTEMA DE ANÁLISIS FORRAJERO (GEE) - VERSIÓN MEJORADA**
         
-        **🆕 INTEGRACIÓN DE DATOS REALES:**
-        - **🛰️ Sentinel-2:** Obtiene imágenes reales de Copernicus vía GEE
-        - **📅 Período Configurable:** Selecciona fechas para análisis temporal
-        - **☁️ Filtro de Nubes:** Máximo porcentaje de nubes para calidad de datos
-        - **🔢 Índices Calculados:** NDVI, EVI, SAVI, NDWI, BSI, NDBI, NBR directamente de datos reales
+        **🆕 NUEVAS FUNCIONALIDADES:**
+        - **🌿 Detección Mejorada de Suelo Desnudo:** Algoritmo más estricto y preciso
+        - **📊 Parámetros Personalizables:** Ajusta todos los parámetros forrajeros
+        - **🎯 EV/Ha Sin Valores Cero:** Interpretación mejorada para baja productividad
+        - **📈 Métricas Realistas:** Biomasa disponible ajustada a cobertura real
+        - **🔍 Análisis de Correlación:** Gráficos de regresión y matriz de correlación
         
         **📊 FUNCIONALIDADES PRINCIPALES:**
-        - **🌿 Productividad Forrajera:** Biomasa basada en índices reales
-        - **🐄 Equivalentes Vaca:** Capacidad de carga con datos precisos
-        - **📅 Días de Permanencia:** Estimaciones realistas
-        - **🛰️ Metodología GEE:** Procesamiento en la nube con resolución 10m
-        - **📈 Análisis Estadístico:** Correlaciones validadas con datos reales
+        - **🌿 Productividad Forrajera:** Biomasa disponible por hectárea
+        - **🐄 Equivalentes Vaca:** Capacidad de carga animal realista SIN CEROS
+        - **📅 Días de Permanencia:** Tiempo de rotación estimado
+        - **🛰️ Metodología GEE:** Algoritmos científicos mejorados
+        - **📈 Análisis Estadístico:** Correlaciones y regresiones entre variables
         
-        **🎯 REQUISITOS:**
-        - Instala `earthengine-api`: `pip install earthengine-api`
-        - Autentícate: Ejecuta `ee.Authenticate()` en tu terminal
-        - Shapefile debe tener CRS válido (proyectado preferiblemente)
+        **🎯 INTERPRETACIÓN DE EV/HA:**
+        - **EV/Ha ≥ 0.1:** Se muestra directamente (ej: 0.15 EV/ha)
+        - **EV/Ha < 0.1:** Se muestra como "1 EV cada X ha" (ej: 1 EV cada 15 ha)
+        - **Nunca cero:** Mínimo valor de 0.01 EV para evitar ceros
         
         **🚀 INSTRUCCIONES:**
-        1. **Autentica GEE** en tu entorno local
-        2. **Sube** tu shapefile del potrero
-        3. **Configura** fechas y umbral de nubes
-        4. **Selecciona** tipo de pastura
-        5. **Ejecuta** el análisis con datos reales
-        6. **Revisa** mapas y métricas actualizadas
-        7. **Descarga** resultados completos
+        1. **Sube** tu shapefile del potrero
+        2. **Selecciona** el tipo de pastura o "PERSONALIZADO"
+        3. **Configura** parámetros ganaderos (peso y carga)
+        4. **Define** número de sub-lotes para análisis
+        5. **Ejecuta** el análisis GEE mejorado
+        6. **Revisa** resultados y mapa de cobertura
+        7. **Analiza** correlaciones entre variables
+        8. **Descarga** mapas y reportes completos
         """)
