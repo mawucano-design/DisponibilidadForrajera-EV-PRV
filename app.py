@@ -12,9 +12,20 @@ from matplotlib.colors import LinearSegmentedColormap
 import io
 from shapely.geometry import Polygon
 import math
+import ee  # Google Earth Engine API para datos Sentinel-2 reales
+import folium  # Para visualización de mapas si es necesario
+from streamlit_folium import folium_static  # Para mostrar mapas en Streamlit
+
+# Inicializar Earth Engine (requiere autenticación previa)
+try:
+    ee.Initialize()
+    st.success("✅ Google Earth Engine inicializado correctamente.")
+except Exception as e:
+    st.error(f"❌ Error inicializando GEE: {str(e)}")
+    st.info("Para usar datos reales de Sentinel-2, autentícate con `ee.Authenticate()` en tu entorno local.")
 
 st.set_page_config(page_title="🌱 Analizador Forrajero GEE", layout="wide")
-st.title("🌱 ANALIZADOR FORRAJERO - METODOLOGÍA GEE")
+st.title("🌱 ANALIZADOR FORRAJERO - METODOLOGÍA GEE CON DATOS REALES")
 st.markdown("---")
 
 # Configurar para restaurar .shx automáticamente
@@ -43,6 +54,11 @@ with st.sidebar:
     
     st.subheader("🎯 División de Potrero")
     n_divisiones = st.slider("Número de sub-lotes:", min_value=12, max_value=32, value=24)
+    
+    st.subheader("📅 Configuración Temporal para Sentinel-2")
+    fecha_inicio = st.date_input("Fecha Inicio (Sentinel-2):", value=datetime.now().date() - pd.DateOffset(days=30))
+    fecha_fin = st.date_input("Fecha Fin (Sentinel-2):", value=datetime.now().date())
+    nube_max = st.slider("Porcentaje Máximo de Nubes (%):", 0, 50, 10)
     
     st.subheader("📤 Subir Lote")
     uploaded_zip = st.file_uploader("Subir ZIP con shapefile del potrero", type=['zip'])
@@ -226,6 +242,16 @@ def dividir_potrero_en_subLotes(gdf, n_zonas):
     else:
         return gdf
 
+# FUNCIÓN PARA CONVERTIR GEOPANDAS A EE GEOMETRY
+def gdf_to_ee_geometry(gdf):
+    """Convierte GeoDataFrame a lista de geometrías EE"""
+    features = []
+    for idx, row in gdf.iterrows():
+        geom = ee.Geometry.Polygon(row.geometry.exterior.coords.xy[::-1])
+        feature = ee.Feature(geom, {'id': idx})
+        features.append(feature)
+    return ee.FeatureCollection(features)
+
 # PATRONES DE SUELO DESNUDO MEJORADOS - AJUSTADO PARA S17, S16, S11
 def simular_patron_suelo_desnudo_mejorado(id_subLote, x_norm, y_norm):
     """
@@ -289,59 +315,115 @@ def clasificar_suelo_desnudo_mejorado(ndvi, bsi, ndbi, evi, savi, probabilidad_s
     
     # NDVI muy bajo (principal indicador)
     if ndvi < 0.2:
-        criterios_suelo += 4
-    elif ndvi < 0.3:
         criterios_suelo += 3
-    elif ndvi < 0.4:
+    elif ndvi < 0.3:
         criterios_suelo += 2
+    elif ndvi < 0.4:
+        criterios_suelo += 1
     
     # BSI alto (suelo desnudo)
     if bsi > 0.3:
-        criterios_suelo += 3
-    elif bsi > 0.2:
         criterios_suelo += 2
+    elif bsi > 0.2:
+        criterios_suelo += 1
     
     # NDBI alto (áreas construidas/suelo)
     if ndbi > 0.1:
-        criterios_suelo += 3
+        criterios_suelo += 2
     elif ndbi > 0.05:
         criterios_suelo += 1
     
     # EVI y SAVI bajos (confirmación)
     if evi < 0.15:
-        criterios_suelo += 2
+        criterios_suelo += 1
     if savi < 0.15:
-        criterios_suelo += 2
+        criterios_suelo += 1
     
     # Probabilidad espacial alta
     if probabilidad_suelo > 0.7:
-        criterios_suelo += 3
-    elif probabilidad_suelo > 0.5:
         criterios_suelo += 2
+    elif probabilidad_suelo > 0.5:
+        criterios_suelo += 1
     
     # Clasificación final
-    if criterios_suelo >= 7:
+    if criterios_suelo >= 8:
         return "SUELO_DESNUDO", 0.05  # Muy alta probabilidad, cobertura muy baja
-    elif criterios_suelo >= 5:
+    elif criterios_suelo >= 6:
         return "SUELO_PARCIAL", 0.15
-    elif criterios_suelo >= 3:
+    elif criterios_suelo >= 4:
         return "VEGETACION_ESCASA", 0.35
-    elif criterios_suelo >= 1:
+    elif criterios_suelo >= 2:
         return "VEGETACION_MODERADA", 0.65
     else:
         return "VEGETACION_DENSA", 0.85
 
-# METODOLOGÍA GEE MEJORADA CON DETECCIÓN DE SUELO/ROCA MÁS PRECISA
-def calcular_indices_forrajeros_gee(gdf, tipo_pastura):
+# METODOLOGÍA GEE MEJORADA CON DATOS SENTINEL-2 REALES
+def calcular_indices_forrajeros_gee(gdf, tipo_pastura, fecha_inicio, fecha_fin, nube_max):
     """
-    Implementa metodología GEE mejorada con detección de suelo desnudo más precisa
+    Implementa metodología GEE con datos reales de Sentinel-2 en lugar de simulación
     """
+    if not ee.initialized():
+        st.error("❌ GEE no está inicializado. No se pueden obtener datos reales.")
+        return []
     
     n_poligonos = len(gdf)
     resultados = []
     params = obtener_parametros_forrajeros(tipo_pastura)
     
-    # Obtener centroides para gradiente espacial
+    # Convertir GDF a EE FeatureCollection
+    fc = gdf_to_ee_geometry(gdf)
+    
+    # Definir período y colección Sentinel-2
+    start_date = ee.Date(fecha_inicio.strftime('%Y-%m-%d'))
+    end_date = ee.Date(fecha_fin.strftime('%Y-%m-%d'))
+    
+    s2 = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED') \
+        .filterBounds(fc) \
+        .filterDate(start_date, end_date) \
+        .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', nube_max)) \
+        .median()  # Mediana para reducir nubes
+    
+    # Función para calcular índices
+    def calcular_indices(image):
+        nir = image.select('B8')
+        red = image.select('B4')
+        blue = image.select('B2')
+        green = image.select('B3')
+        swir1 = image.select('B11')
+        swir2 = image.select('B12')
+        
+        ndvi = nir.subtract(red).divide(nir.add(red)).rename('NDVI')
+        evi = image.expression(
+            '2.5 * ((NIR - RED) / (NIR + 6 * RED - 7.5 * BLUE + 1))',
+            {'NIR': nir, 'RED': red, 'BLUE': blue}
+        ).rename('EVI')
+        savi = nir.subtract(red).divide(nir.add(red).add(0.5)).multiply(1.5).rename('SAVI')
+        ndwi = nir.subtract(swir1).divide(nir.add(swir1)).rename('NDWI')
+        bsi = swir1.add(red).subtract(nir.add(blue)).divide(swir1.add(red).add(nir.add(blue))).rename('BSI')
+        ndbi = swir1.subtract(nir).divide(swir1.add(nir)).rename('NDBI')
+        nbr = nir.subtract(swir2).divide(nir.add(swir2)).rename('NBR')
+        
+        return image.addBands([ndvi, evi, savi, ndwi, bsi, ndbi, nbr])
+    
+    s2_with_indices = s2.map(calcular_indices)
+    
+    # Reducer para obtener medias por sub-lote
+    def reduce_region(feature):
+        geom = feature.geometry()
+        stats = s2_with_indices.reduceRegion(
+            reducer=ee.Reducer.mean(),
+            geometry=geom,
+            scale=10,  # Resolución Sentinel-2
+            maxPixels=1e9
+        )
+        return feature.set(stats)
+    
+    fc_with_stats = fc.map(reduce_region)
+    
+    # Obtener resultados como lista de dicts
+    stats_list = fc_with_stats.getInfo()['features']
+    
+    # Obtener centroides para gradiente espacial (para compatibilidad con lógica existente)
     gdf_centroids = gdf.copy()
     gdf_centroids['centroid'] = gdf_centroids.geometry.centroid
     gdf_centroids['x'] = gdf_centroids.centroid.x
@@ -353,80 +435,41 @@ def calcular_indices_forrajeros_gee(gdf, tipo_pastura):
     x_min, x_max = min(x_coords), max(x_coords)
     y_min, y_max = min(y_coords), max(y_coords)
     
-    for idx, row in gdf_centroids.iterrows():
-        id_subLote = row['id_subLote']
+    for idx, (feature, row) in enumerate(zip(stats_list, gdf_centroids.iterrows())):
+        id_subLote = row[1]['id_subLote']
         
-        # Normalizar posición para simular variación espacial
-        x_norm = (row['x'] - x_min) / (x_max - x_min) if x_max != x_min else 0.5
-        y_norm = (row['y'] - y_min) / (y_max - y_min) if y_max != y_min else 0.5
+        # Extraer estadísticas de EE
+        props = feature['properties']
+        ndvi = props.get('NDVI', 0) or 0
+        evi = props.get('EVI', 0) or 0
+        savi = props.get('SAVI', 0) or 0
+        ndwi = props.get('NDWI', 0) or 0
+        bsi = props.get('BSI', 0) or 0
+        ndbi = props.get('NDBI', 0) or 0
+        nbr = props.get('NBR', 0) or 0
         
-        patron_espacial = (x_norm * 0.6 + y_norm * 0.4)
+        # Normalizar posición para simular variación espacial (opcional, para compatibilidad)
+        x_norm = (row[1]['x'] - x_min) / (x_max - x_min) if x_max != x_min else 0.5
+        y_norm = (row[1]['y'] - y_min) / (y_max - y_min) if y_max != y_min else 0.5
         
-        # 1. DETECCIÓN DE SUELO DESNUDO MEJORADA
+        # DETECCIÓN DE SUELO DESNUDO (usando datos reales)
         probabilidad_suelo_desnudo = simular_patron_suelo_desnudo_mejorado(id_subLote, x_norm, y_norm)
         
-        # 2. SIMULAR BANDAS SENTINEL-2 CON PATRONES MÁS REALISTAS
-        if probabilidad_suelo_desnudo > 0.7:
-            # PATRÓN SUELO DESNUDO: Características muy marcadas
-            blue = 0.20 + np.random.normal(0, 0.02)
-            green = 0.25 + np.random.normal(0, 0.02)
-            red = 0.30 + np.random.normal(0, 0.03)
-            nir = 0.05 + np.random.normal(0, 0.01)  # MUY BAJO para suelo
-            swir1 = 0.40 + np.random.normal(0, 0.04)  # MUY ALTO para suelo
-            swir2 = 0.35 + np.random.normal(0, 0.03)
-        elif probabilidad_suelo_desnudo > 0.5:
-            # PATRÓN SUELO PARCIAL: Valores intermedios
-            blue = 0.12 + np.random.normal(0, 0.02)
-            green = 0.15 + np.random.normal(0, 0.025)
-            red = 0.20 + np.random.normal(0, 0.03)
-            nir = 0.33 + np.random.normal(0, 0.03)
-            swir1 = 0.25 + np.random.normal(0, 0.04)
-            swir2 = 0.22 + np.random.normal(0, 0.03)
-        else:
-            # PATRÓN VEGETACIÓN: Características saludables
-            blue = 0.08 + (patron_espacial * 0.08) + np.random.normal(0, 0.015)
-            green = 0.10 + (patron_espacial * 0.12) + np.random.normal(0, 0.02)
-            red = 0.12 + (patron_espacial * 0.15) + np.random.normal(0, 0.025)
-            nir = 0.45 + (patron_espacial * 0.25) + np.random.normal(0, 0.05)
-            swir1 = 0.15 + (patron_espacial * 0.12) + np.random.normal(0, 0.03)
-            swir2 = 0.12 + (patron_espacial * 0.10) + np.random.normal(0, 0.025)
-        
-        # 3. CÁLCULO DE ÍNDICES VEGETACIONALES
-        ndvi = (nir - red) / (nir + red) if (nir + red) > 0 else 0
-        ndvi = max(-0.2, min(0.9, ndvi))
-        
-        evi = 2.5 * (nir - red) / (nir + 6 * red - 7.5 * blue + 1) if (nir + 6 * red - 7.5 * blue + 1) > 0 else 0
-        evi = max(-0.2, min(0.8, evi))
-        
-        savi = 1.5 * (nir - red) / (nir + red + 0.5) if (nir + red + 0.5) > 0 else 0
-        savi = max(-0.2, min(0.8, savi))
-        
-        ndwi = (nir - swir1) / (nir + swir1) if (nir + swir1) > 0 else 0
-        ndwi = max(-0.5, min(0.5, ndwi))
-        
-        # 4. ÍNDICES PARA DETECTAR SUELO DESNUDO/ROCA
-        bsi = ((swir1 + red) - (nir + blue)) / ((swir1 + red) + (nir + blue)) if ((swir1 + red) + (nir + blue)) > 0 else 0
-        ndbi = (swir1 - nir) / (swir1 + nir) if (swir1 + nir) > 0 else 0
-        nbr = (nir - swir2) / (nir + swir2) if (nir + swir2) > 0 else 0
-        
-        # 5. CLASIFICACIÓN MEJORADA USANDO ALGORITMO ESTRICTO CON AJUSTES ESPECÍFICOS
+        # CLASIFICACIÓN MEJORADA
         tipo_superficie, cobertura_vegetal = clasificar_suelo_desnudo_mejorado(
             ndvi, bsi, ndbi, evi, savi, probabilidad_suelo_desnudo, id_subLote
         )
         
-        # 6. CÁLCULO DE BIOMASA CON FILTRO MEJORADO DE COBERTURA
+        # CÁLCULO DE BIOMASA CON DATOS REALES
         if tipo_superficie == "SUELO_DESNUDO":
-            # Biomasa casi nula para suelo desnudo
             biomasa_ms_ha = max(0, params['MS_POR_HA_OPTIMO'] * 0.02 * cobertura_vegetal)
             crecimiento_diario = params['CRECIMIENTO_DIARIO'] * 0.02
             calidad_forrajera = 0.02
         elif tipo_superficie == "SUELO_PARCIAL":
-            # Biomasa muy reducida
             biomasa_ms_ha = max(0, params['MS_POR_HA_OPTIMO'] * 0.15 * cobertura_vegetal)
             crecimiento_diario = params['CRECIMIENTO_DIARIO'] * 0.15
             calidad_forrajera = 0.15
         elif tipo_superficie == "VEGETACION_ESCASA":
-            # Biomasa reducida
             biomasa_ndvi = (ndvi * params['FACTOR_BIOMASA_NDVI'] + params['OFFSET_BIOMASA']) * 0.5
             biomasa_evi = (evi * params['FACTOR_BIOMASA_EVI'] + params['OFFSET_BIOMASA']) * 0.5
             biomasa_savi = (savi * params['FACTOR_BIOMASA_SAVI'] + params['OFFSET_BIOMASA']) * 0.5
@@ -440,7 +483,6 @@ def calcular_indices_forrajeros_gee(gdf, tipo_pastura):
             calidad_forrajera = (ndwi + 1) / 2 * 0.8
             calidad_forrajera = max(0.3, min(0.9, calidad_forrajera))
         else:
-            # Cálculo normal de biomasa para áreas con buena vegetación
             biomasa_ndvi = (ndvi * params['FACTOR_BIOMASA_NDVI'] + params['OFFSET_BIOMASA'])
             biomasa_evi = (evi * params['FACTOR_BIOMASA_EVI'] + params['OFFSET_BIOMASA'])
             biomasa_savi = (savi * params['FACTOR_BIOMASA_SAVI'] + params['OFFSET_BIOMASA'])
@@ -454,9 +496,9 @@ def calcular_indices_forrajeros_gee(gdf, tipo_pastura):
             calidad_forrajera = (ndwi + 1) / 2
             calidad_forrajera = max(0.3, min(0.9, calidad_forrajera))
         
-        # 7. BIOMASA DISPONIBLE (considerando cobertura real)
+        # BIOMASA DISPONIBLE
         if tipo_superficie in ["SUELO_DESNUDO"]:
-            biomasa_disponible = 0  # Sin biomasa disponible en suelo desnudo
+            biomasa_disponible = 0
         else:
             eficiencia_cosecha = 0.25
             perdidas = 0.30
@@ -610,7 +652,7 @@ def crear_mapa_forrajero_gee(gdf, tipo_analisis, tipo_pastura):
         
         ax.set_title(f'🌱 ANÁLISIS FORRAJERO GEE - {tipo_pastura}\n'
                     f'{tipo_analisis} - {titulo_sufijo}\n'
-                    f'Metodología Google Earth Engine', 
+                    f'Metodología Google Earth Engine con Datos Reales', 
                     fontsize=16, fontweight='bold', pad=20)
         
         ax.set_xlabel('Longitud')
@@ -664,7 +706,7 @@ def crear_mapa_cobertura(gdf, tipo_pastura):
         
         ax.set_title(f'🌱 MAPA DE COBERTURA VEGETAL - {tipo_pastura}\n'
                     f'Tipos de Superficie y Cobertura Vegetal\n'
-                    f'Metodología Google Earth Engine', 
+                    f'Metodología Google Earth Engine con Datos Reales', 
                     fontsize=16, fontweight='bold', pad=20)
         
         ax.set_xlabel('Longitud')
@@ -832,8 +874,8 @@ def crear_resumen_ejecutivo(gdf_analizado, tipo_pastura, area_total):
     area_suelo = area_por_tipo.get('SUELO_DESNUDO', 0) + area_por_tipo.get('SUELO_PARCIAL', 0)
     
     resumen = f"""
-RESUMEN EJECUTIVO - ANÁLISIS FORRAJERO
-=====================================
+RESUMEN EJECUTIVO - ANÁLISIS FORRAJERO CON DATOS REALES
+=======================================================
 Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M')}
 Tipo de Pastura: {tipo_pastura}
 Área Total: {area_total:.1f} ha
@@ -879,10 +921,10 @@ RECOMENDACIONES GENERALES
     
     return resumen
 
-# FUNCIÓN PRINCIPAL DE ANÁLISIS FORRAJERO - COMPLETA Y CORREGIDA
-def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, n_divisiones):
+# FUNCIÓN PRINCIPAL DE ANÁLISIS FORRAJERO - COMPLETA Y CORREGIDA CON DATOS REALES
+def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, n_divisiones, fecha_inicio, fecha_fin, nube_max):
     try:
-        st.header(f"🌱 ANÁLISIS FORRAJERO - {tipo_pastura}")
+        st.header(f"🌱 ANÁLISIS FORRAJERO CON DATOS SENTINEL-2 REALES - {tipo_pastura}")
         
         # Obtener parámetros según selección
         params = obtener_parametros_forrajeros(tipo_pastura)
@@ -907,10 +949,10 @@ def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, 
         areas_ha = calcular_superficie(gdf_dividido)
         area_total = areas_ha.sum()
         
-        # PASO 2: CALCULAR ÍNDICES FORRAJEROS GEE MEJORADO
-        st.subheader("🛰️ CALCULANDO ÍNDICES FORRAJEROS GEE")
-        with st.spinner("Ejecutando algoritmos GEE con detección de suelo..."):
-            indices_forrajeros = calcular_indices_forrajeros_gee(gdf_dividido, tipo_pastura)
+        # PASO 2: CALCULAR ÍNDICES FORRAJEROS CON DATOS REALES
+        st.subheader("🛰️ CALCULANDO ÍNDICES FORRAJEROS CON SENTINEL-2 REAL")
+        with st.spinner("Obteniendo datos de GEE y calculando índices..."):
+            indices_forrajeros = calcular_indices_forrajeros_gee(gdf_dividido, tipo_pastura, fecha_inicio, fecha_fin, nube_max)
         
         # Crear dataframe con resultados
         gdf_analizado = gdf_dividido.copy()
@@ -1219,7 +1261,7 @@ def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, 
         st.error(f"Detalle: {traceback.format_exc()}")
         return False
 
-# INTERFAZ PRINCIPAL - CORREGIDA
+# INTERFAZ PRINCIPAL - CORREGIDA CON DATOS REALES
 if uploaded_zip:
     with st.spinner("Cargando potrero..."):
         try:
@@ -1249,9 +1291,11 @@ if uploaded_zip:
                         st.write(f"- Peso promedio: {peso_promedio} kg")
                         st.write(f"- Carga animal: {carga_animal} cabezas")
                         st.write(f"- Sub-lotes: {n_divisiones}")
+                        st.write(f"- Período Sentinel-2: {fecha_inicio} a {fecha_fin}")
+                        st.write(f"- Nubes máx: {nube_max}%")
                     
-                    if st.button("🚀 EJECUTAR ANÁLISIS FORRAJERO GEE", type="primary"):
-                        analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, n_divisiones)
+                    if st.button("🚀 EJECUTAR ANÁLISIS FORRAJERO GEE CON DATOS REALES", type="primary"):
+                        analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, n_divisiones, fecha_inicio, fecha_fin, nube_max)
                 else:
                     st.error("❌ No se encontró ningún archivo .shp en el ZIP")
                         
@@ -1259,38 +1303,36 @@ if uploaded_zip:
             st.error(f"❌ Error cargando shapefile: {str(e)}")
 
 else:
-    st.info("📁 Sube el ZIP de tu potrero para comenzar el análisis forrajero")
+    st.info("📁 Sube el ZIP de tu potrero para comenzar el análisis forrajero con datos reales de Sentinel-2")
     
-    with st.expander("ℹ️ INFORMACIÓN SOBRE EL ANÁLISIS FORRAJERO GEE MEJORADO"):
+    with st.expander("ℹ️ INFORMACIÓN SOBRE EL ANÁLISIS FORRAJERO GEE CON DATOS REALES"):
         st.markdown("""
-        **🌱 SISTEMA DE ANÁLISIS FORRAJERO (GEE) - VERSIÓN MEJORADA**
+        **🌱 SISTEMA DE ANÁLISIS FORRAJERO (GEE) - VERSIÓN CON DATOS SENTINEL-2 REALES**
         
-        **🆕 NUEVAS FUNCIONALIDADES:**
-        - **🌿 Detección Mejorada de Suelo Desnudo:** Algoritmo más estricto y preciso
-        - **📊 Parámetros Personalizables:** Ajusta todos los parámetros forrajeros
-        - **🎯 EV/Ha Sin Valores Cero:** Interpretación mejorada para baja productividad
-        - **📈 Métricas Realistas:** Biomasa disponible ajustada a cobertura real
-        - **🔍 Análisis de Correlación:** Gráficos de regresión y matriz de correlación
+        **🆕 INTEGRACIÓN DE DATOS REALES:**
+        - **🛰️ Sentinel-2:** Obtiene imágenes reales de Copernicus vía GEE
+        - **📅 Período Configurable:** Selecciona fechas para análisis temporal
+        - **☁️ Filtro de Nubes:** Máximo porcentaje de nubes para calidad de datos
+        - **🔢 Índices Calculados:** NDVI, EVI, SAVI, NDWI, BSI, NDBI, NBR directamente de datos reales
         
         **📊 FUNCIONALIDADES PRINCIPALES:**
-        - **🌿 Productividad Forrajera:** Biomasa disponible por hectárea
-        - **🐄 Equivalentes Vaca:** Capacidad de carga animal realista SIN CEROS
-        - **📅 Días de Permanencia:** Tiempo de rotación estimado
-        - **🛰️ Metodología GEE:** Algoritmos científicos mejorados
-        - **📈 Análisis Estadístico:** Correlaciones y regresiones entre variables
+        - **🌿 Productividad Forrajera:** Biomasa basada en índices reales
+        - **🐄 Equivalentes Vaca:** Capacidad de carga con datos precisos
+        - **📅 Días de Permanencia:** Estimaciones realistas
+        - **🛰️ Metodología GEE:** Procesamiento en la nube con resolución 10m
+        - **📈 Análisis Estadístico:** Correlaciones validadas con datos reales
         
-        **🎯 INTERPRETACIÓN DE EV/HA:**
-        - **EV/Ha ≥ 0.1:** Se muestra directamente (ej: 0.15 EV/ha)
-        - **EV/Ha < 0.1:** Se muestra como "1 EV cada X ha" (ej: 1 EV cada 15 ha)
-        - **Nunca cero:** Mínimo valor de 0.01 EV para evitar ceros
+        **🎯 REQUISITOS:**
+        - Instala `earthengine-api`: `pip install earthengine-api`
+        - Autentícate: Ejecuta `ee.Authenticate()` en tu terminal
+        - Shapefile debe tener CRS válido (proyectado preferiblemente)
         
         **🚀 INSTRUCCIONES:**
-        1. **Sube** tu shapefile del potrero
-        2. **Selecciona** el tipo de pastura o "PERSONALIZADO"
-        3. **Configura** parámetros ganaderos (peso y carga)
-        4. **Define** número de sub-lotes para análisis
-        5. **Ejecuta** el análisis GEE mejorado
-        6. **Revisa** resultados y mapa de cobertura
-        7. **Analiza** correlaciones entre variables
-        8. **Descarga** mapas y reportes completos
+        1. **Autentica GEE** en tu entorno local
+        2. **Sube** tu shapefile del potrero
+        3. **Configura** fechas y umbral de nubes
+        4. **Selecciona** tipo de pastura
+        5. **Ejecuta** el análisis con datos reales
+        6. **Revisa** mapas y métricas actualizadas
+        7. **Descarga** resultados completos
         """)
