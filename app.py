@@ -692,6 +692,113 @@ def crear_mapa_cobertura(gdf, tipo_pastura):
         st.error(f"❌ Error creando mapa de cobertura: {str(e)}")
         return None
 
+# FUNCIÓN DE VALIDACIÓN PARA VERIFICAR CORRELACIÓN (RESTAURADA)
+def validar_correlacion_datos(gdf_analizado):
+    """
+    Valida la correlación entre variables forrajeras
+    """
+    try:
+        # Seleccionar columnas numéricas para correlación
+        columnas_numericas = ['biomasa_disponible_kg_ms_ha', 'ev_ha', 'dias_permanencia', 'area_ha', 
+                             'ndvi', 'evi', 'cobertura_vegetal']
+        
+        # Filtrar solo las columnas que existen en el DataFrame
+        columnas_existentes = [col for col in columnas_numericas if col in gdf_analizado.columns]
+        
+        correlaciones = gdf_analizado[columnas_existentes].corr()
+        
+        # Crear figura con subplots
+        fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+        
+        # Gráfico 1: Biomasa vs Días Permanencia
+        if 'biomasa_disponible_kg_ms_ha' in gdf_analizado.columns and 'dias_permanencia' in gdf_analizado.columns:
+            axes[0,0].scatter(gdf_analizado['biomasa_disponible_kg_ms_ha'], gdf_analizado['dias_permanencia'], 
+                             alpha=0.6, color='blue')
+            axes[0,0].set_xlabel('Biomasa Disponible (kg MS/ha)')
+            axes[0,0].set_ylabel('Días Permanencia')
+            axes[0,0].set_title('Biomasa vs Días Permanencia')
+            axes[0,0].grid(True, alpha=0.3)
+            
+            # Añadir línea de tendencia
+            try:
+                z = np.polyfit(gdf_analizado['biomasa_disponible_kg_ms_ha'], gdf_analizado['dias_permanencia'], 1)
+                p = np.poly1d(z)
+                axes[0,0].plot(gdf_analizado['biomasa_disponible_kg_ms_ha'], 
+                              p(gdf_analizado['biomasa_disponible_kg_ms_ha']), 
+                              "r--", alpha=0.8)
+            except:
+                pass
+        
+        # Gráfico 2: EV/Ha vs Días Permanencia
+        if 'ev_ha' in gdf_analizado.columns and 'dias_permanencia' in gdf_analizado.columns:
+            axes[0,1].scatter(gdf_analizado['ev_ha'], gdf_analizado['dias_permanencia'], 
+                             alpha=0.6, color='green')
+            axes[0,1].set_xlabel('EV/Ha')
+            axes[0,1].set_ylabel('Días Permanencia')
+            axes[0,1].set_title('EV/Ha vs Días Permanencia')
+            axes[0,1].grid(True, alpha=0.3)
+            
+            # Añadir línea de tendencia
+            try:
+                z = np.polyfit(gdf_analizado['ev_ha'], gdf_analizado['dias_permanencia'], 1)
+                p = np.poly1d(z)
+                axes[0,1].plot(gdf_analizado['ev_ha'], 
+                              p(gdf_analizado['ev_ha']), 
+                              "r--", alpha=0.8)
+            except:
+                pass
+        
+        # Gráfico 3: NDVI vs Biomasa Disponible
+        if 'ndvi' in gdf_analizado.columns and 'biomasa_disponible_kg_ms_ha' in gdf_analizado.columns:
+            axes[1,0].scatter(gdf_analizado['ndvi'], gdf_analizado['biomasa_disponible_kg_ms_ha'], 
+                             alpha=0.6, color='orange')
+            axes[1,0].set_xlabel('NDVI')
+            axes[1,0].set_ylabel('Biomasa Disponible (kg MS/ha)')
+            axes[1,0].set_title('NDVI vs Biomasa Disponible')
+            axes[1,0].grid(True, alpha=0.3)
+            
+            # Añadir línea de tendencia
+            try:
+                z = np.polyfit(gdf_analizado['ndvi'], gdf_analizado['biomasa_disponible_kg_ms_ha'], 1)
+                p = np.poly1d(z)
+                axes[1,0].plot(gdf_analizado['ndvi'], 
+                              p(gdf_analizado['ndvi']), 
+                              "r--", alpha=0.8)
+            except:
+                pass
+        
+        # Gráfico 4: Matriz de Correlación
+        im = axes[1,1].imshow(correlaciones.values, cmap='coolwarm', aspect='auto', vmin=-1, vmax=1)
+        axes[1,1].set_xticks(range(len(correlaciones.columns)))
+        axes[1,1].set_yticks(range(len(correlaciones.columns)))
+        axes[1,1].set_xticklabels(correlaciones.columns, rotation=45, ha='right')
+        axes[1,1].set_yticklabels(correlaciones.columns)
+        axes[1,1].set_title('Matriz de Correlación')
+        
+        # Añadir valores de correlación en la matriz
+        for i in range(len(correlaciones.columns)):
+            for j in range(len(correlaciones.columns)):
+                color = 'white' if abs(correlaciones.iloc[i, j]) > 0.5 else 'black'
+                axes[1,1].text(j, i, f'{correlaciones.iloc[i, j]:.2f}', 
+                              ha='center', va='center', color=color, fontsize=9, fontweight='bold')
+        
+        # Añadir barra de color para la matriz
+        cbar = plt.colorbar(im, ax=axes[1,1], shrink=0.8)
+        cbar.set_label('Coeficiente de Correlación', fontsize=10)
+        
+        plt.tight_layout()
+        
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+        buf.seek(0)
+        plt.close()
+        
+        return buf, correlaciones
+        
+    except Exception as e:
+        st.error(f"Error en validación de correlación: {str(e)}")
+        return None, None
+
 # NUEVA FUNCIÓN PARA INTERPRETAR EV/HA PEQUEÑOS
 def interpretar_ev_ha(ev_ha):
     """
@@ -702,6 +809,77 @@ def interpretar_ev_ha(ev_ha):
     else:
         ha_por_ev = 1 / ev_ha if ev_ha > 0 else 1000
         return f"1 EV cada {ha_por_ev:.1f} ha", f"{ev_ha:.3f}"
+
+# FUNCIÓN PARA CREAR ARCHIVO ZIP (RESTAURADA)
+def create_zip_file(files):
+    """Crea un archivo ZIP con múltiples archivos"""
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w') as zip_file:
+        for file_name, file_data in files:
+            zip_file.writestr(file_name, file_data)
+    zip_buffer.seek(0)
+    return zip_buffer.getvalue()
+
+# FUNCIÓN PARA CREAR RESUMEN EJECUTIVO (RESTAURADA)
+def crear_resumen_ejecutivo(gdf_analizado, tipo_pastura, area_total):
+    """Crea un resumen ejecutivo en texto"""
+    total_ev = gdf_analizado['ev_soportable'].sum()
+    dias_prom = gdf_analizado['dias_permanencia'].mean()
+    biomasa_prom = gdf_analizado['biomasa_disponible_kg_ms_ha'].mean()
+    biomasa_total = gdf_analizado['biomasa_total_kg'].sum()
+    
+    # Calcular áreas por tipo de superficie
+    area_por_tipo = gdf_analizado.groupby('tipo_superficie')['area_ha'].sum()
+    area_vegetacion = area_por_tipo.get('VEGETACION_DENSA', 0) + area_por_tipo.get('VEGETACION_MODERADA', 0) + area_por_tipo.get('VEGETACION_ESCASA', 0)
+    area_suelo = area_por_tipo.get('SUELO_DESNUDO', 0) + area_por_tipo.get('SUELO_PARCIAL', 0)
+    
+    resumen = f"""
+RESUMEN EJECUTIVO - ANÁLISIS FORRAJERO
+=====================================
+Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+Tipo de Pastura: {tipo_pastura}
+Área Total: {area_total:.1f} ha
+Sub-Lotes Analizados: {len(gdf_analizado)}
+
+MÉTRICAS PRINCIPALES
+-------------------
+• Capacidad Total: {total_ev:.0f} Equivalentes Vaca
+• Permanencia Promedio: {dias_prom:.0f} días
+• Biomasa Disponible Promedio: {biomasa_prom:.0f} kg MS/ha
+• Biomasa Total: {biomasa_total/1000:.1f} ton MS
+
+ANÁLISIS DE COBERTURA
+-------------------
+• Área con Vegetación: {area_vegetacion:.1f} ha ({(area_vegetacion/area_total*100):.1f}%)
+• Área sin Vegetación: {area_suelo:.1f} ha ({(area_suelo/area_total*100):.1f}%)
+• Cobertura Vegetal Promedio: {(gdf_analizado['cobertura_vegetal'].mean()*100):.1f}%
+
+DISTRIBUCIÓN POR CATEGORÍA DE MANEJO
+-----------------------------------
+"""
+    
+    categorias = gdf_analizado['categoria_manejo'].value_counts()
+    for cat, count in categorias.items():
+        area_cat = gdf_analizado[gdf_analizado['categoria_manejo'] == cat]['area_ha'].sum()
+        porcentaje = (area_cat/area_total*100)
+        resumen += f"• {cat}: {count} sub-lotes, {area_cat:.1f} ha ({porcentaje:.1f}%)\n"
+    
+    resumen += f"""
+RECOMENDACIONES GENERALES
+-----------------------
+"""
+    
+    if dias_prom < 15:
+        resumen += "• ROTACIÓN URGENTE: Considerar reducir carga animal o suplementar\n"
+    elif dias_prom < 30:
+        resumen += "• MANEJO VIGILANTE: Monitorear crecimiento y planificar rotaciones\n"
+    else:
+        resumen += "• SITUACIÓN ÓPTIMA: Mantener manejo actual y monitorear periódicamente\n"
+    
+    if area_suelo > area_total * 0.3:
+        resumen += "• ALTA PROPORCIÓN DE SUELO: Considerar mejoras de suelo y resiembra\n"
+    
+    return resumen
 
 # FUNCIÓN PRINCIPAL DE ANÁLISIS FORRAJERO - COMPLETA Y CORREGIDA
 def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, n_divisiones):
@@ -880,7 +1058,81 @@ def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, 
                     key="descarga_permanencia"
                 )
         
-        # PASO 8: TABLA DETALLADA
+        # PASO 8: VALIDACIÓN DE CORRELACIONES (RESTAURADO)
+        st.subheader("🔍 VALIDACIÓN DE CORRELACIONES Y REGRESIONES")
+        
+        with st.spinner("Analizando correlaciones entre variables..."):
+            mapa_validacion, correlaciones = validar_correlacion_datos(gdf_analizado)
+        
+        if mapa_validacion:
+            st.image(mapa_validacion, use_container_width=True)
+            
+            st.write("**📊 Matriz de Correlación:**")
+            st.dataframe(correlaciones.style.background_gradient(cmap='coolwarm', vmin=-1, vmax=1))
+            
+            # Análisis de correlaciones específicas
+            if 'biomasa_disponible_kg_ms_ha' in correlaciones.columns and 'dias_permanencia' in correlaciones.columns:
+                corr_biomasa_dias = correlaciones.loc['biomasa_disponible_kg_ms_ha', 'dias_permanencia']
+                col1, col2 = st.columns(2)
+                with col1:
+                    if corr_biomasa_dias > 0.7:
+                        st.success(f"✅ Alta correlación Biomasa-Días: {corr_biomasa_dias:.3f}")
+                    elif corr_biomasa_dias > 0.4:
+                        st.warning(f"⚠️ Correlación moderada Biomasa-Días: {corr_biomasa_dias:.3f}")
+                    else:
+                        st.error(f"❌ Baja correlación Biomasa-Días: {corr_biomasa_dias:.3f}")
+            
+            if 'ev_ha' in correlaciones.columns and 'dias_permanencia' in correlaciones.columns:
+                corr_ev_dias = correlaciones.loc['ev_ha', 'dias_permanencia']
+                with col2:
+                    if corr_ev_dias > 0.7:
+                        st.success(f"✅ Alta correlación EV-Días: {corr_ev_dias:.3f}")
+                    elif corr_ev_dias > 0.4:
+                        st.warning(f"⚠️ Correlación moderada EV-Días: {corr_ev_dias:.3f}")
+                    else:
+                        st.error(f"❌ Baja correlación EV-Días: {corr_ev_dias:.3f}")
+        
+        # PASO 9: DESCARGAS (RESTAURADO)
+        st.subheader("📦 DESCARGAR RESULTADOS")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if all(func is not None for func in [mapa_biomasa, mapa_ev, mapa_dias, mapa_cobertura, mapa_validacion]):
+                st.download_button(
+                    "🗂️ Descargar Pack Completo",
+                    data=create_zip_file([
+                        ("productividad.png", mapa_biomasa.getvalue()),
+                        ("disponibilidad.png", mapa_ev.getvalue()),
+                        ("permanencia.png", mapa_dias.getvalue()),
+                        ("cobertura.png", mapa_cobertura.getvalue()),
+                        ("correlaciones.png", mapa_validacion.getvalue())
+                    ]),
+                    file_name=f"mapas_forrajeros_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.zip",
+                    mime="application/zip",
+                    key="descarga_pack"
+                )
+        
+        with col2:
+            resumen_texto = crear_resumen_ejecutivo(gdf_analizado, tipo_pastura, area_total)
+            st.download_button(
+                "📋 Descargar Resumen Ejecutivo",
+                resumen_texto,
+                f"resumen_ejecutivo_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+                "text/plain",
+                key="descarga_resumen"
+            )
+        
+        with col3:
+            csv = gdf_analizado.to_csv(index=False)
+            st.download_button(
+                "📊 Descargar Datos Completos",
+                csv,
+                f"datos_completos_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                "text/csv",
+                key="descarga_datos"
+            )
+        
+        # PASO 10: TABLA DETALLADA
         st.subheader("🔬 MÉTRICAS DETALLADAS POR SUB-LOTE")
         
         columnas_detalle = ['id_subLote', 'area_ha', 'biomasa_disponible_kg_ms_ha', 'ndvi', 'evi', 
@@ -894,7 +1146,7 @@ def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, 
         
         st.dataframe(tabla_detalle, use_container_width=True)
         
-        # PASO 9: RECOMENDACIONES DE MANEJO
+        # PASO 11: RECOMENDACIONES DE MANEJO
         st.subheader("💡 RECOMENDACIONES DE MANEJO FORRAJERO")
         
         categorias = gdf_analizado['categoria_manejo'].unique()
@@ -942,7 +1194,7 @@ def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, 
                 with col3:
                     st.metric("EV Prom", f"{subset['ev_soportable'].mean():.0f}")
         
-        # PASO 10: RESUMEN EJECUTIVO
+        # PASO 12: RESUMEN EJECUTIVO
         st.subheader("📋 RESUMEN EJECUTIVO")
         
         total_ev_soportable = gdf_analizado['ev_soportable'].sum()
@@ -1016,12 +1268,14 @@ else:
         - **📊 Parámetros Personalizables:** Ajusta todos los parámetros forrajeros
         - **🎯 EV/Ha Sin Valores Cero:** Interpretación mejorada para baja productividad
         - **📈 Métricas Realistas:** Biomasa disponible ajustada a cobertura real
+        - **🔍 Análisis de Correlación:** Gráficos de regresión y matriz de correlación
         
         **📊 FUNCIONALIDADES PRINCIPALES:**
         - **🌿 Productividad Forrajera:** Biomasa disponible por hectárea
         - **🐄 Equivalentes Vaca:** Capacidad de carga animal realista SIN CEROS
         - **📅 Días de Permanencia:** Tiempo de rotación estimado
         - **🛰️ Metodología GEE:** Algoritmos científicos mejorados
+        - **📈 Análisis Estadístico:** Correlaciones y regresiones entre variables
         
         **🎯 INTERPRETACIÓN DE EV/HA:**
         - **EV/Ha ≥ 0.1:** Se muestra directamente (ej: 0.15 EV/ha)
@@ -1035,5 +1289,6 @@ else:
         4. **Define** número de sub-lotes para análisis
         5. **Ejecuta** el análisis GEE mejorado
         6. **Revisa** resultados y mapa de cobertura
-        7. **Descarga** mapas y reportes completos
+        7. **Analiza** correlaciones entre variables
+        8. **Descarga** mapas y reportes completos
         """)
