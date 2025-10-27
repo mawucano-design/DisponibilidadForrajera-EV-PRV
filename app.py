@@ -94,6 +94,189 @@ with st.sidebar:
     uploaded_zip = st.file_uploader("Subir ZIP con shapefile del potrero", type=['zip'])
 
 # =============================================================================
+# PARÁMETROS FORRAJEROS Y FUNCIONES BÁSICAS
+# =============================================================================
+
+# PARÁMETROS FORRAJEROS POR TIPO DE PASTURA
+PARAMETROS_FORRAJEROS_BASE = {
+    'ALFALFA': {
+        'MS_POR_HA_OPTIMO': 4000,
+        'CRECIMIENTO_DIARIO': 80,
+        'CONSUMO_PORCENTAJE_PESO': 0.03,
+        'DIGESTIBILIDAD': 0.65,
+        'PROTEINA_CRUDA': 0.18,
+        'TASA_UTILIZACION_RECOMENDADA': 0.65,
+        'FACTOR_BIOMASA_NDVI': 2800,
+        'FACTOR_BIOMASA_EVI': 3000,
+        'FACTOR_BIOMASA_SAVI': 2900,
+        'OFFSET_BIOMASA': -600,
+        'UMBRAL_NDVI_SUELO': 0.15,
+        'UMBRAL_NDVI_PASTURA': 0.45,
+        'UMBRAL_BSI_SUELO': 0.4,
+        'UMBRAL_NDBI_SUELO': 0.15,
+        'FACTOR_COBERTURA': 0.8
+    },
+    'RAYGRASS': {
+        'MS_POR_HA_OPTIMO': 3500,
+        'CRECIMIENTO_DIARIO': 70,
+        'CONSUMO_PORCENTAJE_PESO': 0.028,
+        'DIGESTIBILIDAD': 0.70,
+        'PROTEINA_CRUDA': 0.15,
+        'TASA_UTILIZACION_RECOMENDADA': 0.60,
+        'FACTOR_BIOMASA_NDVI': 2500,
+        'FACTOR_BIOMASA_EVI': 2700,
+        'FACTOR_BIOMASA_SAVI': 2600,
+        'OFFSET_BIOMASA': -500,
+        'UMBRAL_NDVI_SUELO': 0.18,
+        'UMBRAL_NDVI_PASTURA': 0.50,
+        'UMBRAL_BSI_SUELO': 0.35,
+        'UMBRAL_NDBI_SUELO': 0.12,
+        'FACTOR_COBERTURA': 0.85
+    },
+    'FESTUCA': {
+        'MS_POR_HA_OPTIMO': 3000,
+        'CRECIMIENTO_DIARIO': 50,
+        'CONSUMO_PORCENTAJE_PESO': 0.025,
+        'DIGESTIBILIDAD': 0.60,
+        'PROTEINA_CRUDA': 0.12,
+        'TASA_UTILIZACION_RECOMENDADA': 0.55,
+        'FACTOR_BIOMASA_NDVI': 2200,
+        'FACTOR_BIOMASA_EVI': 2400,
+        'FACTOR_BIOMASA_SAVI': 2300,
+        'OFFSET_BIOMASA': -400,
+        'UMBRAL_NDVI_SUELO': 0.20,
+        'UMBRAL_NDVI_PASTURA': 0.55,
+        'UMBRAL_BSI_SUELO': 0.30,
+        'UMBRAL_NDBI_SUELO': 0.10,
+        'FACTOR_COBERTURA': 0.75
+    },
+    'AGROPIRRO': {
+        'MS_POR_HA_OPTIMO': 2800,
+        'CRECIMIENTO_DIARIO': 45,
+        'CONSUMO_PORCENTAJE_PESO': 0.022,
+        'DIGESTIBILIDAD': 0.55,
+        'PROTEINA_CRUDA': 0.10,
+        'TASA_UTILIZACION_RECOMENDADA': 0.50,
+        'FACTOR_BIOMASA_NDVI': 2000,
+        'FACTOR_BIOMASA_EVI': 2200,
+        'FACTOR_BIOMASA_SAVI': 2100,
+        'OFFSET_BIOMASA': -300,
+        'UMBRAL_NDVI_SUELO': 0.25,
+        'UMBRAL_NDVI_PASTURA': 0.60,
+        'UMBRAL_BSI_SUELO': 0.25,
+        'UMBRAL_NDBI_SUELO': 0.08,
+        'FACTOR_COBERTURA': 0.70
+    },
+    'PASTIZAL_NATURAL': {
+        'MS_POR_HA_OPTIMO': 2500,
+        'CRECIMIENTO_DIARIO': 20,
+        'CONSUMO_PORCENTAJE_PESO': 0.020,
+        'DIGESTIBILIDAD': 0.50,
+        'PROTEINA_CRUDA': 0.08,
+        'TASA_UTILIZACION_RECOMENDADA': 0.45,
+        'FACTOR_BIOMASA_NDVI': 1800,
+        'FACTOR_BIOMASA_EVI': 2000,
+        'FACTOR_BIOMASA_SAVI': 1900,
+        'OFFSET_BIOMASA': -200,
+        'UMBRAL_NDVI_SUELO': 0.30,
+        'UMBRAL_NDVI_PASTURA': 0.65,
+        'UMBRAL_BSI_SUELO': 0.20,
+        'UMBRAL_NDBI_SUELO': 0.05,
+        'FACTOR_COBERTURA': 0.60
+    }
+}
+
+# Función para obtener parámetros según selección
+def obtener_parametros_forrajeros(tipo_pastura):
+    if tipo_pastura == "PERSONALIZADO":
+        # Usar los valores personalizados del sidebar
+        return {
+            'MS_POR_HA_OPTIMO': ms_optimo,
+            'CRECIMIENTO_DIARIO': crecimiento_diario,
+            'CONSUMO_PORCENTAJE_PESO': consumo_porcentaje,
+            'DIGESTIBILIDAD': 0.60,
+            'PROTEINA_CRUDA': 0.12,
+            'TASA_UTILIZACION_RECOMENDADA': tasa_utilizacion,
+            'FACTOR_BIOMASA_NDVI': 2200,
+            'FACTOR_BIOMASA_EVI': 2400,
+            'FACTOR_BIOMASA_SAVI': 2300,
+            'OFFSET_BIOMASA': -400,
+            'UMBRAL_NDVI_SUELO': umbral_ndvi_suelo,
+            'UMBRAL_NDVI_PASTURA': umbral_ndvi_pastura,
+            'UMBRAL_BSI_SUELO': 0.30,
+            'UMBRAL_NDBI_SUELO': 0.10,
+            'FACTOR_COBERTURA': 0.75
+        }
+    else:
+        return PARAMETROS_FORRAJEROS_BASE[tipo_pastura]
+
+# PALETAS GEE PARA ANÁLISIS FORRAJERO
+PALETAS_GEE = {
+    'PRODUCTIVIDAD': ['#8c510a', '#bf812d', '#dfc27d', '#f6e8c3', '#c7eae5', '#80cdc1', '#35978f', '#01665e'],
+    'DISPONIBILIDAD': ['#d73027', '#f46d43', '#fdae61', '#fee08b', '#d9ef8b', '#a6d96a', '#66bd63', '#1a9850'],
+    'DIAS_PERMANENCIA': ['#4575b4', '#74add1', '#abd9e9', '#e0f3f8', '#fee090', '#fdae61', '#f46d43', '#d73027'],
+    'COBERTURA': ['#d73027', '#fc8d59', '#fee08b', '#d9ef8b', '#91cf60']
+}
+
+# Función para calcular superficie
+def calcular_superficie(gdf):
+    try:
+        if gdf.crs and gdf.crs.is_geographic:
+            area_m2 = gdf.geometry.area * 10000000000
+        else:
+            area_m2 = gdf.geometry.area
+        return area_m2 / 10000
+    except:
+        return gdf.geometry.area / 10000
+
+# FUNCIÓN PARA DIVIDIR POTRERO
+def dividir_potrero_en_subLotes(gdf, n_zonas):
+    if len(gdf) == 0:
+        return gdf
+    
+    potrero_principal = gdf.iloc[0].geometry
+    bounds = potrero_principal.bounds
+    minx, miny, maxx, maxy = bounds
+    
+    sub_poligonos = []
+    
+    n_cols = math.ceil(math.sqrt(n_zonas))
+    n_rows = math.ceil(n_zonas / n_cols)
+    
+    width = (maxx - minx) / n_cols
+    height = (maxy - miny) / n_rows
+    
+    for i in range(n_rows):
+        for j in range(n_cols):
+            if len(sub_poligonos) >= n_zonas:
+                break
+                
+            cell_minx = minx + (j * width)
+            cell_maxx = minx + ((j + 1) * width)
+            cell_miny = miny + (i * height)
+            cell_maxy = miny + ((i + 1) * height)
+            
+            cell_poly = Polygon([
+                (cell_minx, cell_miny),
+                (cell_maxx, cell_miny),
+                (cell_maxx, cell_maxy),
+                (cell_minx, cell_maxy)
+            ])
+            
+            intersection = potrero_principal.intersection(cell_poly)
+            if not intersection.is_empty and intersection.area > 0:
+                sub_poligonos.append(intersection)
+    
+    if sub_poligonos:
+        nuevo_gdf = gpd.GeoDataFrame({
+            'id_subLote': range(1, len(sub_poligonos) + 1),
+            'geometry': sub_poligonos
+        }, crs=gdf.crs)
+        return nuevo_gdf
+    else:
+        return gdf
+
+# =============================================================================
 # ALGORITMOS MEJORADOS DE DETECCIÓN DE VEGETACIÓN
 # =============================================================================
 
@@ -329,6 +512,96 @@ def simular_patrones_reales_vegetacion(id_subLote, x_norm, y_norm, fuente_sateli
         msavi2 = ndvi * 1.1
     
     return ndvi, evi, savi, bsi, ndbi, msavi2
+
+# =============================================================================
+# FUNCIONES DE MÉTRICAS GANADERAS
+# =============================================================================
+
+def calcular_metricas_ganaderas(gdf_analizado, tipo_pastura, peso_promedio, carga_animal):
+    """
+    Calcula equivalentes vaca y días de permanencia
+    """
+    params = obtener_parametros_forrajeros(tipo_pastura)
+    metricas = []
+    
+    for idx, row in gdf_analizado.iterrows():
+        biomasa_disponible = row['biomasa_disponible_kg_ms_ha']
+        area_ha = row['area_ha']
+        crecimiento_diario = row['crecimiento_diario']
+        
+        # 1. CONSUMO INDIVIDUAL (kg MS/animal/día)
+        consumo_individual_kg = peso_promedio * params['CONSUMO_PORCENTAJE_PESO']
+        
+        # 2. EQUIVALENTES VACA (EV)
+        biomasa_total_disponible = biomasa_disponible * area_ha
+        
+        if biomasa_total_disponible > 0 and consumo_individual_kg > 0:
+            ev_por_dia = biomasa_total_disponible * 0.001 / consumo_individual_kg
+            ev_soportable = ev_por_dia / params['TASA_UTILIZACION_RECOMENDADA']
+            ev_soportable = max(0.01, ev_soportable)
+        else:
+            ev_soportable = 0.01
+        
+        # EV por hectárea
+        if ev_soportable > 0 and area_ha > 0:
+            ev_ha = ev_soportable / area_ha
+            if ev_ha < 0.1:
+                ha_por_ev = 1 / ev_ha if ev_ha > 0 else 100
+                ev_ha_display = 1 / ha_por_ev
+            else:
+                ev_ha_display = ev_ha
+        else:
+            ev_ha_display = 0.01
+        
+        # 3. DÍAS DE PERMANENCIA
+        if carga_animal > 0:
+            consumo_total_diario = carga_animal * consumo_individual_kg
+            
+            if consumo_total_diario > 0 and biomasa_total_disponible > 0:
+                dias_permanencia = biomasa_total_disponible / consumo_total_diario
+                
+                if dias_permanencia > 0:
+                    crecimiento_total = crecimiento_diario * area_ha * dias_permanencia * 0.3
+                    dias_ajustados = (biomasa_total_disponible + crecimiento_total) / consumo_total_diario
+                    dias_permanencia = min(dias_ajustados, 5)
+                else:
+                    dias_permanencia = 0.1
+            else:
+                dias_permanencia = 0.1
+        else:
+            dias_permanencia = 0.1
+        
+        # 4. TASA DE UTILIZACIÓN
+        if carga_animal > 0 and biomasa_total_disponible > 0:
+            consumo_potencial_diario = carga_animal * consumo_individual_kg
+            biomasa_por_dia = biomasa_total_disponible / params['TASA_UTILIZACION_RECOMENDADA']
+            tasa_utilizacion = min(1.0, consumo_potencial_diario / biomasa_por_dia)
+        else:
+            tasa_utilizacion = 0
+        
+        # 5. ESTADO FORRAJERO
+        if biomasa_disponible >= 800:
+            estado_forrajero = 4  # ÓPTIMO
+        elif biomasa_disponible >= 600:
+            estado_forrajero = 3  # BUENO
+        elif biomasa_disponible >= 400:
+            estado_forrajero = 2  # MEDIO
+        elif biomasa_disponible >= 200:
+            estado_forrajero = 1  # BAJO
+        else:
+            estado_forrajero = 0  # CRÍTICO
+        
+        metricas.append({
+            'ev_soportable': round(ev_soportable, 2),
+            'dias_permanencia': max(0.1, round(dias_permanencia, 1)),
+            'tasa_utilizacion': round(tasa_utilizacion, 3),
+            'biomasa_total_kg': round(biomasa_total_disponible, 1),
+            'consumo_individual_kg': round(consumo_individual_kg, 1),
+            'estado_forrajero': estado_forrajero,
+            'ev_ha': round(ev_ha_display, 3)
+        })
+    
+    return metricas
 
 # =============================================================================
 # FUNCIÓN PRINCIPAL MEJORADA
@@ -603,8 +876,36 @@ def analisis_forrajero_completo_mejorado(gdf, tipo_pastura, peso_promedio, carga
                 key="descarga_detallado"
             )
         
-        # ... (el resto del análisis se mantiene similar pero con datos mejorados)
+        # Mostrar resumen de resultados
+        st.subheader("📊 RESUMEN DE RESULTADOS MEJORADOS")
         
+        # Estadísticas principales
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            biomasa_prom = gdf_analizado['biomasa_disponible_kg_ms_ha'].mean()
+            st.metric("Biomasa Disponible Prom", f"{biomasa_prom:.0f} kg MS/ha")
+        with col2:
+            area_vegetacion = gdf_analizado[gdf_analizado['tipo_superficie'].isin(['VEGETACION_MODERADA', 'VEGETACION_DENSA'])]['area_ha'].sum()
+            st.metric("Área con Vegetación", f"{area_vegetacion:.1f} ha")
+        with col3:
+            area_suelo = gdf_analizado[gdf_analizado['tipo_superficie'].isin(['SUELO_DESNUDO', 'SUELO_PARCIAL'])]['area_ha'].sum()
+            st.metric("Área sin Vegetación", f"{area_suelo:.1f} ha")
+        with col4:
+            cobertura_prom = gdf_analizado['cobertura_vegetal'].mean()
+            st.metric("Cobertura Vegetal Prom", f"{cobertura_prom:.1%}")
+        
+        # Tabla detallada
+        st.subheader("🔬 DETALLES POR SUB-LOTE")
+        columnas_detalle = ['id_subLote', 'area_ha', 'tipo_superficie', 'ndvi', 'cobertura_vegetal', 
+                          'biomasa_disponible_kg_ms_ha', 'ev_ha', 'dias_permanencia']
+        
+        tabla_detalle = gdf_analizado[columnas_detalle].copy()
+        tabla_detalle.columns = ['Sub-Lote', 'Área (ha)', 'Tipo Superficie', 'NDVI', 'Cobertura',
+                               'Biomasa Disp (kg MS/ha)', 'EV/Ha', 'Días Permanencia']
+        
+        st.dataframe(tabla_detalle, use_container_width=True)
+        
+        st.session_state.analisis_completado = True
         return True
         
     except Exception as e:
@@ -614,10 +915,8 @@ def analisis_forrajero_completo_mejorado(gdf, tipo_pastura, peso_promedio, carga
         return False
 
 # =============================================================================
-# INTERFAZ PRINCIPAL (se mantiene similar pero llama a la función mejorada)
+# INTERFAZ PRINCIPAL
 # =============================================================================
-
-# ... (el resto del código de interfaz se mantiene similar)
 
 st.markdown("### 📁 CARGAR DATOS DEL POTRERO")
 
