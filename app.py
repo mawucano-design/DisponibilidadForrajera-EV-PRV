@@ -558,7 +558,6 @@ def calcular_metricas_ganaderas(gdf_analizado, tipo_pastura, peso_promedio, carg
     
     return metricas
 
-# [El resto de las funciones se mantienen igual...]
 # FUNCIÓN PARA CREAR MAPA FORRAJERO
 def crear_mapa_forrajero_gee(gdf, tipo_analisis, tipo_pastura):
     """Crea mapa con métricas forrajeras usando metodología GEE"""
@@ -622,6 +621,61 @@ def crear_mapa_forrajero_gee(gdf, tipo_analisis, tipo_pastura):
         st.error(f"❌ Error creando mapa forrajero: {str(e)}")
         return None, None
 
+# NUEVA FUNCIÓN PARA MAPA DE COBERTURA
+def crear_mapa_cobertura(gdf, tipo_pastura):
+    """Crea mapa de cobertura vegetal y tipos de superficie"""
+    try:
+        fig, ax = plt.subplots(1, 1, figsize=(14, 10))
+        
+        colores_superficie = {
+            'SUELO_DESNUDO': '#d73027',
+            'SUELO_PARCIAL': '#fdae61', 
+            'VEGETACION_ESCASA': '#fee08b',
+            'VEGETACION_MODERADA': '#a6d96a',
+            'VEGETACION_DENSA': '#1a9850'
+        }
+        
+        for idx, row in gdf.iterrows():
+            tipo_superficie = row['tipo_superficie']
+            color = colores_superficie.get(tipo_superficie, '#cccccc')
+            
+            gdf.iloc[[idx]].plot(ax=ax, color=color, edgecolor='black', linewidth=1.5)
+            
+            centroid = row.geometry.centroid
+            ax.annotate(f"S{row['id_subLote']}\n{row['cobertura_vegetal']:.1f}", 
+                       (centroid.x, centroid.y), 
+                       xytext=(5, 5), textcoords="offset points", 
+                       fontsize=8, color='black', weight='bold',
+                       bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.9))
+        
+        ax.set_title(f'🌱 MAPA DE COBERTURA VEGETAL - {tipo_pastura}\n'
+                    f'Tipos de Superficie y Cobertura Vegetal\n'
+                    f'Metodología Google Earth Engine', 
+                    fontsize=16, fontweight='bold', pad=20)
+        
+        ax.set_xlabel('Longitud')
+        ax.set_ylabel('Latitud')
+        ax.grid(True, alpha=0.3)
+        
+        leyenda_elementos = []
+        for tipo, color in colores_superficie.items():
+            leyenda_elementos.append(mpatches.Patch(color=color, label=tipo))
+        
+        ax.legend(handles=leyenda_elementos, loc='upper right', fontsize=10)
+        
+        plt.tight_layout()
+        
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+        buf.seek(0)
+        plt.close()
+        
+        return buf
+        
+    except Exception as e:
+        st.error(f"❌ Error creando mapa de cobertura: {str(e)}")
+        return None
+
 # NUEVA FUNCIÓN PARA INTERPRETAR EV/HA PEQUEÑOS
 def interpretar_ev_ha(ev_ha):
     """
@@ -633,7 +687,7 @@ def interpretar_ev_ha(ev_ha):
         ha_por_ev = 1 / ev_ha if ev_ha > 0 else 1000
         return f"1 EV cada {ha_por_ev:.1f} ha", f"{ev_ha:.3f}"
 
-# MODIFICAR LA FUNCIÓN PRINCIPAL PARA MOSTRAR INTERPRETACIÓN MEJORADA
+# FUNCIÓN PRINCIPAL DE ANÁLISIS FORRAJERO - COMPLETA Y CORREGIDA
 def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, n_divisiones):
     try:
         st.header(f"🌱 ANÁLISIS FORRAJERO - {tipo_pastura}")
@@ -650,8 +704,58 @@ def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, 
             st.write(f"**Umbral NDVI Suelo:** {params['UMBRAL_NDVI_SUELO']}")
             st.write(f"**Umbral NDVI Pastura:** {params['UMBRAL_NDVI_PASTURA']}")
         
-        # [El resto del código de la función analisis_forrajero_completo se mantiene igual...]
-        # Solo necesitamos modificar la parte donde se muestran los EV/HA
+        # PASO 1: DIVIDIR POTRERO
+        st.subheader("📐 DIVIDIENDO POTRERO EN SUB-LOTES")
+        with st.spinner("Dividiendo potrero..."):
+            gdf_dividido = dividir_potrero_en_subLotes(gdf, n_divisiones)
+        
+        st.success(f"✅ Potrero dividido en {len(gdf_dividido)} sub-lotes")
+        
+        # Calcular áreas
+        areas_ha = calcular_superficie(gdf_dividido)
+        area_total = areas_ha.sum()
+        
+        # PASO 2: CALCULAR ÍNDICES FORRAJEROS GEE MEJORADO
+        st.subheader("🛰️ CALCULANDO ÍNDICES FORRAJEROS GEE")
+        with st.spinner("Ejecutando algoritmos GEE con detección de suelo..."):
+            indices_forrajeros = calcular_indices_forrajeros_gee(gdf_dividido, tipo_pastura)
+        
+        # Crear dataframe con resultados
+        gdf_analizado = gdf_dividido.copy()
+        gdf_analizado['area_ha'] = areas_ha
+        
+        # Añadir índices forrajeros
+        for idx, indice in enumerate(indices_forrajeros):
+            for key, value in indice.items():
+                gdf_analizado.loc[gdf_analizado.index[idx], key] = value
+        
+        # PASO 3: CALCULAR MÉTRICAS GANADERAS
+        st.subheader("🐄 CALCULANDO MÉTRICAS GANADERAS")
+        with st.spinner("Calculando equivalentes vaca y días de permanencia..."):
+            metricas_ganaderas = calcular_metricas_ganaderas(gdf_analizado, tipo_pastura, peso_promedio, carga_animal)
+        
+        # Añadir métricas ganaderas
+        for idx, metrica in enumerate(metricas_ganaderas):
+            for key, value in metrica.items():
+                gdf_analizado.loc[gdf_analizado.index[idx], key] = value
+        
+        # PASO 4: CATEGORIZAR PARA RECOMENDACIONES
+        def categorizar_forrajero(estado_forrajero, dias_permanencia):
+            if estado_forrajero == 0 or dias_permanencia < 1:
+                return "CRÍTICO"
+            elif estado_forrajero == 1 or dias_permanencia < 2:
+                return "ALERTA"
+            elif estado_forrajero == 2 or dias_permanencia < 3:
+                return "ADEQUADO"
+            elif estado_forrajero == 3:
+                return "BUENO"
+            else:
+                return "ÓPTIMO"
+        
+        gdf_analizado['categoria_manejo'] = [
+            categorizar_forrajero(row['estado_forrajero'], row['dias_permanencia']) 
+            for idx, row in gdf_analizado.iterrows()
+        ]
         
         # PASO 5: MOSTRAR RESULTADOS
         st.subheader("📊 RESULTADOS DEL ANÁLISIS FORRAJERO")
@@ -672,12 +776,180 @@ def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, 
         # Mostrar EV/HA con interpretación mejorada
         ev_ha_prom = gdf_analizado['ev_ha'].mean()
         interpretacion_ev, valor_ev = interpretar_ev_ha(ev_ha_prom)
-        
         st.metric("🏭 CAPACIDAD DE CARGA PROMEDIO", interpretacion_ev)
+        
+        # PASO 6: ANÁLISIS DE COBERTURA
+        st.subheader("🌿 ANÁLISIS DE COBERTURA VEGETAL")
+        
+        stats_cobertura = gdf_analizado['tipo_superficie'].value_counts()
+        area_por_tipo = gdf_analizado.groupby('tipo_superficie')['area_ha'].sum()
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            cobertura_prom = gdf_analizado['cobertura_vegetal'].mean()
+            st.metric("Cobertura Vegetal Promedio", f"{cobertura_prom:.1%}")
+        with col2:
+            area_vegetacion = area_por_tipo.get('VEGETACION_DENSA', 0) + area_por_tipo.get('VEGETACION_MODERADA', 0) + area_por_tipo.get('VEGETACION_ESCASA', 0)
+            st.metric("Área con Vegetación", f"{area_vegetacion:.1f} ha")
+        with col3:
+            area_suelo = area_por_tipo.get('SUELO_DESNUDO', 0) + area_por_tipo.get('SUELO_PARCIAL', 0)
+            st.metric("Área sin Vegetación", f"{area_suelo:.1f} ha")
+        
+        # Mapa de cobertura
+        st.write("**🗺️ MAPA DE COBERTURA VEGETAL**")
+        mapa_cobertura = crear_mapa_cobertura(gdf_analizado, tipo_pastura)
+        if mapa_cobertura:
+            st.image(mapa_cobertura, use_container_width=True)
+            
+            st.download_button(
+                "📥 Descargar Mapa de Cobertura",
+                mapa_cobertura.getvalue(),
+                f"mapa_cobertura_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.png",
+                "image/png",
+                key="descarga_cobertura"
+            )
+        
+        # TABLA DE TIPOS DE SUPERFICIE
+        st.write("**📊 DISTRIBUCIÓN DE TIPOS DE SUPERFICIE**")
+        resumen_cobertura = pd.DataFrame({
+            'Tipo de Superficie': stats_cobertura.index,
+            'Número de Sub-Lotes': stats_cobertura.values,
+            'Área Total (ha)': [area_por_tipo.get(tipo, 0) for tipo in stats_cobertura.index],
+            'Porcentaje del Área': [f"{(area_por_tipo.get(tipo, 0) / area_total * 100):.1f}%" 
+                                  for tipo in stats_cobertura.index]
+        })
+        st.dataframe(resumen_cobertura, use_container_width=True)
+        
+        # PASO 7: MAPAS FORRAJEROS
+        st.subheader("🗺️ MAPAS FORRAJEROS GEE")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.write("**📈 PRODUCTIVIDAD**")
+            mapa_biomasa, titulo_biomasa = crear_mapa_forrajero_gee(gdf_analizado, "PRODUCTIVIDAD", tipo_pastura)
+            if mapa_biomasa:
+                st.image(mapa_biomasa, use_container_width=True)
+                st.download_button(
+                    "📥 Descargar Mapa Productividad",
+                    mapa_biomasa.getvalue(),
+                    f"mapa_productividad_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.png",
+                    "image/png",
+                    key="descarga_biomasa"
+                )
+        
+        with col2:
+            st.write("**🐄 DISPONIBILIDAD**")
+            mapa_ev, titulo_ev = crear_mapa_forrajero_gee(gdf_analizado, "DISPONIBILIDAD", tipo_pastura)
+            if mapa_ev:
+                st.image(mapa_ev, use_container_width=True)
+                st.download_button(
+                    "📥 Descargar Mapa Disponibilidad",
+                    mapa_ev.getvalue(),
+                    f"mapa_disponibilidad_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.png",
+                    "image/png",
+                    key="descarga_disponibilidad"
+                )
+        
+        with col3:
+            st.write("**📅 PERMANENCIA**")
+            mapa_dias, titulo_dias = crear_mapa_forrajero_gee(gdf_analizado, "DIAS_PERMANENCIA", tipo_pastura)
+            if mapa_dias:
+                st.image(mapa_dias, use_container_width=True)
+                st.download_button(
+                    "📥 Descargar Mapa Permanencia",
+                    mapa_dias.getvalue(),
+                    f"mapa_permanencia_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.png",
+                    "image/png",
+                    key="descarga_permanencia"
+                )
+        
+        # PASO 8: TABLA DETALLADA
+        st.subheader("🔬 MÉTRICAS DETALLADAS POR SUB-LOTE")
+        
+        columnas_detalle = ['id_subLote', 'area_ha', 'biomasa_disponible_kg_ms_ha', 'ndvi', 'evi', 
+                          'cobertura_vegetal', 'tipo_superficie', 'ev_ha', 'dias_permanencia', 
+                          'tasa_utilizacion', 'categoria_manejo']
+        
+        tabla_detalle = gdf_analizado[columnas_detalle].copy()
+        tabla_detalle.columns = ['Sub-Lote', 'Área (ha)', 'Biomasa Disp (kg MS/ha)', 'NDVI', 'EVI',
+                               'Cobertura', 'Tipo Superficie', 'EV/Ha', 'Días Permanencia', 
+                               'Tasa Utilización', 'Categoría']
+        
+        st.dataframe(tabla_detalle, use_container_width=True)
+        
+        # PASO 9: RECOMENDACIONES DE MANEJO
+        st.subheader("💡 RECOMENDACIONES DE MANEJO FORRAJERO")
+        
+        categorias = gdf_analizado['categoria_manejo'].unique()
+        for cat in sorted(categorias):
+            subset = gdf_analizado[gdf_analizado['categoria_manejo'] == cat]
+            area_cat = subset['area_ha'].sum()
+            
+            with st.expander(f"🎯 **{cat}** - {area_cat:.1f} ha ({(area_cat/area_total*100):.1f}% del área)"):
+                
+                if cat == "CRÍTICO":
+                    st.markdown("**🚨 ESTRATEGIA: ROTACIÓN INMEDIATA**")
+                    st.markdown("- Sacar animales inmediatamente")
+                    st.markdown("- Suplementación estratégica requerida")
+                    st.markdown("- Evaluar resiembra o recuperación")
+                    
+                elif cat == "ALERTA":
+                    st.markdown("**⚠️ ESTRATEGIA: ROTACIÓN CERCANA**")
+                    st.markdown("- Planificar rotación en 5-10 días")
+                    st.markdown("- Monitorear crecimiento diario")
+                    st.markdown("- Considerar suplementación ligera")
+                    
+                elif cat == "ADEQUADO":
+                    st.markdown("**✅ ESTRATEGIA: MANEJO ACTUAL**")
+                    st.markdown("- Continuar con rotación planificada")
+                    st.markdown("- Monitoreo semanal")
+                    st.markdown("- Ajustar carga si es necesario")
+                    
+                elif cat == "BUENO":
+                    st.markdown("**👍 ESTRATEGIA: MANTENIMIENTO**")
+                    st.markdown("- Carga animal adecuada")
+                    st.markdown("- Continuar manejo actual")
+                    st.markdown("- Enfoque en sostenibilidad")
+                    
+                else:  # ÓPTIMO
+                    st.markdown("**🌟 ESTRATEGIA: EXCELENTE**")
+                    st.markdown("- Condiciones óptimas")
+                    st.markdown("- Mantener prácticas actuales")
+                    st.markdown("- Modelo a replicar")
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Sub-Lotes", len(subset))
+                with col2:
+                    st.metric("Días Prom", f"{subset['dias_permanencia'].mean():.0f}")
+                with col3:
+                    st.metric("EV Prom", f"{subset['ev_soportable'].mean():.0f}")
+        
+        # PASO 10: RESUMEN EJECUTIVO
+        st.subheader("📋 RESUMEN EJECUTIVO")
+        
+        total_ev_soportable = gdf_analizado['ev_soportable'].sum()
+        dias_promedio = gdf_analizado['dias_permanencia'].mean()
+        biomasa_total = gdf_analizado['biomasa_total_kg'].sum()
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("🏭 CAPACIDAD TOTAL", f"{total_ev_soportable:.0f} EV")
+        with col2:
+            st.metric("📅 PERMANENCIA PROMEDIO", f"{dias_promedio:.0f} días")
+        with col3:
+            st.metric("🌿 BIOMASA TOTAL", f"{biomasa_total/1000:.1f} ton MS")
+        
+        return True
+        
+    except Exception as e:
+        st.error(f"❌ Error en análisis forrajero: {str(e)}")
+        import traceback
+        st.error(f"Detalle: {traceback.format_exc()}")
+        return False
 
-# [El resto del código se mantiene igual...]
-
-# INTERFAZ PRINCIPAL
+# INTERFAZ PRINCIPAL - CORREGIDA
 if uploaded_zip:
     with st.spinner("Cargando potrero..."):
         try:
@@ -710,9 +982,11 @@ if uploaded_zip:
                     
                     if st.button("🚀 EJECUTAR ANÁLISIS FORRAJERO GEE", type="primary"):
                         analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, n_divisiones)
+                else:
+                    st.error("❌ No se encontró ningún archivo .shp en el ZIP")
                         
         except Exception as e:
-            st.error(f"Error cargando shapefile: {str(e)}")
+            st.error(f"❌ Error cargando shapefile: {str(e)}")
 
 else:
     st.info("📁 Sube el ZIP de tu potrero para comenzar el análisis forrajero")
