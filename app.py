@@ -482,10 +482,10 @@ def calcular_indices_forrajeros_gee(gdf, tipo_pastura):
     
     return resultados
 
-# CÁLCULO DE MÉTRICAS GANADERAS - MEJORADO SIN VALORES CERO
+# CÁLCULO DE MÉTRICAS GANADERAS - CORREGIDO PARA EV/HA
 def calcular_metricas_ganaderas(gdf_analizado, tipo_pastura, peso_promedio, carga_animal):
     """
-    Calcula equivalentes vaca y días de permanencia SIN valores cero
+    Calcula equivalentes vaca y días de permanencia - CORREGIDO PARA EV/HA
     """
     params = obtener_parametros_forrajeros(tipo_pastura)
     metricas = []
@@ -498,7 +498,7 @@ def calcular_metricas_ganaderas(gdf_analizado, tipo_pastura, peso_promedio, carg
         # 1. CONSUMO INDIVIDUAL (kg MS/animal/día)
         consumo_individual_kg = peso_promedio * params['CONSUMO_PORCENTAJE_PESO']
         
-        # 2. EQUIVALENTES VACA (EV) - SIN VALORES CERO
+        # 2. EQUIVALENTES VACA (EV) - CORREGIDO
         biomasa_total_disponible = biomasa_disponible * area_ha
         
         # EV = Biomasa (ton) / Consumo diario = EV por día
@@ -512,19 +512,17 @@ def calcular_metricas_ganaderas(gdf_analizado, tipo_pastura, peso_promedio, carg
         else:
             ev_soportable = 0.01  # Mínimo valor posible
         
-        # EV por hectárea (invertido para mostrar requerimiento de superficie)
-        if ev_soportable > 0 and area_ha > 0:
+        # 3. EV POR HECTÁREA - CORREGIDO (NO USAR INVERSO)
+        # EV/Ha = EV total / área en ha
+        # Si el área es muy pequeña, EV/Ha puede ser > 1 (eso es correcto)
+        if area_ha > 0:
             ev_ha = ev_soportable / area_ha
-            # Si es muy bajo, mostrar el inverso (ha necesarias por EV)
-            if ev_ha < 0.1:
-                ha_por_ev = 1 / ev_ha if ev_ha > 0 else 100
-                ev_ha_display = 1 / ha_por_ev  # Mostrar como valor pequeño pero no cero
-            else:
-                ev_ha_display = ev_ha
+            # Para áreas muy pequeñas, EV/Ha puede ser alto - eso es correcto
+            ev_ha = max(0.001, ev_ha)  # Mínimo 0.001 EV/Ha
         else:
-            ev_ha_display = 0.01
+            ev_ha = 0.001  # Mínimo valor
         
-        # 3. DÍAS DE PERMANENCIA - SIN VALORES CERO
+        # 4. DÍAS DE PERMANENCIA
         if carga_animal > 0:
             consumo_total_diario = carga_animal * consumo_individual_kg
             
@@ -542,7 +540,7 @@ def calcular_metricas_ganaderas(gdf_analizado, tipo_pastura, peso_promedio, carg
         else:
             dias_permanencia = 0.1  # Mínimo de 0.1 días
         
-        # 4. TASA DE UTILIZACIÓN
+        # 5. TASA DE UTILIZACIÓN
         if carga_animal > 0 and biomasa_total_disponible > 0:
             consumo_potencial_diario = carga_animal * consumo_individual_kg
             biomasa_por_dia = biomasa_total_disponible / params['TASA_UTILIZACION_RECOMENDADA']
@@ -550,7 +548,7 @@ def calcular_metricas_ganaderas(gdf_analizado, tipo_pastura, peso_promedio, carg
         else:
             tasa_utilizacion = 0
         
-        # 5. ESTADO FORRAJERO
+        # 6. ESTADO FORRAJERO
         if biomasa_disponible >= 800:
             estado_forrajero = 4  # ÓPTIMO
         elif biomasa_disponible >= 600:
@@ -563,13 +561,13 @@ def calcular_metricas_ganaderas(gdf_analizado, tipo_pastura, peso_promedio, carg
             estado_forrajero = 0  # CRÍTICO
         
         metricas.append({
-            'ev_soportable': round(ev_soportable, 2),  # Más decimales para valores pequeños
-            'dias_permanencia': max(0.1, round(dias_permanencia, 1)),  # Mínimo 0.1 días
+            'ev_soportable': round(ev_soportable, 2),
+            'dias_permanencia': max(0.1, round(dias_permanencia, 1)),
             'tasa_utilizacion': round(tasa_utilizacion, 3),
             'biomasa_total_kg': round(biomasa_total_disponible, 1),
             'consumo_individual_kg': round(consumo_individual_kg, 1),
             'estado_forrajero': estado_forrajero,
-            'ev_ha': round(ev_ha_display, 3)  # Más decimales para valores pequeños
+            'ev_ha': round(ev_ha, 3)  # Mantener el cálculo directo
         })
     
     return metricas
@@ -692,7 +690,7 @@ def crear_mapa_cobertura(gdf, tipo_pastura):
         st.error(f"❌ Error creando mapa de cobertura: {str(e)}")
         return None
 
-# FUNCIÓN DE VALIDACIÓN PARA VERIFICAR CORRELACIÓN (RESTAURADA)
+# FUNCIÓN DE VALIDACIÓN PARA VERIFICAR CORRELACIÓN
 def validar_correlacion_datos(gdf_analizado):
     """
     Valida la correlación entre variables forrajeras
@@ -799,7 +797,7 @@ def validar_correlacion_datos(gdf_analizado):
         st.error(f"Error en validación de correlación: {str(e)}")
         return None, None
 
-# NUEVA FUNCIÓN PARA INTERPRETAR EV/HA PEQUEÑOS
+# NUEVA FUNCIÓN PARA INTERPRETAR EV/HA PEQUEÑOS - CORREGIDA
 def interpretar_ev_ha(ev_ha):
     """
     Interpreta valores pequeños de EV/Ha para mostrar requerimientos de superficie
@@ -810,7 +808,7 @@ def interpretar_ev_ha(ev_ha):
         ha_por_ev = 1 / ev_ha if ev_ha > 0 else 1000
         return f"1 EV cada {ha_por_ev:.1f} ha", f"{ev_ha:.3f}"
 
-# FUNCIÓN PARA CREAR ARCHIVO ZIP (RESTAURADA)
+# FUNCIÓN PARA CREAR ARCHIVO ZIP
 def create_zip_file(files):
     """Crea un archivo ZIP con múltiples archivos"""
     zip_buffer = io.BytesIO()
@@ -820,7 +818,7 @@ def create_zip_file(files):
     zip_buffer.seek(0)
     return zip_buffer.getvalue()
 
-# FUNCIÓN PARA CREAR RESUMEN EJECUTIVO (RESTAURADA)
+# FUNCIÓN PARA CREAR RESUMEN EJECUTIVO
 def crear_resumen_ejecutivo(gdf_analizado, tipo_pastura, area_total):
     """Crea un resumen ejecutivo en texto"""
     total_ev = gdf_analizado['ev_soportable'].sum()
@@ -933,14 +931,14 @@ def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, 
             for key, value in metrica.items():
                 gdf_analizado.loc[gdf_analizado.index[idx], key] = value
         
-        # PASO 4: CATEGORIZAR PARA RECOMENDACIONES
+        # PASO 4: CATEGORIZAR PARA RECOMENDACIONES - CORREGIDO "ADEQUADO"
         def categorizar_forrajero(estado_forrajero, dias_permanencia):
             if estado_forrajero == 0 or dias_permanencia < 1:
                 return "CRÍTICO"
             elif estado_forrajero == 1 or dias_permanencia < 2:
                 return "ALERTA"
             elif estado_forrajero == 2 or dias_permanencia < 3:
-                return "ADEQUADO"
+                return "ADECUADO"  # CORREGIDO: "ADEQUADO" → "ADECUADO"
             elif estado_forrajero == 3:
                 return "BUENO"
             else:
@@ -967,10 +965,14 @@ def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, 
             dias_prom = gdf_analizado['dias_permanencia'].mean()
             st.metric("Permanencia Promedio", f"{dias_prom:.0f} días")
         
-        # Mostrar EV/HA con interpretación mejorada
+        # Mostrar EV/HA con interpretación mejorada - CORREGIDO
         ev_ha_prom = gdf_analizado['ev_ha'].mean()
-        interpretacion_ev, valor_ev = interpretar_ev_ha(ev_ha_prom)
-        st.metric("🏭 CAPACIDAD DE CARGA PROMEDIO", interpretacion_ev)
+        # Para el promedio general, usar interpretación
+        if ev_ha_prom < 0.1:
+            ha_por_ev = 1 / ev_ha_prom if ev_ha_prom > 0 else 1000
+            st.metric("🏭 CAPACIDAD DE CARGA PROMEDIO", f"1 EV cada {ha_por_ev:.1f} ha")
+        else:
+            st.metric("🏭 CAPACIDAD DE CARGA PROMEDIO", f"{ev_ha_prom:.2f} EV/ha")
         
         # PASO 6: ANÁLISIS DE COBERTURA
         st.subheader("🌿 ANÁLISIS DE COBERTURA VEGETAL")
@@ -1058,7 +1060,7 @@ def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, 
                     key="descarga_permanencia"
                 )
         
-        # PASO 8: VALIDACIÓN DE CORRELACIONES (RESTAURADO)
+        # PASO 8: VALIDACIÓN DE CORRELACIONES
         st.subheader("🔍 VALIDACIÓN DE CORRELACIONES Y REGRESIONES")
         
         with st.spinner("Analizando correlaciones entre variables..."):
@@ -1092,7 +1094,7 @@ def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, 
                     else:
                         st.error(f"❌ Baja correlación EV-Días: {corr_ev_dias:.3f}")
         
-        # PASO 9: DESCARGAS (RESTAURADO)
+        # PASO 9: DESCARGAS
         st.subheader("📦 DESCARGAR RESULTADOS")
         col1, col2, col3 = st.columns(3)
         
@@ -1146,7 +1148,7 @@ def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, 
         
         st.dataframe(tabla_detalle, use_container_width=True)
         
-        # PASO 11: RECOMENDACIONES DE MANEJO
+        # PASO 11: RECOMENDACIONES DE MANEJO - CORREGIDO "ADECUADO"
         st.subheader("💡 RECOMENDACIONES DE MANEJO FORRAJERO")
         
         categorias = gdf_analizado['categoria_manejo'].unique()
@@ -1168,7 +1170,7 @@ def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, 
                     st.markdown("- Monitorear crecimiento diario")
                     st.markdown("- Considerar suplementación ligera")
                     
-                elif cat == "ADEQUADO":
+                elif cat == "ADECUADO":  # CORREGIDO
                     st.markdown("**✅ ESTRATEGIA: MANEJO ACTUAL**")
                     st.markdown("- Continuar con rotación planificada")
                     st.markdown("- Monitoreo semanal")
