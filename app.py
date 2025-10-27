@@ -28,6 +28,12 @@ tasa_utilizacion = 0.55
 umbral_ndvi_suelo = 0.2
 umbral_ndvi_pastura = 0.55
 
+# Inicializar session state
+if 'gdf_cargado' not in st.session_state:
+    st.session_state.gdf_cargado = None
+if 'analisis_completado' not in st.session_state:
+    st.session_state.analisis_completado = False
+
 # Sidebar
 with st.sidebar:
     st.header("⚙️ Configuración")
@@ -1164,6 +1170,7 @@ def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, 
             - **Biomasa Disponible:** Forraje realmente aprovechable por el ganado
             """)
         
+        st.session_state.analisis_completado = True
         return True
         
     except Exception as e:
@@ -1172,9 +1179,13 @@ def analisis_forrajero_completo(gdf, tipo_pastura, peso_promedio, carga_animal, 
         st.error(f"Detalle: {traceback.format_exc()}")
         return False
 
-# INTERFAZ PRINCIPAL CORREGIDA
-if uploaded_zip:
-    with st.spinner("Cargando potrero..."):
+# INTERFAZ PRINCIPAL SIMPLIFICADA
+st.markdown("### 📁 CARGAR DATOS DEL POTRERO")
+
+# Procesar archivo subido
+gdf_cargado = None
+if uploaded_zip is not None:
+    with st.spinner("Cargando y procesando shapefile..."):
         try:
             with tempfile.TemporaryDirectory() as tmp_dir:
                 with zipfile.ZipFile(uploaded_zip, 'r') as zip_ref:
@@ -1183,80 +1194,86 @@ if uploaded_zip:
                 shp_files = [f for f in os.listdir(tmp_dir) if f.endswith('.shp')]
                 if shp_files:
                     shp_path = os.path.join(tmp_dir, shp_files[0])
-                    gdf = gpd.read_file(shp_path)
+                    gdf_cargado = gpd.read_file(shp_path)
+                    st.session_state.gdf_cargado = gdf_cargado
                     
-                    # Guardar en session state para que esté disponible
-                    st.session_state['gdf_cargado'] = gdf
-                    st.session_state['area_total'] = calcular_superficie(gdf).sum()
+                    area_total = calcular_superficie(gdf_cargado).sum()
                     
-                    st.success(f"✅ **Potrero cargado:** {len(gdf)} polígono(s)")
+                    st.success(f"✅ **Potrero cargado exitosamente!**")
                     
-                    col1, col2 = st.columns(2)
+                    # Mostrar información del potrero
+                    col1, col2, col3, col4 = st.columns(4)
                     with col1:
-                        st.write("**📊 INFORMACIÓN DEL POTRERO:**")
-                        st.write(f"- Polígonos: {len(gdf)}")
-                        st.write(f"- Área total: {st.session_state['area_total']:.1f} ha")
-                        st.write(f"- CRS: {gdf.crs}")
-                    
+                        st.metric("Polígonos", len(gdf_cargado))
                     with col2:
-                        st.write("**🎯 CONFIGURACIÓN GANADERA:**")
-                        st.write(f"- Pastura: {tipo_pastura}")
-                        st.write(f"- Peso promedio: {peso_promedio} kg")
-                        st.write(f"- Carga animal: {carga_animal} cabezas")
-                        st.write(f"- Sub-lotes: {n_divisiones}")
+                        st.metric("Área Total", f"{area_total:.1f} ha")
+                    with col3:
+                        st.metric("Pastura", tipo_pastura)
+                    with col4:
+                        st.metric("Sub-Lotes", n_divisiones)
                         
         except Exception as e:
-            st.error(f"Error cargando shapefile: {str(e)}")
+            st.error(f"❌ Error cargando shapefile: {str(e)}")
 
-# BOTÓN SIEMPRE VISIBLE CUANDO HAY DATOS CARGADOS - FUERA DEL BLOQUE ANTERIOR
-if 'gdf_cargado' in st.session_state:
-    st.markdown("---")
-    st.subheader("🚀 ACCIÓN PRINCIPAL")
-    
+# BOTÓN PRINCIPAL - SIEMPRE VISIBLE CUANDO HAY DATOS
+st.markdown("---")
+st.markdown("### 🚀 ACCIÓN PRINCIPAL")
+
+if st.session_state.gdf_cargado is not None:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        if st.button("**EJECUTAR ANÁLISIS FORRAJERO GEE**", 
+        st.markdown("""
+        <div style='text-align: center; padding: 20px; border: 2px solid #4CAF50; border-radius: 10px; background-color: #f9fff9;'>
+            <h3>¿Listo para analizar?</h3>
+            <p>Ejecuta el análisis forrajero con los parámetros configurados en la barra lateral</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if st.button("**🚀 EJECUTAR ANÁLISIS FORRAJERO GEE**", 
                     type="primary", 
                     use_container_width=True,
                     key="analisis_principal"):
-            with st.spinner("Iniciando análisis forrajero..."):
-                analisis_forrajero_completo(
-                    st.session_state['gdf_cargado'], 
+            with st.spinner("🔬 Ejecutando análisis forrajero completo..."):
+                resultado = analisis_forrajero_completo(
+                    st.session_state.gdf_cargado, 
                     tipo_pastura, 
                     peso_promedio, 
                     carga_animal, 
                     n_divisiones
                 )
+                if resultado:
+                    st.balloons()
 else:
-    st.info("📁 Sube el ZIP de tu potrero para comenzar el análisis forrajero")
+    st.info("""
+    **📋 Para comenzar el análisis:**
     
-    with st.expander("ℹ️ INFORMACIÓN SOBRE EL ANÁLISIS FORRAJERO GEE MEJORADO"):
-        st.markdown("""
-        **🌱 SISTEMA DE ANÁLISIS FORRAJERO (GEE) - VERSIÓN MEJORADA**
-        
-        **🆕 NUEVAS FUNCIONALIDADES:**
-        - **🌿 Detección Mejorada de Suelo Desnudo:** Algoritmo más estricto y preciso
-        - **📊 Parámetros Personalizables:** Ajusta todos los parámetros forrajeros
-        - **🎯 EV/Ha Sin Valores Cero:** Interpretación mejorada para baja productividad
-        - **📈 Métricas Realistas:** Biomasa disponible ajustada a cobertura real
-        
-        **📊 FUNCIONALIDADES PRINCIPALES:**
-        - **🌿 Productividad Forrajera:** Biomasa disponible por hectárea
-        - **🐄 Equivalentes Vaca:** Capacidad de carga animal realista SIN CEROS
-        - **📅 Días de Permanencia:** Tiempo de rotación estimado
-        - **🛰️ Metodología GEE:** Algoritmos científicos mejorados
-        
-        **🎯 INTERPRETACIÓN DE EV/HA:**
-        - **EV/Ha ≥ 0.1:** Se muestra directamente (ej: 0.15 EV/ha)
-        - **EV/Ha < 0.1:** Se muestra como "1 EV cada X ha" (ej: 1 EV cada 15 ha)
-        - **Nunca cero:** Mínimo valor de 0.01 EV para evitar ceros
-        
-        **🚀 INSTRUCCIONES:**
-        1. **Sube** tu shapefile del potrero
-        2. **Selecciona** el tipo de pastura o "PERSONALIZADO"
-        3. **Configura** parámetros ganaderos (peso y carga)
-        4. **Define** número de sub-lotes para análisis
-        5. **Ejecuta** el análisis GEE mejorado
-        6. **Revisa** resultados y mapa de cobertura
-        7. **Descarga** mapas y reportes completos
-        """)
+    1. **Configura los parámetros** en la barra lateral izquierda
+    2. **Selecciona el tipo de pastura** o elige "PERSONALIZADO" para ajustar parámetros específicos
+    3. **Sube el archivo ZIP** con el shapefile de tu potrero
+    4. **Haz clic en el botón** que aparecerá aquí para ejecutar el análisis
+    
+    ⚠️ **Asegúrate de que el archivo ZIP contenga todos los archivos del shapefile (.shp, .shx, .dbf, .prj)**
+    """)
+
+# Información adicional
+with st.expander("ℹ️ INFORMACIÓN SOBRE EL ANÁLISIS FORRAJERO GEE"):
+    st.markdown("""
+    **🌱 SISTEMA DE ANÁLISIS FORRAJERO (GEE) - VERSIÓN MEJORADA**
+    
+    **🆕 NUEVAS FUNCIONALIDADES:**
+    - **🌿 Detección Mejorada de Suelo Desnudo:** Algoritmo más estricto y preciso
+    - **📊 Parámetros Personalizables:** Ajusta todos los parámetros forrajeros
+    - **🎯 EV/Ha Sin Valores Cero:** Interpretación mejorada para baja productividad
+    - **📈 Métricas Realistas:** Biomasa disponible ajustada a cobertura real
+    
+    **📊 FUNCIONALIDADES PRINCIPALES:**
+    - **🌿 Productividad Forrajera:** Biomasa disponible por hectárea
+    - **🐄 Equivalentes Vaca:** Capacidad de carga animal realista SIN CEROS
+    - **📅 Días de Permanencia:** Tiempo de rotación estimado
+    - **🛰️ Metodología GEE:** Algoritmos científicos mejorados
+    
+    **🎯 INTERPRETACIÓN DE EV/HA:**
+    - **EV/Ha ≥ 0.1:** Se muestra directamente (ej: 0.15 EV/ha)
+    - **EV/Ha < 0.1:** Se muestra como "1 EV cada X ha" (ej: 1 EV cada 15 ha)
+    - **Nunca cero:** Mínimo valor de 0.01 EV para evitar ceros
+    """)
