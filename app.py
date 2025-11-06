@@ -290,11 +290,11 @@ if FOLIUM_AVAILABLE:
         <div style="position: fixed; 
                     bottom: 30px; left: 30px; width: 130px; height: auto; 
                     background-color: white; border:2px solid grey; z-index:9999; 
-                    font-size:14px; padding: 10px">
+                    font-size:10px; padding: 10px">
         <p><strong>Tipos de Superficie</strong></p>
         '''
         for tipo, color in colores_leyenda.items():
-            legend_html += f'<p><i style="background:{color}; width:12px; height:12px; display:inline-block; margin-right:3px;"></i> {tipo}</p>'
+            legend_html += f'<p><i style="background:{color}; width:13px; height:13px; display:inline-block; margin-right:4px;"></i> {tipo}</p>'
         legend_html += '</div>'
         
         m.get_root().html.add_child(folium.Element(legend_html))
