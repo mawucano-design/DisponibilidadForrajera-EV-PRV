@@ -101,8 +101,8 @@ with st.sidebar:
     # Mostrar parámetros personalizables si se selecciona PERSONALIZADO
     if tipo_pastura == "PERSONALIZADO":
         st.subheader("📊 Parámetros Forrajeros Personalizados")
-        ms_optimo = st.number_input("Biomasa Óptima (kg MS/ha):", min_value=1000, max_value=8000, value=3000)
-        crecimiento_diario = st.number_input("Crecimiento Diario (kg MS/ha/día):", min_value=10, max_value=200, value=50)
+        ms_optimo = st.number_input("Biomasa Óptima (kg MS/ha):", min_value=1000, max_value=5000, value=3000)
+        crecimiento_diario = st.number_input("Crecimiento Diario (kg MS/ha/día):", min_value=10, max_value=100, value=50)
         consumo_porcentaje = st.number_input("Consumo (% peso vivo):", min_value=0.01, max_value=0.05, value=0.025, step=0.001, format="%.3f")
         tasa_utilizacion = st.number_input("Tasa Utilización:", min_value=0.3, max_value=0.8, value=0.55, step=0.01, format="%.2f")
         umbral_ndvi_suelo = st.number_input("Umbral NDVI Suelo:", min_value=0.1, max_value=0.4, value=0.2, step=0.01, format="%.2f")
@@ -113,7 +113,7 @@ with st.sidebar:
     carga_animal = st.slider("Carga animal (cabezas):", 50, 1000, 100)
     
     st.subheader("🎯 División de Potrero")
-    n_divisiones = st.slider("Número de sub-lotes:", min_value=12, max_value=32, value=24)
+    n_divisiones = st.slider("Número de sub-lotes:", min_value=12, max_value=48, value=24)
     
     st.subheader("📤 Subir Lote")
     uploaded_zip = st.file_uploader("Subir ZIP con shapefile del potrero", type=['zip'])
@@ -612,20 +612,20 @@ class DetectorVegetacionMejorado:
             # Seguir la clasificación NDVI con ajustes
             categoria_final = categoria_ndvi
             if categoria_final == "SUELO_DESNUDO":
-                cobertura = 0.05
+                cobertura = 0.15
             elif categoria_final == "VEGETACION_ESCASA":
                 cobertura = 0.3
             elif categoria_final == "VEGETACION_MODERADA":
-                cobertura = 0.6
+                cobertura = 0.65
             else:
                 cobertura = 0.85
         
         # Aplicar sensibilidad del usuario
         if self.sensibilidad_suelo > 0.7 and categoria_final in ["VEGETACION_ESCASA", "VEGETACION_MODERADA"]:
             # Ser más estricto con vegetación escasa
-            if ndvi < 0.35:
+            if ndvi < 0.45:
                 categoria_final = "SUELO_PARCIAL"
-                cobertura = 0.2
+                cobertura = 0.25
         
         return categoria_final, max(0.01, min(0.95, cobertura))
     
@@ -826,13 +826,13 @@ def calcular_metricas_ganaderas(gdf_analizado, tipo_pastura, peso_promedio, carg
             tasa_utilizacion = 0
         
         # 5. ESTADO FORRAJERO
-        if biomasa_disponible >= 800:
+        if biomasa_disponible >= 500:
             estado_forrajero = 4  # ÓPTIMO
-        elif biomasa_disponible >= 600:
-            estado_forrajero = 3  # BUENO
         elif biomasa_disponible >= 400:
-            estado_forrajero = 2  # MEDIO
+            estado_forrajero = 3  # BUENO
         elif biomasa_disponible >= 200:
+            estado_forrajero = 2  # MEDIO
+        elif biomasa_disponible >= 100:
             estado_forrajero = 1  # BAJO
         else:
             estado_forrajero = 0  # CRÍTICO
