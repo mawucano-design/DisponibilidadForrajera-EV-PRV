@@ -29,19 +29,19 @@ except ImportError as e:
     st_folium = None
 
 st.set_page_config(page_title="🌱 Analizador Forrajero GEE", layout="wide")
-st.title("🌱 ANALIZADOR FORRAJERO - DETECCIÓN MEJORADA DE VEGETACIÓN")
+st.title("🌱 ANALIZADOR FORRAJERO - DETECCIÓN REALISTA DE VEGETACIÓN")
 st.markdown("---")
 
 # Configurar para restaurar .shx automáticamente
 os.environ['SHAPE_RESTORE_SHX'] = 'YES'
 
 # Inicializar variables de personalización con valores por defecto
-ms_optimo = 4000  # Aumentado para pasturas excelentes
-crecimiento_diario = 80   # Aumentado
+ms_optimo = 4000
+crecimiento_diario = 80
 consumo_porcentaje = 0.025
 tasa_utilizacion = 0.55
-umbral_ndvi_suelo = 0.1   # Reducido significativamente
-umbral_ndvi_pastura = 0.5  # Ajustado
+umbral_ndvi_suelo = 0.15   # AUMENTADO para mejor detección de suelo
+umbral_ndvi_pastura = 0.6  # Ajustado
 
 # Inicializar session state
 if 'gdf_cargado' not in st.session_state:
@@ -67,7 +67,7 @@ with st.sidebar:
     else:
         base_map_option = "ESRI Satélite"  # Valor por defecto
     
-    # Selección de satélite (MANTIENE TU FUNCIONALIDAD ACTUAL DE SENTINEL)
+    # Selección de satélite
     st.subheader("🛰️ Fuente de Datos Satelitales")
     fuente_satelital = st.selectbox(
         "Seleccionar satélite:",
@@ -89,13 +89,13 @@ with st.sidebar:
     
     nubes_max = st.slider("Máximo % de nubes permitido:", 0, 100, 20)
     
-    # Parámetros avanzados de detección de vegetación - AJUSTADOS PARA PASTURAS EXCELENTES
+    # Parámetros avanzados de detección de vegetación - MEJORADOS PARA DETECCIÓN REALISTA
     st.subheader("🌿 Parámetros de Detección de Vegetación")
-    umbral_ndvi_minimo = st.slider("Umbral NDVI mínimo vegetación:", 0.05, 0.3, 0.08, 0.01,
+    umbral_ndvi_minimo = st.slider("Umbral NDVI mínimo vegetación:", 0.05, 0.3, 0.15, 0.01,
                                   help="NDVI por debajo de este valor se considera suelo desnudo")
-    umbral_ndvi_optimo = st.slider("Umbral NDVI vegetación óptima:", 0.4, 0.8, 0.55, 0.01,
+    umbral_ndvi_optimo = st.slider("Umbral NDVI vegetación óptima:", 0.4, 0.8, 0.6, 0.01,
                                   help="NDVI por encima de este valor se considera vegetación densa")
-    sensibilidad_suelo = st.slider("Sensibilidad detección suelo:", 0.1, 1.0, 0.1, 0.1,
+    sensibilidad_suelo = st.slider("Sensibilidad detección suelo:", 0.1, 1.0, 0.5, 0.1,
                                   help="Mayor valor = más estricto en detectar suelo desnudo")
     
     # Mostrar parámetros personalizables si se selecciona PERSONALIZADO
@@ -105,8 +105,8 @@ with st.sidebar:
         crecimiento_diario = st.number_input("Crecimiento Diario (kg MS/ha/día):", min_value=10, max_value=300, value=80)
         consumo_porcentaje = st.number_input("Consumo (% peso vivo):", min_value=0.01, max_value=0.05, value=0.025, step=0.001, format="%.3f")
         tasa_utilizacion = st.number_input("Tasa Utilización:", min_value=0.3, max_value=0.8, value=0.55, step=0.01, format="%.2f")
-        umbral_ndvi_suelo = st.number_input("Umbral NDVI Suelo:", min_value=0.05, max_value=0.3, value=0.1, step=0.01, format="%.2f")
-        umbral_ndvi_pastura = st.number_input("Umbral NDVI Pastura:", min_value=0.3, max_value=0.8, value=0.5, step=0.01, format="%.2f")
+        umbral_ndvi_suelo = st.number_input("Umbral NDVI Suelo:", min_value=0.05, max_value=0.3, value=0.15, step=0.01, format="%.2f")
+        umbral_ndvi_pastura = st.number_input("Umbral NDVI Pastura:", min_value=0.3, max_value=0.8, value=0.6, step=0.01, format="%.2f")
     
     st.subheader("📊 Parámetros Ganaderos")
     peso_promedio = st.slider("Peso promedio animal (kg):", 300, 600, 450)
@@ -340,27 +340,27 @@ def exportar_geojson(gdf_analizado, tipo_pastura):
         return None, None
 
 # =============================================================================
-# PARÁMETROS FORRAJEROS Y FUNCIONES BÁSICAS - OPTIMIZADOS PARA PASTURAS EXCELENTES
+# PARÁMETROS FORRAJEROS Y FUNCIONES BÁSICAS
 # =============================================================================
 
-# PARÁMETROS FORRAJEROS POR TIPO DE PASTURA - OPTIMIZADOS PARA PASTURAS EXCELENTES
+# PARÁMETROS FORRAJEROS POR TIPO DE PASTURA
 PARAMETROS_FORRAJEROS_BASE = {
     'ALFALFA': {
-        'MS_POR_HA_OPTIMO': 5000,  # Aumentado significativamente
-        'CRECIMIENTO_DIARIO': 100,  # Aumentado
+        'MS_POR_HA_OPTIMO': 5000,
+        'CRECIMIENTO_DIARIO': 100,
         'CONSUMO_PORCENTAJE_PESO': 0.03,
         'DIGESTIBILIDAD': 0.65,
         'PROTEINA_CRUDA': 0.18,
         'TASA_UTILIZACION_RECOMENDADA': 0.65,
-        'FACTOR_BIOMASA_NDVI': 4500,  # Aumentado significativamente
+        'FACTOR_BIOMASA_NDVI': 4500,
         'FACTOR_BIOMASA_EVI': 4700,
         'FACTOR_BIOMASA_SAVI': 4600,
         'OFFSET_BIOMASA': -1000,
-        'UMBRAL_NDVI_SUELO': 0.08,    # Reducido significativamente
-        'UMBRAL_NDVI_PASTURA': 0.45,  # Ajustado
-        'UMBRAL_BSI_SUELO': 0.5,      # Aumentado para ser menos sensible
-        'UMBRAL_NDBI_SUELO': 0.2,     # Aumentado para ser menos sensible
-        'FACTOR_COBERTURA': 0.95      # Muy alto para pasturas excelentes
+        'UMBRAL_NDVI_SUELO': 0.15,    # AUMENTADO para mejor detección
+        'UMBRAL_NDVI_PASTURA': 0.6,   # Ajustado
+        'UMBRAL_BSI_SUELO': 0.3,      # REDUCIDO para más sensibilidad
+        'UMBRAL_NDBI_SUELO': 0.1,     # REDUCIDO para más sensibilidad
+        'FACTOR_COBERTURA': 0.85
     },
     'RAYGRASS': {
         'MS_POR_HA_OPTIMO': 4500,
@@ -373,11 +373,11 @@ PARAMETROS_FORRAJEROS_BASE = {
         'FACTOR_BIOMASA_EVI': 4400,
         'FACTOR_BIOMASA_SAVI': 4300,
         'OFFSET_BIOMASA': -900,
-        'UMBRAL_NDVI_SUELO': 0.08,
-        'UMBRAL_NDVI_PASTURA': 0.50,
-        'UMBRAL_BSI_SUELO': 0.5,
-        'UMBRAL_NDBI_SUELO': 0.2,
-        'FACTOR_COBERTURA': 0.95
+        'UMBRAL_NDVI_SUELO': 0.15,
+        'UMBRAL_NDVI_PASTURA': 0.6,
+        'UMBRAL_BSI_SUELO': 0.3,
+        'UMBRAL_NDBI_SUELO': 0.1,
+        'FACTOR_COBERTURA': 0.85
     },
     'FESTUCA': {
         'MS_POR_HA_OPTIMO': 4000,
@@ -390,11 +390,11 @@ PARAMETROS_FORRAJEROS_BASE = {
         'FACTOR_BIOMASA_EVI': 4000,
         'FACTOR_BIOMASA_SAVI': 3900,
         'OFFSET_BIOMASA': -800,
-        'UMBRAL_NDVI_SUELO': 0.08,
-        'UMBRAL_NDVI_PASTURA': 0.55,
-        'UMBRAL_BSI_SUELO': 0.5,
-        'UMBRAL_NDBI_SUELO': 0.2,
-        'FACTOR_COBERTURA': 0.92
+        'UMBRAL_NDVI_SUELO': 0.15,
+        'UMBRAL_NDVI_PASTURA': 0.65,
+        'UMBRAL_BSI_SUELO': 0.3,
+        'UMBRAL_NDBI_SUELO': 0.1,
+        'FACTOR_COBERTURA': 0.82
     },
     'AGROPIRRO': {
         'MS_POR_HA_OPTIMO': 3500,
@@ -407,11 +407,11 @@ PARAMETROS_FORRAJEROS_BASE = {
         'FACTOR_BIOMASA_EVI': 3400,
         'FACTOR_BIOMASA_SAVI': 3300,
         'OFFSET_BIOMASA': -700,
-        'UMBRAL_NDVI_SUELO': 0.08,
-        'UMBRAL_NDVI_PASTURA': 0.60,
-        'UMBRAL_BSI_SUELO': 0.5,
-        'UMBRAL_NDBI_SUELO': 0.2,
-        'FACTOR_COBERTURA': 0.90
+        'UMBRAL_NDVI_SUELO': 0.15,
+        'UMBRAL_NDVI_PASTURA': 0.65,
+        'UMBRAL_BSI_SUELO': 0.3,
+        'UMBRAL_NDBI_SUELO': 0.1,
+        'FACTOR_COBERTURA': 0.80
     },
     'PASTIZAL_NATURAL': {
         'MS_POR_HA_OPTIMO': 3000,
@@ -424,11 +424,11 @@ PARAMETROS_FORRAJEROS_BASE = {
         'FACTOR_BIOMASA_EVI': 3000,
         'FACTOR_BIOMASA_SAVI': 2900,
         'OFFSET_BIOMASA': -600,
-        'UMBRAL_NDVI_SUELO': 0.08,
-        'UMBRAL_NDVI_PASTURA': 0.65,
-        'UMBRAL_BSI_SUELO': 0.5,
-        'UMBRAL_NDBI_SUELO': 0.2,
-        'FACTOR_COBERTURA': 0.85
+        'UMBRAL_NDVI_SUELO': 0.15,
+        'UMBRAL_NDVI_PASTURA': 0.7,
+        'UMBRAL_BSI_SUELO': 0.3,
+        'UMBRAL_NDBI_SUELo': 0.1,
+        'FACTOR_COBERTURA': 0.75
     }
 }
 
@@ -449,9 +449,9 @@ def obtener_parametros_forrajeros(tipo_pastura):
             'OFFSET_BIOMASA': -800,
             'UMBRAL_NDVI_SUELO': umbral_ndvi_suelo,
             'UMBRAL_NDVI_PASTURA': umbral_ndvi_pastura,
-            'UMBRAL_BSI_SUELO': 0.5,
-            'UMBRAL_NDBI_SUELO': 0.2,
-            'FACTOR_COBERTURA': 0.92
+            'UMBRAL_BSI_SUELO': 0.3,
+            'UMBRAL_NDBI_SUELO': 0.1,
+            'FACTOR_COBERTURA': 0.82
         }
     else:
         return PARAMETROS_FORRAJEROS_BASE[tipo_pastura]
@@ -523,229 +523,321 @@ def dividir_potrero_en_subLotes(gdf, n_zonas):
         return gdf
 
 # =============================================================================
-# ALGORITMOS MEJORADOS DE DETECCIÓN DE VEGETACIÓN - OPTIMIZADOS PARA PASTURAS EXCELENTES
+# ALGORITMOS MEJORADOS DE DETECCIÓN DE VEGETACIÓN - REALISTA Y SENSIBLE
 # =============================================================================
 
-class DetectorVegetacionMejorado:
+class DetectorVegetacionRealista:
     """
-    Clase mejorada para detección realista de vegetación basada en investigación científica
-    OPTIMIZADA PARA PASTURAS EXCELENTES Y COMPLETAMENTE EMPASTADAS
+    Clase mejorada para detección REALISTA de vegetación que responde a condiciones reales del terreno
+    BALANCEADA - no fuerza vegetación donde hay suelo desnudo
     """
     
-    def __init__(self, umbral_ndvi_minimo=0.08, umbral_ndvi_optimo=0.55, sensibilidad_suelo=0.1):
+    def __init__(self, umbral_ndvi_minimo=0.15, umbral_ndvi_optimo=0.6, sensibilidad_suelo=0.5):
         self.umbral_ndvi_minimo = umbral_ndvi_minimo
         self.umbral_ndvi_optimo = umbral_ndvi_optimo
         self.sensibilidad_suelo = sensibilidad_suelo
         
-        # Parámetros basados en investigación científica PARA PASTURAS EXCELENTES
+        # Parámetros REALISTAS basados en investigación científica
         self.parametros_cientificos = {
-            'ndvi_suelo_desnudo_max': 0.08,      # Muy reducido para pasturas excelentes
-            'ndvi_vegetacion_escasa_min': 0.08,  # Ajustado
-            'ndvi_vegetacion_escasa_max': 0.35,  # Ajustado
-            'ndvi_vegetacion_moderada_min': 0.35, # Ajustado
-            'ndvi_vegetacion_moderada_max': 0.55, # Ajustado
-            'ndvi_vegetacion_densa_min': 0.55,   # Ajustado
-            'bsi_suelo_min': 0.6,                # Muy reducida sensibilidad
-            'ndbi_suelo_min': 0.3,               # Muy reducida sensibilidad
-            'evi_vegetacion_min': 0.08,          # Muy reducido
-            'savi_vegetacion_min': 0.08          # Muy reducido
+            'ndvi_suelo_desnudo_max': 0.15,      # AUMENTADO - más realista para suelo
+            'ndvi_vegetacion_escasa_min': 0.15,  # Ajustado
+            'ndvi_vegetacion_escasa_max': 0.4,   # Ajustado
+            'ndvi_vegetacion_moderada_min': 0.4, # Ajustado
+            'ndvi_vegetacion_moderada_max': 0.65, # Ajustado
+            'ndvi_vegetacion_densa_min': 0.65,   # Ajustado
+            
+            # SENSIBILIDAD AUMENTADA para detectar suelo
+            'bsi_suelo_min': 0.3,                # REDUCIDO - más sensible a suelo
+            'ndbi_suelo_min': 0.1,               # REDUCIDO - más sensible a suelo
+            'evi_vegetacion_min': 0.1,           # AUMENTADO - más exigente
+            'savi_vegetacion_min': 0.1,          # AUMENTADO - más exigente
+            
+            # Nuevos parámetros para mejor detección
+            'cobertura_suelo_desnudo_max': 0.1,  # Máxima cobertura para suelo desnudo
+            'cobertura_vegetacion_escasa_min': 0.3, # Mínima cobertura para vegetación
         }
     
-    def clasificar_vegetacion_cientifica(self, ndvi, evi, savi, bsi, ndbi, msavi2=None):
+    def clasificar_vegetacion_realista(self, ndvi, evi, savi, bsi, ndbi, msavi2=None):
         """
-        Clasificación mejorada basada en múltiples índices y criterios científicos
-        OPTIMIZADA PARA PASTURAS EXCELENTES
+        Clasificación MEJORADA y REALISTA que NO fuerza vegetación artificialmente
         """
-        # 1. ANÁLISIS PRINCIPAL CON NDVI - UMBRALES MUY BAJOS PARA PASTURAS EXCELENTES
-        if ndvi < self.parametros_cientificos['ndvi_suelo_desnudo_max']:
-            # Solo NDVI extremadamente bajo se considera suelo desnudo
+        # 1. DETECCIÓN FUERTE DE SUELO DESNUDO - CRITERIOS MÁS SENSIBLES
+        es_suelo_desnudo = False
+        es_suelo_parcial = False
+        
+        # Criterios MÁS FUERTES para suelo desnudo
+        criterios_suelo_fuertes = 0
+        if ndvi < 0.1:  # NDVI muy bajo
+            criterios_suelo_fuertes += 2
+        if bsi > 0.4:   # BSI alto
+            criterios_suelo_fuertes += 1
+        if ndbi > 0.2:  # NDBI alto
+            criterios_suelo_fuertes += 1
+        if evi < 0.08:  # EVI muy bajo
+            criterios_suelo_fuertes += 1
+        if savi < 0.08: # SAVI muy bajo
+            criterios_suelo_fuertes += 1
+            
+        if criterios_suelo_fuertes >= 4:  # Múltiples indicadores de suelo
+            es_suelo_desnudo = True
+        
+        # Criterios para suelo parcial
+        criterios_suelo_parcial = 0
+        if ndvi < 0.2:
+            criterios_suelo_parcial += 1
+        if bsi > 0.3:
+            criterios_suelo_parcial += 1
+        if ndbi > 0.15:
+            criterios_suelo_parcial += 1
+            
+        if criterios_suelo_parcial >= 2 and not es_suelo_desnudo:
+            es_suelo_parcial = True
+        
+        # 2. CLASIFICACIÓN PRINCIPAL BASADA EN NDVI - SIN FORZAR VEGETACIÓN
+        if es_suelo_desnudo:
             categoria_ndvi = "SUELO_DESNUDO"
-            confianza_ndvi = 0.6  # Baja confianza para pasturas
+            confianza_ndvi = 0.8
+            cobertura_base = 0.05  # Muy baja cobertura
+        elif es_suelo_parcial:
+            categoria_ndvi = "SUELO_PARCIAL" 
+            confianza_ndvi = 0.7
+            cobertura_base = 0.25  # Baja cobertura
         elif ndvi < self.parametros_cientificos['ndvi_vegetacion_escasa_max']:
             categoria_ndvi = "VEGETACION_ESCASA"
             confianza_ndvi = 0.7
+            cobertura_base = 0.5   # Cobertura media-baja
         elif ndvi < self.parametros_cientificos['ndvi_vegetacion_moderada_max']:
             categoria_ndvi = "VEGETACION_MODERADA"
             confianza_ndvi = 0.8
+            cobertura_base = 0.75  # Cobertura media-alta
         else:
             categoria_ndvi = "VEGETACION_DENSA"
             confianza_ndvi = 0.9
+            cobertura_base = 0.9   # Alta cobertura
         
-        # 2. VERIFICACIÓN CON OTROS ÍNDICES - MUY FLEXIBLE PARA PASTURAS
-        criterios_suelo = 0
+        # 3. VERIFICACIÓN CON OTROS ÍNDICES - MÁS EQUILIBRADA
         criterios_vegetacion = 0
         
-        # Criterios para suelo desnudo - MUY ESTRICTOS (solo casos extremos)
-        if bsi > self.parametros_cientificos['bsi_suelo_min']:
-            criterios_suelo += 1
-        if ndbi > self.parametros_cientificos['ndbi_suelo_min']:
-            criterios_suelo += 1
-        if evi < self.parametros_cientificos['evi_vegetacion_min']:
-            criterios_suelo += 1
-        if savi < self.parametros_cientificos['savi_vegetacion_min']:
-            criterios_suelo += 1
-        
-        # Criterios para vegetación - MUY FLEXIBLES
-        if evi > self.parametros_cientificos['evi_vegetacion_min']:
-            criterios_vegetacion += 2  # Mayor peso
-        if savi > self.parametros_cientificos['savi_vegetacion_min']:
-            criterios_vegetacion += 2  # Mayor peso
-        if msavi2 and msavi2 > 0.1:   # Muy reducido umbral
+        # Criterios para confirmar vegetación - MÁS EXIGENTES
+        if evi > 0.15:  # Aumentado umbral
+            criterios_vegetacion += 1
+        if savi > 0.15: # Aumentado umbral  
+            criterios_vegetacion += 1
+        if bsi < 0.2:   # BSI bajo
+            criterios_vegetacion += 1
+        if ndbi < 0.1:  # NDBI bajo
+            criterios_vegetacion += 1
+        if msavi2 and msavi2 > 0.15: # Aumentado umbral
             criterios_vegetacion += 1
         
-        # 3. DECISIÓN FINAL CON PESOS - FAVORECIENDO FUERTEMENTE LA VEGETACIÓN
-        if criterios_suelo >= 4 and ndvi < 0.05:  # Extremadamente estricto para suelo
-            # Solo casos extremos se consideran suelo desnudo
-            categoria_final = "SUELO_DESNUDO"
-            cobertura = 0.01
-        elif criterios_suelo >= 3 and ndvi < 0.08:  # Muy estricto
-            categoria_final = "SUELO_PARCIAL"
-            cobertura = 0.3  # Aún así, cobertura alta
-        elif categoria_ndvi == "SUELO_DESNUDO" and criterios_vegetacion >= 1:
-            # Casi siempre favorecer vegetación sobre suelo
-            categoria_final = "VEGETACION_ESCASA"
-            cobertura = 0.6  # Alta cobertura
-        elif categoria_ndvi == "VEGETACION_DENSA" or criterios_vegetacion >= 2:
-            # Favorecer vegetación densa
-            categoria_final = "VEGETACION_DENSA"
-            cobertura = min(0.98, 0.8 + (ndvi - 0.5) * 0.6)  # Coberturas muy altas
-        else:
-            # Seguir la clasificación NDVI con ajustes - SIEMPRE FAVORECIENDO VEGETACIÓN
-            categoria_final = categoria_ndvi
-            if categoria_final == "SUELO_DESNUDO":
-                cobertura = 0.2  # Mínimo aumentado
-            elif categoria_final == "VEGETACION_ESCASA":
-                cobertura = 0.6  # Aumentado significativamente
-            elif categoria_final == "VEGETACION_MODERADA":
-                cobertura = 0.85  # Aumentado
+        # 4. AJUSTES FINALES BASADOS EN CONFIRMACIÓN CRUZADA
+        categoria_final = categoria_ndvi
+        cobertura_final = cobertura_base
+        
+        # Si hay fuerte evidencia de suelo pero NDVI sugiere vegetación, CORREGIR
+        if (es_suelo_desnudo or es_suelo_parcial) and categoria_ndvi not in ["SUELO_DESNUDO", "SUELO_PARCIAL"]:
+            if criterios_suelo_fuertes >= 3:
+                categoria_final = "SUELO_DESNUDO"
+                cobertura_final = 0.05
+            elif criterios_suelo_parcial >= 2:
+                categoria_final = "SUELO_PARCIAL" 
+                cobertura_final = 0.25
+        
+        # Si hay poca evidencia de vegetación pero NDVI es alto, REVISAR
+        elif categoria_ndvi in ["VEGETACION_MODERADA", "VEGETACION_DENSA"] and criterios_vegetacion < 2:
+            # Revisar hacia abajo la clasificación
+            if categoria_ndvi == "VEGETACION_DENSA":
+                categoria_final = "VEGETACION_MODERADA"
+                cobertura_final = 0.7
             else:
-                cobertura = 0.95  # Muy alto
+                categoria_final = "VEGETACION_ESCASA"
+                cobertura_final = 0.5
         
-        # Aplicar sensibilidad del usuario - CASI NULA INFLUENCIA POR DEFECTO
-        if self.sensibilidad_suelo > 0.8 and categoria_final in ["VEGETACION_ESCASA", "VEGETACION_MODERADA"]:
-            # Solo aplicar si sensibilidad muy alta
-            if ndvi < 0.2:  # Umbral muy bajo
-                categoria_final = "SUELO_PARCIAL"
-                cobertura = 0.4
+        # 5. APLICAR SENSIBILIDAD DEL USUARIO - MÁS EFECTIVA
+        if self.sensibilidad_suelo > 0.5:
+            # Mayor sensibilidad = más detección de suelo
+            factor_sensibilidad = self.sensibilidad_suelo ** 2
+            if categoria_final in ["VEGETACION_ESCASA", "VEGETACION_MODERADA"]:
+                if ndvi < 0.3 + (0.3 * (1 - factor_sensibilidad)):
+                    categoria_final = "SUELO_PARCIAL"
+                    cobertura_final = max(0.1, cobertura_final * 0.6)
         
-        return categoria_final, max(0.01, min(0.98, cobertura))
+        return categoria_final, max(0.01, min(0.95, cobertura_final))
     
     def calcular_biomasa_realista(self, ndvi, evi, savi, categoria_vegetacion, cobertura, params):
         """
-        Cálculo mejorado de biomasa basado en investigación forrajera
-        OPTIMIZADO PARA PASTURAS EXCELENTES
+        Cálculo REALISTA de biomasa que responde a condiciones reales
         """
-        # Factores de corrección según tipo de vegetación - MUY ALTOS PARA PASTURAS EXCELENTES
+        # FACTORES MÁS REALISTAS según tipo de vegetación
         if categoria_vegetacion == "SUELO_DESNUDO":
-            return 50, 5, 0.3  # Valores mínimos pero no cero
+            return 20, 2, 0.2  # Valores MUY bajos para suelo desnudo
         
         elif categoria_vegetacion == "SUELO_PARCIAL":
-            # Biomasa reducida pero significativa
-            factor_biomasa = 0.4  # Aumentado
-            factor_crecimiento = 0.4
-            factor_calidad = 0.5
+            # Biomasa muy reducida para suelo parcial
+            factor_biomasa = 0.15  # MUY reducido
+            factor_crecimiento = 0.2
+            factor_calidad = 0.3
         
         elif categoria_vegetacion == "VEGETACION_ESCASA":
-            # Vegetación escasa - factores muy altos
-            factor_biomasa = 0.6 + (ndvi * 0.6)  # Muy aumentado
-            factor_crecimiento = 0.7  # Muy aumentado
-            factor_calidad = 0.7 + (ndvi * 0.5)  # Muy aumentado
+            # Vegetación escasa - factores moderados
+            factor_biomasa = 0.3 + (ndvi * 0.4)  # Moderado
+            factor_crecimiento = 0.4
+            factor_calidad = 0.5 + (ndvi * 0.3)
         
         elif categoria_vegetacion == "VEGETACION_MODERADA":
             # Vegetación moderada
-            factor_biomasa = 0.8 + (ndvi * 0.5)  # Muy aumentado
-            factor_crecimiento = 0.9  # Muy aumentado
-            factor_calidad = 0.8 + (ndvi * 0.4)  # Muy aumentado
+            factor_biomasa = 0.6 + (ndvi * 0.3)
+            factor_crecimiento = 0.7
+            factor_calidad = 0.7 + (ndvi * 0.2)
         
         else:  # VEGETACION_DENSA
-            # Vegetación densa - máximo potencial
-            factor_biomasa = 0.95 + (ndvi * 0.4)  # Muy aumentado
-            factor_crecimiento = 0.98  # Muy aumentado
-            factor_calidad = 0.9 + (ndvi * 0.3)  # Muy aumentado
+            # Vegetación densa - alto potencial
+            factor_biomasa = 0.85 + (ndvi * 0.2)
+            factor_crecimiento = 0.9
+            factor_calidad = 0.85 + (ndvi * 0.15)
         
-        # Aplicar factores de corrección por cobertura - PENALIZACIÓN MÍNIMA
-        factor_cobertura = cobertura ** 0.4  # Reducción muy leve
+        # APLICAR CORRECCIÓN POR COBERTURA - MÁS ESTRICTA
+        factor_cobertura = cobertura ** 0.7  # Penalización más fuerte por baja cobertura
         
         # Cálculo final de biomasa
         biomasa_base = params['MS_POR_HA_OPTIMO'] * factor_biomasa
         biomasa_ajustada = biomasa_base * factor_cobertura
         
-        # Limitar valores máximos realistas - MUY ALTOS PARA PASTURAS EXCELENTES
-        biomasa_ms_ha = min(10000, max(50, biomasa_ajustada))  # Máximo muy aumentado
+        # Limitar valores según realidad
+        biomasa_ms_ha = min(8000, max(10, biomasa_ajustada))  # Mínimo más bajo
         
-        # Crecimiento diario ajustado - MUY ALTO
+        # Crecimiento diario realista
         crecimiento_diario = params['CRECIMIENTO_DIARIO'] * factor_crecimiento * factor_cobertura
-        crecimiento_diario = min(300, max(5, crecimiento_diario))  # Máximo muy aumentado
+        crecimiento_diario = min(200, max(1, crecimiento_diario))
         
-        # Calidad forrajera - MUY ALTA
-        calidad_forrajera = min(0.98, max(0.3, factor_calidad * factor_cobertura))
+        # Calidad forrajera realista
+        calidad_forrajera = min(0.95, max(0.1, factor_calidad * factor_cobertura))
         
         return biomasa_ms_ha, crecimiento_diario, calidad_forrajera
 
 # =============================================================================
-# SIMULACIÓN MEJORADA BASADA EN PATRONES REALES - OPTIMIZADA PARA PASTURAS EXCELENTES
+# SIMULACIÓN MEJORADA CON PATRONES MÁS VARIADOS - INCLUYENDO SUELO DESNUDO
 # =============================================================================
 
-def simular_patrones_reales_vegetacion(id_subLote, x_norm, y_norm, fuente_satelital):
+def simular_patrones_reales_con_suelo(id_subLote, x_norm, y_norm, fuente_satelital):
     """
-    Simula patrones realistas de vegetación basados en casos reales
-    OPTIMIZADA PARA PASTURAS EXCELENTES Y COMPLETAMENTE EMPASTADAS
+    Simula patrones REALISTAS que INCLUYEN suelo desnudo cuando corresponde
     """
-    # Patrones específicos para pasturas excelentes - NDVI MUY ALTOS
-    # En una pastura excelente, la mayoría de los sub-lotes tendrán NDVI altos
-    zonas_vegetacion_moderada_alta = {
-        1: 0.55, 8: 0.58, 15: 0.52, 22: 0.60, 5: 0.56,
-        3: 0.62, 14: 0.59, 17: 0.57, 12: 0.61
+    # DEFINIR ZONAS ESPECÍFICAS CON SUELO DESNUDO - MÁS REALISTA
+    zonas_suelo_desnudo = {
+        1: 0.08,   # Borde noroeste - suelo desnudo
+        6: 0.12,   # Centro-oeste - suelo parcial
+        11: 0.09,  # Esquina suroeste - suelo desnudo
+        25: 0.11,  # Borde este - suelo parcial
+        30: 0.07   # Esquina sureste - suelo desnudo
+    }
+    
+    zonas_suelo_parcial = {
+        2: 0.18,   # Cerca de suelo desnudo
+        7: 0.22,   # Transición
+        16: 0.19,  # Área degradada
+        26: 0.21,  # Borde
+        31: 0.17   # Transición
+    }
+    
+    zonas_vegetacion_escasa = {
+        3: 0.28,   # Vegetación muy escasa
+        8: 0.32,   # Recuperación
+        12: 0.35,  # Pastura débil
+        17: 0.31,  # Vegetación rala
+        21: 0.29,  # Área pobre
+        27: 0.33   # Vegetación escasa
+    }
+    
+    zonas_vegetacion_moderada = {
+        4: 0.45,   # Vegetación moderada
+        9: 0.52,   # Buena vegetación
+        13: 0.48,  # Moderada
+        18: 0.55,  # Casi densa
+        22: 0.51,  # Moderada-alta
+        28: 0.47   # Moderada
     }
     
     zonas_vegetacion_densa = {
-        2: 0.72, 9: 0.75, 16: 0.68, 23: 0.78, 6: 0.73,
-        4: 0.80, 11: 0.76, 18: 0.82, 25: 0.79, 10: 0.81,
-        13: 0.77, 19: 0.74, 20: 0.71, 21: 0.83, 24: 0.75,
-        7: 0.69, 26: 0.72, 27: 0.76, 28: 0.74, 29: 0.78,
-        30: 0.70, 31: 0.75, 32: 0.79
+        5: 0.68,   # Vegetación densa
+        10: 0.72,  # Muy densa
+        14: 0.75,  # Excelente
+        15: 0.71,  # Densa
+        19: 0.78,  # Óptima
+        20: 0.74,  # Densa
+        23: 0.69,  # Densa
+        24: 0.76,  # Muy buena
+        29: 0.73,  # Densa
+        32: 0.70   # Densa
     }
     
-    # Determinar NDVI base según el patrón - VALORES MUY ALTOS PARA PASTURAS EXCELENTES
-    if id_subLote in zonas_vegetacion_moderada_alta:
-        ndvi_base = zonas_vegetacion_moderada_alta[id_subLote]
+    # ASIGNAR NDVI SEGÚN ZONA - RESPETANDO SUELO DESNUDO
+    if id_subLote in zonas_suelo_desnudo:
+        ndvi_base = zonas_suelo_desnudo[id_subLote]
+    elif id_subLote in zonas_suelo_parcial:
+        ndvi_base = zonas_suelo_parcial[id_subLote]
+    elif id_subLote in zonas_vegetacion_escasa:
+        ndvi_base = zonas_vegetacion_escasa[id_subLote]
+    elif id_subLote in zonas_vegetacion_moderada:
+        ndvi_base = zonas_vegetacion_moderada[id_subLote]
     elif id_subLote in zonas_vegetacion_densa:
         ndvi_base = zonas_vegetacion_densa[id_subLote]
     else:
-        # Patrón espacial general - VALORES MUY ALTOS
+        # Patrón espacial general - MÁS VARIADO
         distancia_borde = min(x_norm, 1-x_norm, y_norm, 1-y_norm)
-        ndvi_base = 0.65 + (distancia_borde * 0.25)  # Valores base muy altos
+        
+        # Áreas cerca del borde tienen mayor probabilidad de suelo desnudo
+        if distancia_borde < 0.2:
+            # Bordes frecuentemente tienen suelo desnudo
+            ndvi_base = 0.15 + (distancia_borde * 0.3)
+        else:
+            # Interior normalmente tiene mejor vegetación
+            ndvi_base = 0.4 + (distancia_borde * 0.4)
     
-    # Variabilidad natural - MUY REDUCIDA PARA PASTURAS HOMOGÉNEAS
-    variabilidad = np.random.normal(0, 0.03)  # Variabilidad mínima
-    ndvi = max(0.5, min(0.85, ndvi_base + variabilidad))  # Mínimo muy alto
+    # Variabilidad natural - MÁS REALISTA
+    variabilidad = np.random.normal(0, 0.05)  # Más variabilidad
+    ndvi = max(0.05, min(0.85, ndvi_base + variabilidad))  # Permite valores más bajos
     
-    # Calcular otros índices de forma consistente - VALORES MUY ALTOS
-    if ndvi < 0.6:
-        # Vegetación moderada-alta (nunca suelo en pastura excelente)
-        evi = ndvi * 1.4  # Muy aumentado
-        savi = ndvi * 1.3  # Muy aumentado
-        bsi = -0.2 + np.random.uniform(0, 0.1)  # Muy negativo
-        ndbi = -0.1 + np.random.uniform(0, 0.05)  # Muy negativo
-        msavi2 = ndvi * 1.2  # Muy aumentado
+    # CALCULAR OTROS ÍNDICES DE FORMA CONSISTENTE CON NDVI
+    if ndvi < 0.15:
+        # SUELO DESNUDO - índices consistentes con suelo
+        evi = ndvi * 0.8    # EVI más bajo que NDVI en suelo
+        savi = ndvi * 0.9   # SAVI similar
+        bsi = 0.6 + np.random.uniform(-0.1, 0.1)   # BSI ALTO para suelo
+        ndbi = 0.25 + np.random.uniform(-0.05, 0.05) # NDBI ALTO para suelo
+        msavi2 = ndvi * 0.7 # MSAVI2 bajo
+    elif ndvi < 0.3:
+        # SUELO PARCIAL/VEGETACIÓN MUY ESCASA
+        evi = ndvi * 1.1
+        savi = ndvi * 1.05
+        bsi = 0.4 + np.random.uniform(-0.1, 0.1)   # BSI medio
+        ndbi = 0.15 + np.random.uniform(-0.05, 0.05) # NDBI medio
+        msavi2 = ndvi * 0.9
+    elif ndvi < 0.5:
+        # VEGETACIÓN ESCASA/MODERADA
+        evi = ndvi * 1.3
+        savi = ndvi * 1.2
+        bsi = 0.1 + np.random.uniform(-0.1, 0.1)   # BSI bajo
+        ndbi = 0.05 + np.random.uniform(-0.03, 0.03) # NDBI bajo
+        msavi2 = ndvi * 1.1
     else:
-        # Vegetación densa
-        evi = ndvi * 1.5  # Muy aumentado
-        savi = ndvi * 1.4  # Muy aumentado
-        bsi = -0.3 + np.random.uniform(0, 0.05)  # Extremadamente negativo
-        ndbi = -0.15 + np.random.uniform(0, 0.03)  # Extremadamente negativo
-        msavi2 = ndvi * 1.3  # Muy aumentado
+        # VEGETACIÓN DENSA
+        evi = ndvi * 1.4
+        savi = ndvi * 1.3
+        bsi = -0.1 + np.random.uniform(-0.05, 0.05)  # BSI muy bajo
+        ndbi = -0.05 + np.random.uniform(-0.02, 0.02) # NDBI muy bajo
+        msavi2 = ndvi * 1.2
     
     return ndvi, evi, savi, bsi, ndbi, msavi2
 
 # =============================================================================
-# FUNCIONES DE MÉTRICAS GANADERAS - AJUSTADAS PARA PASTURAS EXCELENTES
+# FUNCIONES DE MÉTRICAS GANADERAS - AJUSTADAS PARA DETECCIÓN REALISTA
 # =============================================================================
 
 def calcular_metricas_ganaderas(gdf_analizado, tipo_pastura, peso_promedio, carga_animal):
     """
     Calcula equivalentes vaca y días de permanencia
-    AJUSTADO PARA PASTURAS EXCELENTES
+    AJUSTADO PARA DETECCIÓN REALISTA
     """
     params = obtener_parametros_forrajeros(tipo_pastura)
     metricas = []
@@ -789,7 +881,7 @@ def calcular_metricas_ganaderas(gdf_analizado, tipo_pastura, peso_promedio, carg
                 if dias_permanencia > 0:
                     crecimiento_total = crecimiento_diario * area_ha * dias_permanencia * 0.3
                     dias_ajustados = (biomasa_total_disponible + crecimiento_total) / consumo_total_diario
-                    dias_permanencia = min(dias_ajustados, 10)  # Aumentado máximo
+                    dias_permanencia = min(dias_ajustados, 10)
                 else:
                     dias_permanencia = 0.1
             else:
@@ -805,12 +897,12 @@ def calcular_metricas_ganaderas(gdf_analizado, tipo_pastura, peso_promedio, carg
         else:
             tasa_utilizacion = 0
         
-        # 5. ESTADO FORRAJERO - AJUSTADO PARA PASTURAS EXCELENTES
-        if biomasa_disponible >= 2000:  # Umbral muy aumentado
+        # 5. ESTADO FORRAJERO - AJUSTADO PARA DETECCIÓN REALISTA
+        if biomasa_disponible >= 2000:
             estado_forrajero = 4  # ÓPTIMO
-        elif biomasa_disponible >= 1200:  # Umbral aumentado
+        elif biomasa_disponible >= 1200:
             estado_forrajero = 3  # BUENO
-        elif biomasa_disponible >= 600:   # Umbral aumentado
+        elif biomasa_disponible >= 600:
             estado_forrajero = 2  # MEDIO
         elif biomasa_disponible >= 200:
             estado_forrajero = 1  # BAJO
@@ -830,22 +922,21 @@ def calcular_metricas_ganaderas(gdf_analizado, tipo_pastura, peso_promedio, carg
     return metricas
 
 # =============================================================================
-# FUNCIÓN PRINCIPAL MEJORADA - OPTIMIZADA PARA PASTURAS EXCELENTES
+# FUNCIÓN PRINCIPAL MEJORADA - DETECCIÓN REALISTA
 # =============================================================================
 
-def calcular_indices_forrajeros_mejorado(gdf, tipo_pastura, fuente_satelital, fecha_imagen, nubes_max=20,
-                                       umbral_ndvi_minimo=0.08, umbral_ndvi_optimo=0.55, sensibilidad_suelo=0.1):
+def calcular_indices_forrajeros_realista(gdf, tipo_pastura, fuente_satelital, fecha_imagen, nubes_max=20,
+                                       umbral_ndvi_minimo=0.15, umbral_ndvi_optimo=0.6, sensibilidad_suelo=0.5):
     """
-    Implementa metodología GEE mejorada con detección realista de vegetación
-    OPTIMIZADA PARA PASTURAS EXCELENTES
+    Implementa metodología MEJORADA con detección REALISTA de vegetación
     """
     try:
         n_poligonos = len(gdf)
         resultados = []
         params = obtener_parametros_forrajeros(tipo_pastura)
         
-        # Inicializar detector mejorado CON PARÁMETROS OPTIMIZADOS
-        detector = DetectorVegetacionMejorado(umbral_ndvi_minimo, umbral_ndvi_optimo, sensibilidad_suelo)
+        # Inicializar detector REALISTA
+        detector = DetectorVegetacionRealista(umbral_ndvi_minimo, umbral_ndvi_optimo, sensibilidad_suelo)
         
         # Obtener centroides para gradiente espacial
         gdf_centroids = gdf.copy()
@@ -859,7 +950,7 @@ def calcular_indices_forrajeros_mejorado(gdf, tipo_pastura, fuente_satelital, fe
         x_min, x_max = min(x_coords), max(x_coords)
         y_min, y_max = min(y_coords), max(y_coords)
         
-        st.info(f"🔍 Aplicando detección optimizada para pasturas excelentes...")
+        st.info(f"🔍 Aplicando detección REALISTA que responde a suelo desnudo...")
         
         for idx, row in gdf_centroids.iterrows():
             id_subLote = row['id_subLote']
@@ -868,34 +959,36 @@ def calcular_indices_forrajeros_mejorado(gdf, tipo_pastura, fuente_satelital, fe
             x_norm = (row['x'] - x_min) / (x_max - x_min) if x_max != x_min else 0.5
             y_norm = (row['y'] - y_min) / (y_max - y_min) if y_max != y_min else 0.5
             
-            # Obtener índices con patrones realistas PARA PASTURAS EXCELENTES
-            ndvi, evi, savi, bsi, ndbi, msavi2 = simular_patrones_reales_vegetacion(
+            # Obtener índices con patrones REALISTAS que INCLUYEN suelo desnudo
+            ndvi, evi, savi, bsi, ndbi, msavi2 = simular_patrones_reales_con_suelo(
                 id_subLote, x_norm, y_norm, fuente_satelital
             )
             
-            # CLASIFICACIÓN MEJORADA
-            categoria_vegetacion, cobertura_vegetal = detector.clasificar_vegetacion_cientifica(
+            # CLASIFICACIÓN MEJORADA Y REALISTA
+            categoria_vegetacion, cobertura_vegetal = detector.clasificar_vegetacion_realista(
                 ndvi, evi, savi, bsi, ndbi, msavi2
             )
             
-            # CÁLCULO DE BIOMASA MEJORADO
+            # CÁLCULO DE BIOMASA REALISTA
             biomasa_ms_ha, crecimiento_diario, calidad_forrajera = detector.calcular_biomasa_realista(
                 ndvi, evi, savi, categoria_vegetacion, cobertura_vegetal, params
             )
             
-            # BIOMASA DISPONIBLE (considerando eficiencias realistas) - OPTIMIZADO
+            # BIOMASA DISPONIBLE REALISTA
             if categoria_vegetacion in ["SUELO_DESNUDO"]:
-                biomasa_disponible = 50  # Mínimo pero no cero
+                biomasa_disponible = 20  # MUY baja para suelo desnudo
+            elif categoria_vegetacion in ["SUELO_PARCIAL"]:
+                biomasa_disponible = 80  # Baja para suelo parcial
             else:
-                # Eficiencias optimizadas para pasturas excelentes
-                eficiencia_cosecha = 0.45  # Muy aumentada
-                perdidas = 0.15  # Muy reducida
-                factor_aprovechamiento = 0.8  # Muy aumentado
+                # Eficiencias realistas
+                eficiencia_cosecha = 0.35  # Realista
+                perdidas = 0.25  # Realista
+                factor_aprovechamiento = 0.6  # Realista
                 
                 biomasa_disponible = (biomasa_ms_ha * calidad_forrajera * 
                                     eficiencia_cosecha * (1 - perdidas) * 
                                     factor_aprovechamiento * cobertura_vegetal)
-                biomasa_disponible = max(50, min(5000, biomasa_disponible))  # Rango muy amplio
+                biomasa_disponible = max(20, min(4000, biomasa_disponible))
         
             resultados.append({
                 'id_subLote': id_subLote,
@@ -916,9 +1009,9 @@ def calcular_indices_forrajeros_mejorado(gdf, tipo_pastura, fuente_satelital, fe
                 'y_norm': round(y_norm, 3)
             })
         
-        # Mostrar estadísticas de clasificación
+        # Mostrar estadísticas REALISTAS de clasificación
         df_resultados = pd.DataFrame(resultados)
-        st.success(f"✅ Análisis completado para pastura excelente. Distribución de tipos de superficie:")
+        st.success(f"✅ Análisis REALISTA completado. Distribución de tipos de superficie:")
         
         distribucion = df_resultados['tipo_superficie'].value_counts()
         for tipo, count in distribucion.items():
@@ -927,18 +1020,18 @@ def calcular_indices_forrajeros_mejorado(gdf, tipo_pastura, fuente_satelital, fe
         
         # Mostrar resumen de NDVI
         ndvi_promedio = df_resultados['ndvi'].mean()
-        st.info(f"📊 NDVI promedio: {ndvi_promedio:.3f} (Pastura excelente)")
+        st.info(f"📊 NDVI promedio: {ndvi_promedio:.3f} (Distribución realista)")
         
         return resultados
         
     except Exception as e:
-        st.error(f"❌ Error en análisis mejorado: {e}")
+        st.error(f"❌ Error en análisis realista: {e}")
         import traceback
         st.error(f"Detalle: {traceback.format_exc()}")
         return []
 
 # =============================================================================
-# VISUALIZACIÓN MEJORADA - AJUSTADA PARA PASTURAS EXCELENTES
+# VISUALIZACIÓN MEJORADA - AJUSTADA PARA DETECCIÓN REALISTA
 # =============================================================================
 
 def crear_mapa_detallado_vegetacion(gdf_analizado, tipo_pastura):
@@ -969,7 +1062,7 @@ def crear_mapa_detallado_vegetacion(gdf_analizado, tipo_pastura):
                        bbox=dict(boxstyle="round,pad=0.2", facecolor='white', alpha=0.8))
         
         ax1.set_title(f'🌿 MAPA DE TIPOS DE SUPERFICIE - {tipo_pastura}\n'
-                     f'Pastura Excelente - Clasificación Optimizada', 
+                     f'Detección Realista - Incluye Suelo Desnudo', 
                      fontsize=14, fontweight='bold', pad=20)
         ax1.set_xlabel('Longitud')
         ax1.set_ylabel('Latitud')
@@ -987,7 +1080,7 @@ def crear_mapa_detallado_vegetacion(gdf_analizado, tipo_pastura):
         
         for idx, row in gdf_analizado.iterrows():
             biomasa = row['biomasa_disponible_kg_ms_ha']
-            valor_norm = biomasa / 5000  # Normalizar a 5000 kg/ha máximo (muy aumentado)
+            valor_norm = biomasa / 4000  # Normalizar a 4000 kg/ha máximo
             valor_norm = max(0, min(1, valor_norm))
             color = cmap_biomasa(valor_norm)
             
@@ -1001,14 +1094,14 @@ def crear_mapa_detallado_vegetacion(gdf_analizado, tipo_pastura):
                        bbox=dict(boxstyle="round,pad=0.2", facecolor='white', alpha=0.8))
         
         ax2.set_title(f'📊 MAPA DE BIOMASA DISPONIBLE - {tipo_pastura}\n'
-                     f'Biomasa Aprovechable (kg MS/ha) - Pastura Excelente', 
+                     f'Biomasa Aprovechable (kg MS/ha) - Detección Realista', 
                      fontsize=14, fontweight='bold', pad=20)
         ax2.set_xlabel('Longitud')
         ax2.set_ylabel('Latitud')
         ax2.grid(True, alpha=0.3)
         
         # Barra de color para biomasa
-        sm = plt.cm.ScalarMappable(cmap=cmap_biomasa, norm=plt.Normalize(vmin=0, vmax=5000))
+        sm = plt.cm.ScalarMappable(cmap=cmap_biomasa, norm=plt.Normalize(vmin=0, vmax=4000))
         sm.set_array([])
         cbar = plt.colorbar(sm, ax=ax2, shrink=0.8)
         cbar.set_label('Biomasa Disponible (kg MS/ha)', fontsize=10, fontweight='bold')
@@ -1027,28 +1120,28 @@ def crear_mapa_detallado_vegetacion(gdf_analizado, tipo_pastura):
         return None
 
 # =============================================================================
-# FUNCIÓN PRINCIPAL ACTUALIZADA - OPTIMIZADA PARA PASTURAS EXCELENTES
+# FUNCIÓN PRINCIPAL ACTUALIZADA - DETECCIÓN REALISTA
 # =============================================================================
 
-def analisis_forrajero_completo_mejorado(gdf, tipo_pastura, peso_promedio, carga_animal, n_divisiones, 
+def analisis_forrajero_completo_realista(gdf, tipo_pastura, peso_promedio, carga_animal, n_divisiones, 
                                        fuente_satelital, fecha_imagen, nubes_max,
-                                       umbral_ndvi_minimo=0.08, umbral_ndvi_optimo=0.55, sensibilidad_suelo=0.1):
+                                       umbral_ndvi_minimo=0.15, umbral_ndvi_optimo=0.6, sensibilidad_suelo=0.5):
     try:
-        st.header(f"🌱 ANÁLISIS FORRAJERO MEJORADO - {tipo_pastura}")
-        st.success("🎯 **MODO PASTURA EXCELENTE ACTIVADO** - Parámetros optimizados para pasturas completamente empastadas")
+        st.header(f"🌱 ANÁLISIS FORRAJERO REALISTA - {tipo_pastura}")
+        st.success("🎯 **MODO DETECCIÓN REALISTA ACTIVADO** - Responde a suelo desnudo y condiciones reales")
         
-        # Mostrar configuración de detección
-        st.subheader("🔍 CONFIGURACIÓN DE DETECCIÓN OPTIMIZADA")
+        # Mostrar configuración de detección MEJORADA
+        st.subheader("🔍 CONFIGURACIÓN DE DETECCIÓN REALISTA")
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("Umbral NDVI Mínimo", f"{umbral_ndvi_minimo:.2f}", 
-                     help="Solo valores extremadamente bajos se consideran suelo")
+                     help="NDVI por debajo se considera suelo desnudo")
         with col2:
             st.metric("Umbral NDVI Óptimo", f"{umbral_ndvi_optimo:.2f}",
                      help="NDVI para clasificar vegetación densa")
         with col3:
             st.metric("Sensibilidad Suelo", f"{sensibilidad_suelo:.1f}",
-                     help="Muy baja sensibilidad para pasturas excelentes")
+                     help="Mayor valor = más detección de suelo desnudo")
         
         # Obtener parámetros según selección
         params = obtener_parametros_forrajeros(tipo_pastura)
@@ -1064,10 +1157,10 @@ def analisis_forrajero_completo_mejorado(gdf, tipo_pastura, peso_promedio, carga
         areas_ha = calcular_superficie(gdf_dividido)
         area_total = areas_ha.sum()
         
-        # PASO 2: CALCULAR ÍNDICES FORRAJEROS MEJORADOS
-        st.subheader("🛰️ CALCULANDO ÍNDICES FORRAJEROS OPTIMIZADOS")
-        with st.spinner("Aplicando algoritmos optimizados para pasturas excelentes..."):
-            indices_forrajeros = calcular_indices_forrajeros_mejorado(
+        # PASO 2: CALCULAR ÍNDICES FORRAJEROS REALISTAS
+        st.subheader("🛰️ CALCULANDO ÍNDICES FORRAJEROS REALISTAS")
+        with st.spinner("Aplicando algoritmos realistas que detectan suelo desnudo..."):
+            indices_forrajeros = calcular_indices_forrajeros_realista(
                 gdf_dividido, tipo_pastura, fuente_satelital, fecha_imagen, nubes_max,
                 umbral_ndvi_minimo, umbral_ndvi_optimo, sensibilidad_suelo
             )
@@ -1086,8 +1179,8 @@ def analisis_forrajero_completo_mejorado(gdf, tipo_pastura, peso_promedio, carga
                 if key != 'id_subLote':  # Ya existe
                     gdf_analizado.loc[gdf_analizado.index[idx], key] = value
         
-        # PASO 3: CALCULAR MÉTRICAS GANADERAS
-        st.subheader("🐄 CALCULANDO MÉTRICAS GANADERAS OPTIMIZADAS")
+        # PASO 3: CALCULANDO MÉTRICAS GANADERAS
+        st.subheader("🐄 CALCULANDO MÉTRICAS GANADERAS REALISTAS")
         with st.spinner("Calculando equivalentes vaca y días de permanencia..."):
             metricas_ganaderas = calcular_metricas_ganaderas(gdf_analizado, tipo_pastura, peso_promedio, carga_animal)
         
@@ -1160,7 +1253,7 @@ def analisis_forrajero_completo_mejorado(gdf, tipo_pastura, peso_promedio, carga
                 st.info("El CSV contiene los datos tabulares sin geometrías")
         
         # Mostrar resumen de resultados
-        st.subheader("📊 RESUMEN DE RESULTADOS OPTIMIZADOS")
+        st.subheader("📊 RESUMEN DE RESULTADOS REALISTAS")
         
         # Estadísticas principales
         col1, col2, col3, col4 = st.columns(4)
@@ -1192,7 +1285,7 @@ def analisis_forrajero_completo_mejorado(gdf, tipo_pastura, peso_promedio, carga
         return True
         
     except Exception as e:
-        st.error(f"❌ Error en análisis forrajero mejorado: {str(e)}")
+        st.error(f"❌ Error en análisis forrajero realista: {str(e)}")
         import traceback
         st.error(f"Detalle: {traceback.format_exc()}")
         return False
@@ -1254,28 +1347,28 @@ if uploaded_zip is not None:
 
 # BOTÓN PRINCIPAL MEJORADO
 st.markdown("---")
-st.markdown("### 🚀 ACCIÓN PRINCIPAL - DETECCIÓN OPTIMIZADA")
+st.markdown("### 🚀 ACCIÓN PRINCIPAL - DETECCIÓN REALISTA")
 
 if st.session_state.gdf_cargado is not None:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown(f"""
         <div style='text-align: center; padding: 20px; border: 2px solid #4CAF50; border-radius: 10px; background-color: #f9fff9;'>
-            <h3>¿Listo para analizar con detección optimizada?</h3>
-            <p><strong>MODO PASTURA EXCELENTE ACTIVADO</strong></p>
-            <p>Algoritmo optimizado para pasturas completamente empastadas</p>
+            <h3>¿Listo para analizar con detección realista?</h3>
+            <p><strong>MODO DETECCIÓN REALISTA ACTIVADO</strong></p>
+            <p>Algoritmo optimizado para detectar suelo desnudo y condiciones reales</p>
             <p><strong>Satélite:</strong> {fuente_satelital}</p>
-            <p><strong>Sensibilidad suelo:</strong> {sensibilidad_suelo} (Muy baja)</p>
+            <p><strong>Sensibilidad suelo:</strong> {sensibilidad_suelo} (Óptima)</p>
             <p><strong>Mapa Base:</strong> {base_map_option}</p>
         </div>
         """, unsafe_allow_html=True)
         
-        if st.button("**🚀 EJECUTAR ANÁLISIS FORRAJERO OPTIMIZADO**", 
+        if st.button("**🚀 EJECUTAR ANÁLISIS FORRAJERO REALISTA**", 
                     type="primary", 
                     use_container_width=True,
-                    key="analisis_mejorado"):
-            with st.spinner("🔬 Ejecutando análisis forrajero con parámetros optimizados..."):
-                resultado = analisis_forrajero_completo_mejorado(
+                    key="analisis_realista"):
+            with st.spinner("🔬 Ejecutando análisis forrajero con detección realista..."):
+                resultado = analisis_forrajero_completo_realista(
                     st.session_state.gdf_cargado, 
                     tipo_pastura, 
                     peso_promedio, 
@@ -1290,21 +1383,21 @@ if st.session_state.gdf_cargado is not None:
                 )
                 if resultado:
                     st.balloons()
-                    st.success("🎯 Análisis completado! Pastura excelente detectada correctamente!")
+                    st.success("🎯 Análisis completado! Detección realista aplicada correctamente!")
 else:
     st.info("""
-    **📋 Para comenzar el análisis optimizado:**
+    **📋 Para comenzar el análisis realista:**
     
     1. **Ajusta los parámetros de detección** en la barra lateral
     2. **Selecciona la fuente satelital y mapa base**
     3. **Sube el archivo ZIP** con el shapefile
-    4. **Haz clic en el botón** para análisis optimizado
+    4. **Haz clic en el botón** para análisis realista
     
-    🔍 **La detección optimizada incluye:**
-    - Parámetros ajustados para pasturas excelentes
-    - Clasificación que favorece la vegetación sobre el suelo
-    - Cálculos de biomasa optimizados para pasturas de alta calidad
-    - Detección mínima de suelo desnudo
+    🔍 **La detección realista incluye:**
+    - Parámetros ajustados para detectar suelo desnudo
+    - Clasificación balanceada que respeta las condiciones reales
+    - Cálculos de biomasa realistas para todos los tipos de superficie
+    - Detección efectiva de suelo desnudo y áreas degradadas
     - Visualización en mapa base ESRI Satélite
     - Exportación de resultados en GeoJSON y CSV
     """)
