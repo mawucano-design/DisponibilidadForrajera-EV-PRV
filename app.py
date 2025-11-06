@@ -48,6 +48,8 @@ if 'gdf_cargado' not in st.session_state:
     st.session_state.gdf_cargado = None
 if 'analisis_completado' not in st.session_state:
     st.session_state.analisis_completado = False
+if 'gdf_analizado' not in st.session_state:
+    st.session_state.gdf_analizado = None
 
 # Sidebar
 with st.sidebar:
@@ -201,10 +203,141 @@ if FOLIUM_AVAILABLE:
         ).add_to(m)
         
         return m
+
+    def crear_mapa_analisis_interactivo(gdf_analizado, tipo_pastura, base_map_name="ESRI Satélite"):
+        """
+        Crea un mapa interactivo para los resultados del análisis con ESRI Satélite
+        """
+        if gdf_analizado is None or len(gdf_analizado) == 0:
+            return None
+        
+        # Obtener el centro del geometry
+        centroid = gdf_analizado.geometry.centroid.iloc[0]
+        center_lat, center_lon = centroid.y, centroid.x
+        
+        # Crear mapa base
+        m = folium.Map(
+            location=[center_lat, center_lon],
+            zoom_start=14,
+            tiles=None,
+            control_scale=True
+        )
+        
+        # Agregar ESRI Satélite como base
+        esri_config = BASE_MAPS_CONFIG["ESRI Satélite"]
+        folium.TileLayer(
+            tiles=esri_config["tiles"],
+            attr=esri_config["attr"],
+            name=esri_config["name"],
+            overlay=True
+        ).add_to(m)
+        
+        # Agregar otras capas base como opciones
+        for map_name, config in BASE_MAPS_CONFIG.items():
+            if map_name != "ESRI Satélite":
+                folium.TileLayer(
+                    tiles=config["tiles"],
+                    attr=config["attr"],
+                    name=config["name"],
+                    overlay=False,
+                    control=True
+                ).add_to(m)
+        
+        # Función para determinar color según tipo de superficie
+        def estilo_por_superficie(feature):
+            tipo_superficie = feature['properties']['tipo_superficie']
+            colores = {
+                'SUELO_DESNUDO': '#d73027',
+                'SUELO_PARCIAL': '#fdae61', 
+                'VEGETACION_ESCASA': '#fee08b',
+                'VEGETACION_MODERADA': '#a6d96a',
+                'VEGETACION_DENSA': '#1a9850'
+            }
+            color = colores.get(tipo_superficie, '#3388ff')
+            return {
+                'fillColor': color,
+                'color': 'black',
+                'weight': 1.5,
+                'fillOpacity': 0.6
+            }
+        
+        # Agregar los polígonos analizados
+        folium.GeoJson(
+            gdf_analizado.__geo_interface__,
+            style_function=estilo_por_superficie,
+            tooltip=folium.GeoJsonTooltip(
+                fields=['id_subLote', 'tipo_superficie', 'ndvi', 'biomasa_disponible_kg_ms_ha', 'ev_ha'],
+                aliases=['Sub-Lote:', 'Tipo Superficie:', 'NDVI:', 'Biomasa Disp:', 'EV/Ha:'],
+                localize=True
+            ),
+            popup=folium.GeoJsonPopup(
+                fields=['id_subLote', 'tipo_superficie', 'ndvi', 'biomasa_disponible_kg_ms_ha', 'ev_ha', 'dias_permanencia'],
+                aliases=['Sub-Lote:', 'Tipo Superficie:', 'NDVI:', 'Biomasa Disp (kg MS/ha):', 'EV/Ha:', 'Días Permanencia:'],
+                localize=True
+            )
+        ).add_to(m)
+        
+        # Agregar leyenda
+        colores_leyenda = {
+            'SUELO_DESNUDO': '#d73027',
+            'SUELO_PARCIAL': '#fdae61',
+            'VEGETACION_ESCASA': '#fee08b', 
+            'VEGETACION_MODERADA': '#a6d96a',
+            'VEGETACION_DENSA': '#1a9850'
+        }
+        
+        legend_html = '''
+        <div style="position: fixed; 
+                    bottom: 50px; left: 50px; width: 200px; height: auto; 
+                    background-color: white; border:2px solid grey; z-index:9999; 
+                    font-size:14px; padding: 10px">
+        <p><strong>Tipos de Superficie</strong></p>
+        '''
+        for tipo, color in colores_leyenda.items():
+            legend_html += f'<p><i style="background:{color}; width:20px; height:20px; display:inline-block; margin-right:5px;"></i> {tipo}</p>'
+        legend_html += '</div>'
+        
+        m.get_root().html.add_child(folium.Element(legend_html))
+        
+        # Agregar control de capas
+        folium.LayerControl().add_to(m)
+        
+        return m
+
 else:
-    # Función dummy si folium no está disponible
+    # Funciones dummy si folium no está disponible
     def crear_mapa_interactivo(gdf, base_map_name="ESRI Satélite"):
         return None
+    
+    def crear_mapa_analisis_interactivo(gdf_analizado, tipo_pastura, base_map_name="ESRI Satélite"):
+        return None
+
+# =============================================================================
+# FUNCIÓN PARA EXPORTAR GEOJSON
+# =============================================================================
+
+def exportar_geojson(gdf_analizado, tipo_pastura):
+    """
+    Exporta el GeoDataFrame analizado a formato GeoJSON
+    """
+    if gdf_analizado is None or len(gdf_analizado) == 0:
+        return None
+    
+    try:
+        # Crear una copia para no modificar el original
+        gdf_export = gdf_analizado.copy()
+        
+        # Convertir a GeoJSON
+        geojson_str = gdf_export.to_json()
+        
+        # Crear nombre de archivo con timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"analisis_forrajero_{tipo_pastura}_{timestamp}.geojson"
+        
+        return geojson_str, filename
+    except Exception as e:
+        st.error(f"❌ Error exportando GeoJSON: {str(e)}")
+        return None, None
 
 # =============================================================================
 # PARÁMETROS FORRAJEROS Y FUNCIONES BÁSICAS
@@ -974,6 +1107,9 @@ def analisis_forrajero_completo_mejorado(gdf, tipo_pastura, peso_promedio, carga
             for key, value in metrica.items():
                 gdf_analizado.loc[gdf_analizado.index[idx], key] = value
         
+        # Guardar en session state para exportación
+        st.session_state.gdf_analizado = gdf_analizado
+        
         # PASO 4: MAPA DETALLADO MEJORADO
         st.subheader("🗺️ MAPA DETALLADO DE VEGETACIÓN")
         mapa_detallado = crear_mapa_detallado_vegetacion(gdf_analizado, tipo_pastura)
@@ -988,6 +1124,51 @@ def analisis_forrajero_completo_mejorado(gdf, tipo_pastura, peso_promedio, carga
                 "image/png",
                 key="descarga_detallado"
             )
+        
+        # PASO 5: MAPA INTERACTIVO CON ESRI SATÉLITE
+        if FOLIUM_AVAILABLE and st.session_state.gdf_analizado is not None:
+            st.subheader("🛰️ MAPA INTERACTIVO - ESRI SATÉLITE")
+            st.info("Visualización interactiva de los resultados sobre imágenes satelitales ESRI")
+            
+            # Crear y mostrar mapa interactivo
+            mapa_analisis = crear_mapa_analisis_interactivo(
+                st.session_state.gdf_analizado, 
+                tipo_pastura, 
+                base_map_option
+            )
+            if mapa_analisis:
+                st_folium(mapa_analisis, width=1200, height=500, returned_objects=[])
+        
+        # PASO 6: BOTÓN DE EXPORTACIÓN GEOJSON
+        if st.session_state.gdf_analizado is not None:
+            st.subheader("💾 EXPORTAR RESULTADOS")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Exportar GeoJSON
+                geojson_str, filename = exportar_geojson(st.session_state.gdf_analizado, tipo_pastura)
+                if geojson_str:
+                    st.download_button(
+                        "📤 Exportar GeoJSON",
+                        geojson_str,
+                        filename,
+                        "application/geo+json",
+                        key="exportar_geojson"
+                    )
+                    st.info("El GeoJSON contiene todos los datos del análisis: índices, biomasa, EV, etc.")
+            
+            with col2:
+                # Exportar CSV
+                csv_data = st.session_state.gdf_analizado.drop(columns=['geometry']).to_csv(index=False)
+                csv_filename = f"analisis_forrajero_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
+                st.download_button(
+                    "📊 Exportar CSV",
+                    csv_data,
+                    csv_filename,
+                    "text/csv",
+                    key="exportar_csv"
+                )
+                st.info("El CSV contiene los datos tabulares sin geometrías")
         
         # Mostrar resumen de resultados
         st.subheader("📊 RESUMEN DE RESULTADOS MEJORADOS")
@@ -1135,4 +1316,5 @@ else:
     - Cálculos de biomasa más conservadores
     - Detección estricta de suelo desnudo
     - Visualización en mapa base ESRI Satélite
+    - Exportación de resultados en GeoJSON y CSV
     """)
