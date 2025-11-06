@@ -1336,7 +1336,7 @@ if uploaded_zip is not None:
                         # Crear y mostrar mapa interactivo
                         mapa_interactivo = crear_mapa_interactivo(gdf_cargado, base_map_option)
                         if mapa_interactivo:
-                            st_folium(mapa_interactivo, width=1200, height=500, returned_objects=[])
+                            st_folium(mapa_interactivo, width=1400, height=700, returned_objects=[])
                             
                             st.info(f"🗺️ **Mapa Base:** {base_map_option} - Puedes cambiar entre diferentes mapas base usando el control en la esquina superior derecha del mapa.")
                     else:
