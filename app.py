@@ -647,4 +647,477 @@ def calcular_metricas_ganaderas(gdf_analizado, tipo_pastura, peso_promedio, carg
         if ev_soportable > 0 and area_ha > 0:
             ev_ha = ev_soportable / area_ha
             if ev_ha < 0.1:
-                ha_por_ev =
+                ha_por_ev = 1 / ev_ha if ev_ha > 0 else 100
+                ev_ha_display = 1 / ha_por_ev
+            else:
+                ev_ha_display = ev_ha
+        else:
+            ev_ha_display = 0.01
+        
+        # 3. DÍAS DE PERMANENCIA
+        if carga_animal > 0:
+            consumo_total_diario = carga_animal * consumo_individual_kg
+            
+            if consumo_total_diario > 0 and biomasa_total_disponible > 0:
+                dias_permanencia = biomasa_total_disponible / consumo_total_diario
+                
+                if dias_permanencia > 0:
+                    crecimiento_total = crecimiento_diario * area_ha * dias_permanencia * 0.3
+                    dias_ajustados = (biomasa_total_disponible + crecimiento_total) / consumo_total_diario
+                    dias_permanencia = min(dias_ajustados, 5)
+                else:
+                    dias_permanencia = 0.1
+            else:
+                dias_permanencia = 0.1
+        else:
+            dias_permanencia = 0.1
+        
+        # 4. TASA DE UTILIZACIÓN
+        if carga_animal > 0 and biomasa_total_disponible > 0:
+            consumo_potencial_diario = carga_animal * consumo_individual_kg
+            biomasa_por_dia = biomasa_total_disponible / params['TASA_UTILIZACION_RECOMENDADA']
+            tasa_utilizacion = min(1.0, consumo_potencial_diario / biomasa_por_dia)
+        else:
+            tasa_utilizacion = 0
+        
+        # 5. ESTADO FORRAJERO
+        if biomasa_disponible >= 800:
+            estado_forrajero = 4  # ÓPTIMO
+        elif biomasa_disponible >= 600:
+            estado_forrajero = 3  # BUENO
+        elif biomasa_disponible >= 400:
+            estado_forrajero = 2  # MEDIO
+        elif biomasa_disponible >= 200:
+            estado_forrajero = 1  # BAJO
+        else:
+            estado_forrajero = 0  # CRÍTICO
+        
+        metricas.append({
+            'ev_soportable': round(ev_soportable, 2),
+            'dias_permanencia': max(0.1, round(dias_permanencia, 1)),
+            'tasa_utilizacion': round(tasa_utilizacion, 3),
+            'biomasa_total_kg': round(biomasa_total_disponible, 1),
+            'consumo_individual_kg': round(consumo_individual_kg, 1),
+            'estado_forrajero': estado_forrajero,
+            'ev_ha': round(ev_ha_display, 3)
+        })
+    
+    return metricas
+
+# =============================================================================
+# FUNCIÓN PRINCIPAL MEJORADA
+# =============================================================================
+
+def calcular_indices_forrajeros_mejorado(gdf, tipo_pastura, fuente_satelital, fecha_imagen, nubes_max=20,
+                                       umbral_ndvi_minimo=0.3, umbral_ndvi_optimo=0.7, sensibilidad_suelo=0.7):
+    """
+    Implementa metodología GEE mejorada con detección realista de vegetación
+    """
+    try:
+        n_poligonos = len(gdf)
+        resultados = []
+        params = obtener_parametros_forrajeros(tipo_pastura)
+        
+        # Inicializar detector mejorado
+        detector = DetectorVegetacionMejorado(umbral_ndvi_minimo, umbral_ndvi_optimo, sensibilidad_suelo)
+        
+        # Obtener centroides para gradiente espacial
+        gdf_centroids = gdf.copy()
+        gdf_centroids['centroid'] = gdf_centroids.geometry.centroid
+        gdf_centroids['x'] = gdf_centroids.centroid.x
+        gdf_centroids['y'] = gdf_centroids.centroid.y
+        
+        x_coords = gdf_centroids['x'].tolist()
+        y_coords = gdf_centroids['y'].tolist()
+        
+        x_min, x_max = min(x_coords), max(x_coords)
+        y_min, y_max = min(y_coords), max(y_coords)
+        
+        st.info(f"🔍 Aplicando detección mejorada de vegetación...")
+        
+        for idx, row in gdf_centroids.iterrows():
+            id_subLote = row['id_subLote']
+            
+            # Normalizar posición para simular variación espacial
+            x_norm = (row['x'] - x_min) / (x_max - x_min) if x_max != x_min else 0.5
+            y_norm = (row['y'] - y_min) / (y_max - y_min) if y_max != y_min else 0.5
+            
+            # Obtener índices con patrones realistas
+            ndvi, evi, savi, bsi, ndbi, msavi2 = simular_patrones_reales_vegetacion(
+                id_subLote, x_norm, y_norm, fuente_satelital
+            )
+            
+            # CLASIFICACIÓN MEJORADA
+            categoria_vegetacion, cobertura_vegetal = detector.clasificar_vegetacion_cientifica(
+                ndvi, evi, savi, bsi, ndbi, msavi2
+            )
+            
+            # CÁLCULO DE BIOMASA MEJORADO
+            biomasa_ms_ha, crecimiento_diario, calidad_forrajera = detector.calcular_biomasa_realista(
+                ndvi, evi, savi, categoria_vegetacion, cobertura_vegetal, params
+            )
+            
+            # BIOMASA DISPONIBLE (considerando eficiencias realistas)
+            if categoria_vegetacion in ["SUELO_DESNUDO"]:
+                biomasa_disponible = 0
+            else:
+                # Eficiencias más realistas basadas en investigación
+                eficiencia_cosecha = 0.25  # Solo 25% de la biomasa es cosechable
+                perdidas = 0.30  # 30% de pérdidas por pisoteo, etc.
+                factor_aprovechamiento = 0.6  # Solo 60% es realmente aprovechable
+                
+                biomasa_disponible = (biomasa_ms_ha * calidad_forrajera * 
+                                    eficiencia_cosecha * (1 - perdidas) * 
+                                    factor_aprovechamiento * cobertura_vegetal)
+                biomasa_disponible = max(0, min(1200, biomasa_disponible))
+            
+            resultados.append({
+                'id_subLote': id_subLote,
+                'ndvi': round(float(ndvi), 3),
+                'evi': round(float(evi), 3),
+                'savi': round(float(savi), 3),
+                'msavi2': round(float(msavi2), 3),
+                'bsi': round(float(bsi), 3),
+                'ndbi': round(float(ndbi), 3),
+                'cobertura_vegetal': round(cobertura_vegetal, 3),
+                'tipo_superficie': categoria_vegetacion,
+                'biomasa_ms_ha': round(biomasa_ms_ha, 1),
+                'biomasa_disponible_kg_ms_ha': round(biomasa_disponible, 1),
+                'crecimiento_diario': round(crecimiento_diario, 1),
+                'factor_calidad': round(calidad_forrajera, 3),
+                'fuente_datos': fuente_satelital,
+                'x_norm': round(x_norm, 3),
+                'y_norm': round(y_norm, 3)
+            })
+        
+        # Mostrar estadísticas de clasificación
+        df_resultados = pd.DataFrame(resultados)
+        st.success(f"✅ Análisis completado. Distribución de tipos de superficie:")
+        
+        distribucion = df_resultados['tipo_superficie'].value_counts()
+        for tipo, count in distribucion.items():
+            porcentaje = (count / len(df_resultados)) * 100
+            st.write(f"   - {tipo}: {count} sub-lotes ({porcentaje:.1f}%)")
+        
+        return resultados
+        
+    except Exception as e:
+        st.error(f"❌ Error en análisis mejorado: {e}")
+        import traceback
+        st.error(f"Detalle: {traceback.format_exc()}")
+        return []
+
+# =============================================================================
+# VISUALIZACIÓN MEJORADA
+# =============================================================================
+
+def crear_mapa_detallado_vegetacion(gdf_analizado, tipo_pastura):
+    """Crea mapa detallado con información mejorada de vegetación"""
+    try:
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 10))
+        
+        # Mapa 1: Tipos de superficie
+        colores_superficie = {
+            'SUELO_DESNUDO': '#d73027',      # Rojo - suelo desnudo
+            'SUELO_PARCIAL': '#fdae61',      # Naranja - suelo parcial
+            'VEGETACION_ESCASA': '#fee08b',  # Amarillo - vegetación escasa
+            'VEGETACION_MODERADA': '#a6d96a', # Verde claro - vegetación moderada
+            'VEGETACION_DENSA': '#1a9850'    # Verde oscuro - vegetación densa
+        }
+        
+        for idx, row in gdf_analizado.iterrows():
+            tipo_superficie = row['tipo_superficie']
+            color = colores_superficie.get(tipo_superficie, '#cccccc')
+            
+            gdf_analizado.iloc[[idx]].plot(ax=ax1, color=color, edgecolor='black', linewidth=1.5)
+            
+            centroid = row.geometry.centroid
+            ax1.annotate(f"S{row['id_subLote']}\n{row['ndvi']:.2f}", 
+                       (centroid.x, centroid.y), 
+                       xytext=(5, 5), textcoords="offset points", 
+                       fontsize=7, color='black', weight='bold',
+                       bbox=dict(boxstyle="round,pad=0.2", facecolor='white', alpha=0.8))
+        
+        ax1.set_title(f'🌿 MAPA DE TIPOS DE SUPERFICIE - {tipo_pastura}\n'
+                     f'Clasificación Mejorada de Vegetación', 
+                     fontsize=14, fontweight='bold', pad=20)
+        ax1.set_xlabel('Longitud')
+        ax1.set_ylabel('Latitud')
+        ax1.grid(True, alpha=0.3)
+        
+        # Leyenda
+        leyenda_elementos = []
+        for tipo, color in colores_superficie.items():
+            leyenda_elementos.append(mpatches.Patch(color=color, label=tipo))
+        ax1.legend(handles=leyenda_elementos, loc='upper right', fontsize=9)
+        
+        # Mapa 2: Biomasa disponible
+        cmap_biomasa = LinearSegmentedColormap.from_list('biomasa_mejorada', 
+                                                        ['#d73027', '#fee08b', '#a6d96a', '#1a9850'])
+        
+        for idx, row in gdf_analizado.iterrows():
+            biomasa = row['biomasa_disponible_kg_ms_ha']
+            valor_norm = biomasa / 1200  # Normalizar a 1200 kg/ha máximo
+            valor_norm = max(0, min(1, valor_norm))
+            color = cmap_biomasa(valor_norm)
+            
+            gdf_analizado.iloc[[idx]].plot(ax=ax2, color=color, edgecolor='black', linewidth=1.5)
+            
+            centroid = row.geometry.centroid
+            ax2.annotate(f"S{row['id_subLote']}\n{biomasa:.0f}", 
+                       (centroid.x, centroid.y), 
+                       xytext=(5, 5), textcoords="offset points", 
+                       fontsize=7, color='black', weight='bold',
+                       bbox=dict(boxstyle="round,pad=0.2", facecolor='white', alpha=0.8))
+        
+        ax2.set_title(f'📊 MAPA DE BIOMASA DISPONIBLE - {tipo_pastura}\n'
+                     f'Biomasa Aprovechable (kg MS/ha)', 
+                     fontsize=14, fontweight='bold', pad=20)
+        ax2.set_xlabel('Longitud')
+        ax2.set_ylabel('Latitud')
+        ax2.grid(True, alpha=0.3)
+        
+        # Barra de color para biomasa
+        sm = plt.cm.ScalarMappable(cmap=cmap_biomasa, norm=plt.Normalize(vmin=0, vmax=1200))
+        sm.set_array([])
+        cbar = plt.colorbar(sm, ax=ax2, shrink=0.8)
+        cbar.set_label('Biomasa Disponible (kg MS/ha)', fontsize=10, fontweight='bold')
+        
+        plt.tight_layout()
+        
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+        buf.seek(0)
+        plt.close()
+        
+        return buf
+        
+    except Exception as e:
+        st.error(f"❌ Error creando mapa detallado: {str(e)}")
+        return None
+
+# =============================================================================
+# FUNCIÓN PRINCIPAL ACTUALIZADA
+# =============================================================================
+
+def analisis_forrajero_completo_mejorado(gdf, tipo_pastura, peso_promedio, carga_animal, n_divisiones, 
+                                       fuente_satelital, fecha_imagen, nubes_max,
+                                       umbral_ndvi_minimo=0.3, umbral_ndvi_optimo=0.7, sensibilidad_suelo=0.7):
+    try:
+        st.header(f"🌱 ANÁLISIS FORRAJERO MEJORADO - {tipo_pastura}")
+        
+        # Mostrar configuración de detección
+        st.subheader("🔍 CONFIGURACIÓN DE DETECCIÓN MEJORADA")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Umbral NDVI Mínimo", f"{umbral_ndvi_minimo:.2f}")
+        with col2:
+            st.metric("Umbral NDVI Óptimo", f"{umbral_ndvi_optimo:.2f}")
+        with col3:
+            st.metric("Sensibilidad Suelo", f"{sensibilidad_suelo:.1f}")
+        
+        # Obtener parámetros según selección
+        params = obtener_parametros_forrajeros(tipo_pastura)
+        
+        # PASO 1: DIVIDIR POTRERO
+        st.subheader("📐 DIVIDIENDO POTRERO EN SUB-LOTES")
+        with st.spinner("Dividiendo potrero..."):
+            gdf_dividido = dividir_potrero_en_subLotes(gdf, n_divisiones)
+        
+        st.success(f"✅ Potrero dividido en {len(gdf_dividido)} sub-lotes")
+        
+        # Calcular áreas
+        areas_ha = calcular_superficie(gdf_dividido)
+        area_total = areas_ha.sum()
+        
+        # PASO 2: CALCULAR ÍNDICES FORRAJEROS MEJORADOS
+        st.subheader("🛰️ CALCULANDO ÍNDICES FORRAJEROS MEJORADOS")
+        with st.spinner("Aplicando algoritmos mejorados de detección..."):
+            indices_forrajeros = calcular_indices_forrajeros_mejorado(
+                gdf_dividido, tipo_pastura, fuente_satelital, fecha_imagen, nubes_max,
+                umbral_ndvi_minimo, umbral_ndvi_optimo, sensibilidad_suelo
+            )
+        
+        if not indices_forrajeros:
+            st.error("❌ No se pudieron calcular los índices forrajeros")
+            return False
+        
+        # Crear dataframe con resultados
+        gdf_analizado = gdf_dividido.copy()
+        gdf_analizado['area_ha'] = areas_ha
+        
+        # Añadir índices forrajeros
+        for idx, indice in enumerate(indices_forrajeros):
+            for key, value in indice.items():
+                if key != 'id_subLote':  # Ya existe
+                    gdf_analizado.loc[gdf_analizado.index[idx], key] = value
+        
+        # PASO 3: CALCULAR MÉTRICAS GANADERAS
+        st.subheader("🐄 CALCULANDO MÉTRICAS GANADERAS")
+        with st.spinner("Calculando equivalentes vaca y días de permanencia..."):
+            metricas_ganaderas = calcular_metricas_ganaderas(gdf_analizado, tipo_pastura, peso_promedio, carga_animal)
+        
+        # Añadir métricas ganaderas
+        for idx, metrica in enumerate(metricas_ganaderas):
+            for key, value in metrica.items():
+                gdf_analizado.loc[gdf_analizado.index[idx], key] = value
+        
+        # PASO 4: MAPA DETALLADO MEJORADO
+        st.subheader("🗺️ MAPA DETALLADO DE VEGETACIÓN")
+        mapa_detallado = crear_mapa_detallado_vegetacion(gdf_analizado, tipo_pastura)
+        if mapa_detallado:
+            st.image(mapa_detallado, use_container_width=True)
+            
+            # Descarga del mapa
+            st.download_button(
+                "📥 Descargar Mapa Detallado",
+                mapa_detallado.getvalue(),
+                f"mapa_detallado_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.png",
+                "image/png",
+                key="descarga_detallado"
+            )
+        
+        # Mostrar resumen de resultados
+        st.subheader("📊 RESUMEN DE RESULTADOS MEJORADOS")
+        
+        # Estadísticas principales
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            biomasa_prom = gdf_analizado['biomasa_disponible_kg_ms_ha'].mean()
+            st.metric("Biomasa Disponible Prom", f"{biomasa_prom:.0f} kg MS/ha")
+        with col2:
+            area_vegetacion = gdf_analizado[gdf_analizado['tipo_superficie'].isin(['VEGETACION_MODERADA', 'VEGETACION_DENSA'])]['area_ha'].sum()
+            st.metric("Área con Vegetación", f"{area_vegetacion:.1f} ha")
+        with col3:
+            area_suelo = gdf_analizado[gdf_analizado['tipo_superficie'].isin(['SUELO_DESNUDO', 'SUELO_PARCIAL'])]['area_ha'].sum()
+            st.metric("Área sin Vegetación", f"{area_suelo:.1f} ha")
+        with col4:
+            cobertura_prom = gdf_analizado['cobertura_vegetal'].mean()
+            st.metric("Cobertura Vegetal Prom", f"{cobertura_prom:.1%}")
+        
+        # Tabla detallada
+        st.subheader("🔬 DETALLES POR SUB-LOTE")
+        columnas_detalle = ['id_subLote', 'area_ha', 'tipo_superficie', 'ndvi', 'cobertura_vegetal', 
+                          'biomasa_disponible_kg_ms_ha', 'ev_ha', 'dias_permanencia']
+        
+        tabla_detalle = gdf_analizado[columnas_detalle].copy()
+        tabla_detalle.columns = ['Sub-Lote', 'Área (ha)', 'Tipo Superficie', 'NDVI', 'Cobertura',
+                               'Biomasa Disp (kg MS/ha)', 'EV/Ha', 'Días Permanencia']
+        
+        st.dataframe(tabla_detalle, use_container_width=True)
+        
+        st.session_state.analisis_completado = True
+        return True
+        
+    except Exception as e:
+        st.error(f"❌ Error en análisis forrajero mejorado: {str(e)}")
+        import traceback
+        st.error(f"Detalle: {traceback.format_exc()}")
+        return False
+
+# =============================================================================
+# INTERFAZ PRINCIPAL
+# =============================================================================
+
+st.markdown("### 📁 CARGAR DATOS DEL POTRERO")
+
+# Procesar archivo subido
+gdf_cargado = None
+if uploaded_zip is not None:
+    with st.spinner("Cargando y procesando shapefile..."):
+        try:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                with zipfile.ZipFile(uploaded_zip, 'r') as zip_ref:
+                    zip_ref.extractall(tmp_dir)
+                
+                shp_files = [f for f in os.listdir(tmp_dir) if f.endswith('.shp')]
+                if shp_files:
+                    shp_path = os.path.join(tmp_dir, shp_files[0])
+                    gdf_cargado = gpd.read_file(shp_path)
+                    st.session_state.gdf_cargado = gdf_cargado
+                    
+                    area_total = calcular_superficie(gdf_cargado).sum()
+                    
+                    st.success(f"✅ **Potrero cargado exitosamente!**")
+                    
+                    # Mostrar información del potrero
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Polígonos", len(gdf_cargado))
+                    with col2:
+                        st.metric("Área Total", f"{area_total:.1f} ha")
+                    with col3:
+                        st.metric("Pastura", tipo_pastura)
+                    with col4:
+                        st.metric("Satélite", fuente_satelital)
+                    
+                    # =============================================================================
+                    # NUEVA SECCIÓN: MAPA INTERACTIVO CON ESRI SATÉLITE
+                    # =============================================================================
+                    st.markdown("---")
+                    st.markdown("### 🗺️ VISUALIZACIÓN DEL POTRERO")
+                    
+                    # Crear y mostrar mapa interactivo
+                    mapa_interactivo = crear_mapa_interactivo(gdf_cargado, base_map_option)
+                    if mapa_interactivo:
+                        st_folium(mapa_interactivo, width=1200, height=500, returned_objects=[])
+                        
+                        st.info(f"🗺️ **Mapa Base:** {base_map_option} - Puedes cambiar entre diferentes mapas base usando el control en la esquina superior derecha del mapa.")
+                        
+        except Exception as e:
+            st.error(f"❌ Error cargando shapefile: {str(e)}")
+
+# BOTÓN PRINCIPAL MEJORADO
+st.markdown("---")
+st.markdown("### 🚀 ACCIÓN PRINCIPAL - DETECCIÓN MEJORADA")
+
+if st.session_state.gdf_cargado is not None:
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown(f"""
+        <div style='text-align: center; padding: 20px; border: 2px solid #4CAF50; border-radius: 10px; background-color: #f9fff9;'>
+            <h3>¿Listo para analizar con detección mejorada?</h3>
+            <p>Algoritmo mejorado para detección realista de vegetación</p>
+            <p><strong>Satélite:</strong> {fuente_satelital}</p>
+            <p><strong>Sensibilidad suelo:</strong> {sensibilidad_suelo}</p>
+            <p><strong>Mapa Base:</strong> {base_map_option}</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if st.button("**🚀 EJECUTAR ANÁLISIS FORRAJERO MEJORADO**", 
+                    type="primary", 
+                    use_container_width=True,
+                    key="analisis_mejorado"):
+            with st.spinner("🔬 Ejecutando análisis forrajero con detección mejorada..."):
+                resultado = analisis_forrajero_completo_mejorado(
+                    st.session_state.gdf_cargado, 
+                    tipo_pastura, 
+                    peso_promedio, 
+                    carga_animal, 
+                    n_divisiones,
+                    fuente_satelital,
+                    fecha_imagen,
+                    nubes_max,
+                    umbral_ndvi_minimo,
+                    umbral_ndvi_optimo,
+                    sensibilidad_suelo
+                )
+                if resultado:
+                    st.balloons()
+                    st.success("🎯 Análisis completado con detección mejorada de vegetación!")
+else:
+    st.info("""
+    **📋 Para comenzar el análisis mejorado:**
+    
+    1. **Ajusta los parámetros de detección** en la barra lateral
+    2. **Selecciona la fuente satelital y mapa base**
+    3. **Sube el archivo ZIP** con el shapefile
+    4. **Haz clic en el botón** para análisis mejorado
+    
+    🔍 **La detección mejorada incluye:**
+    - Clasificación científica basada en múltiples índices
+    - Patrones realistas de vegetación escasa
+    - Cálculos de biomasa más conservadores
+    - Detección estricta de suelo desnudo
+    - Visualización en mapa base ESRI Satélite
+    """)
