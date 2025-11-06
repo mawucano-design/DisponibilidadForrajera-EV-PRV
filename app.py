@@ -16,8 +16,17 @@ import requests
 import rasterio
 from rasterio.mask import mask
 import json
-import folium
-from streamlit_folium import st_folium
+
+# Importaciones opcionales para folium con manejo de errores
+try:
+    import folium
+    from streamlit_folium import st_folium
+    FOLIUM_AVAILABLE = True
+except ImportError as e:
+    st.warning("⚠️ Folium no está disponible. La funcionalidad de mapas interactivos estará limitada.")
+    FOLIUM_AVAILABLE = False
+    folium = None
+    st_folium = None
 
 st.set_page_config(page_title="🌱 Analizador Forrajero GEE", layout="wide")
 st.title("🌱 ANALIZADOR FORRAJERO - DETECCIÓN MEJORADA DE VEGETACIÓN")
@@ -44,16 +53,19 @@ if 'analisis_completado' not in st.session_state:
 with st.sidebar:
     st.header("⚙️ Configuración")
     
-    # Selector de mapa base - NUEVA FUNCIONALIDAD
-    st.subheader("🗺️ Mapa Base")
-    base_map_option = st.selectbox(
-        "Seleccionar mapa base:",
-        ["ESRI Satélite", "OpenStreetMap", "CartoDB Positron"],
-        index=0,
-        help="ESRI Satélite: Imágenes satelitales reales. OpenStreetMap: Mapa estándar. CartoDB: Mapa claro."
-    )
+    # Selector de mapa base - SOLO si folium está disponible
+    if FOLIUM_AVAILABLE:
+        st.subheader("🗺️ Mapa Base")
+        base_map_option = st.selectbox(
+            "Seleccionar mapa base:",
+            ["ESRI Satélite", "OpenStreetMap", "CartoDB Positron"],
+            index=0,
+            help="ESRI Satélite: Imágenes satelitales reales. OpenStreetMap: Mapa estándar. CartoDB: Mapa claro."
+        )
+    else:
+        base_map_option = "ESRI Satélite"  # Valor por defecto
     
-    # Selección de satélite
+    # Selección de satélite (MANTIENE TU FUNCIONALIDAD ACTUAL DE SENTINEL)
     st.subheader("🛰️ Fuente de Datos Satelitales")
     fuente_satelital = st.selectbox(
         "Seleccionar satélite:",
@@ -105,94 +117,99 @@ with st.sidebar:
     uploaded_zip = st.file_uploader("Subir ZIP con shapefile del potrero", type=['zip'])
 
 # =============================================================================
-# CONFIGURACIÓN DE MAPAS BASE - NUEVA SECCIÓN
+# CONFIGURACIÓN DE MAPAS BASE - SOLO si folium está disponible
 # =============================================================================
 
-# Configuración de mapas base
-BASE_MAPS_CONFIG = {
-    "ESRI Satélite": {
-        "tiles": 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-        "attr": 'Esri, Maxar, Earthstar Geographics, and the GIS User Community',
-        "name": "ESRI Satellite"
-    },
-    "OpenStreetMap": {
-        "tiles": 'OpenStreetMap',
-        "attr": 'OpenStreetMap contributors',
-        "name": "OpenStreetMap"
-    },
-    "CartoDB Positron": {
-        "tiles": 'CartoDB positron',
-        "attr": 'CartoDB',
-        "name": "CartoDB Positron"
-    }
-}
-
-def crear_mapa_interactivo(gdf, base_map_name="ESRI Satélite"):
-    """
-    Crea un mapa interactivo con múltiples opciones de base map
-    """
-    if gdf is None or len(gdf) == 0:
-        return None
-    
-    # Obtener el centro del geometry
-    centroid = gdf.geometry.centroid.iloc[0]
-    center_lat, center_lon = centroid.y, centroid.x
-    
-    # Crear mapa base
-    m = folium.Map(
-        location=[center_lat, center_lon],
-        zoom_start=14,
-        tiles=None,  # Important: no tiles por defecto
-        control_scale=True
-    )
-    
-    # Agregar todos los mapas base como opciones
-    for map_name, config in BASE_MAPS_CONFIG.items():
-        folium.TileLayer(
-            tiles=config["tiles"],
-            attr=config["attr"],
-            name=config["name"],
-            overlay=False,
-            control=True
-        ).add_to(m)
-    
-    # Establecer el mapa base seleccionado por defecto
-    selected_config = BASE_MAPS_CONFIG[base_map_name]
-    folium.TileLayer(
-        tiles=selected_config["tiles"],
-        attr=selected_config["attr"],
-        name=selected_config["name"],
-        overlay=True  # Esto asegura que se muestre por defecto
-    ).add_to(m)
-    
-    # Agregar el geometry al mapa
-    folium.GeoJson(
-        gdf.__geo_interface__,
-        style_function=lambda x: {
-            'fillColor': '#3388ff',
-            'color': 'blue',
-            'weight': 2,
-            'fillOpacity': 0.2
+if FOLIUM_AVAILABLE:
+    # Configuración de mapas base
+    BASE_MAPS_CONFIG = {
+        "ESRI Satélite": {
+            "tiles": 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            "attr": 'Esri, Maxar, Earthstar Geographics, and the GIS User Community',
+            "name": "ESRI Satellite"
         },
-        tooltip=folium.GeoJsonTooltip(
-            fields=['id_subLote'] if 'id_subLote' in gdf.columns else [],
-            aliases=['Sub-Lote:'] if 'id_subLote' in gdf.columns else ['Área:'],
-            localize=True
+        "OpenStreetMap": {
+            "tiles": 'OpenStreetMap',
+            "attr": 'OpenStreetMap contributors',
+            "name": "OpenStreetMap"
+        },
+        "CartoDB Positron": {
+            "tiles": 'CartoDB positron',
+            "attr": 'CartoDB',
+            "name": "CartoDB Positron"
+        }
+    }
+
+    def crear_mapa_interactivo(gdf, base_map_name="ESRI Satélite"):
+        """
+        Crea un mapa interactivo con múltiples opciones de base map
+        """
+        if gdf is None or len(gdf) == 0:
+            return None
+        
+        # Obtener el centro del geometry
+        centroid = gdf.geometry.centroid.iloc[0]
+        center_lat, center_lon = centroid.y, centroid.x
+        
+        # Crear mapa base
+        m = folium.Map(
+            location=[center_lat, center_lon],
+            zoom_start=14,
+            tiles=None,  # Important: no tiles por defecto
+            control_scale=True
         )
-    ).add_to(m)
-    
-    # Agregar control de capas
-    folium.LayerControl().add_to(m)
-    
-    # Agregar marcador en el centro
-    folium.Marker(
-        [center_lat, center_lon],
-        popup=f"Centro del Potrero\nLat: {center_lat:.4f}\nLon: {center_lon:.4f}",
-        tooltip="Centro del Potrero",
-        icon=folium.Icon(color='green', icon='info-sign')
-    ).add_to(m)
-    
-    return m
+        
+        # Agregar todos los mapas base como opciones
+        for map_name, config in BASE_MAPS_CONFIG.items():
+            folium.TileLayer(
+                tiles=config["tiles"],
+                attr=config["attr"],
+                name=config["name"],
+                overlay=False,
+                control=True
+            ).add_to(m)
+        
+        # Establecer el mapa base seleccionado por defecto
+        selected_config = BASE_MAPS_CONFIG[base_map_name]
+        folium.TileLayer(
+            tiles=selected_config["tiles"],
+            attr=selected_config["attr"],
+            name=selected_config["name"],
+            overlay=True  # Esto asegura que se muestre por defecto
+        ).add_to(m)
+        
+        # Agregar el geometry al mapa
+        folium.GeoJson(
+            gdf.__geo_interface__,
+            style_function=lambda x: {
+                'fillColor': '#3388ff',
+                'color': 'blue',
+                'weight': 2,
+                'fillOpacity': 0.2
+            },
+            tooltip=folium.GeoJsonTooltip(
+                fields=['id_subLote'] if 'id_subLote' in gdf.columns else [],
+                aliases=['Sub-Lote:'] if 'id_subLote' in gdf.columns else ['Área:'],
+                localize=True
+            )
+        ).add_to(m)
+        
+        # Agregar control de capas
+        folium.LayerControl().add_to(m)
+        
+        # Agregar marcador en el centro
+        folium.Marker(
+            [center_lat, center_lon],
+            popup=f"Centro del Potrero\nLat: {center_lat:.4f}\nLon: {center_lon:.4f}",
+            tooltip="Centro del Potrero",
+            icon=folium.Icon(color='green', icon='info-sign')
+        ).add_to(m)
+        
+        return m
+else:
+    # Función dummy si folium no está disponible
+    def crear_mapa_interactivo(gdf, base_map_name="ESRI Satélite"):
+        return None
 
 # =============================================================================
 # PARÁMETROS FORRAJEROS Y FUNCIONES BÁSICAS
@@ -1054,15 +1071,18 @@ if uploaded_zip is not None:
                     # =============================================================================
                     # NUEVA SECCIÓN: MAPA INTERACTIVO CON ESRI SATÉLITE
                     # =============================================================================
-                    st.markdown("---")
-                    st.markdown("### 🗺️ VISUALIZACIÓN DEL POTRERO")
-                    
-                    # Crear y mostrar mapa interactivo
-                    mapa_interactivo = crear_mapa_interactivo(gdf_cargado, base_map_option)
-                    if mapa_interactivo:
-                        st_folium(mapa_interactivo, width=1200, height=500, returned_objects=[])
+                    if FOLIUM_AVAILABLE:
+                        st.markdown("---")
+                        st.markdown("### 🗺️ VISUALIZACIÓN DEL POTRERO")
                         
-                        st.info(f"🗺️ **Mapa Base:** {base_map_option} - Puedes cambiar entre diferentes mapas base usando el control en la esquina superior derecha del mapa.")
+                        # Crear y mostrar mapa interactivo
+                        mapa_interactivo = crear_mapa_interactivo(gdf_cargado, base_map_option)
+                        if mapa_interactivo:
+                            st_folium(mapa_interactivo, width=1200, height=500, returned_objects=[])
+                            
+                            st.info(f"🗺️ **Mapa Base:** {base_map_option} - Puedes cambiar entre diferentes mapas base usando el control en la esquina superior derecha del mapa.")
+                    else:
+                        st.warning("⚠️ Para ver el mapa interactivo con ESRI Satélite, instala folium: `pip install folium streamlit-folium`")
                         
         except Exception as e:
             st.error(f"❌ Error cargando shapefile: {str(e)}")
