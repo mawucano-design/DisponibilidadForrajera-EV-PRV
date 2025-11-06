@@ -178,7 +178,7 @@ if FOLIUM_AVAILABLE:
             overlay=True  # Esto asegura que se muestre por defecto
         ).add_to(m)
         
-        # Agregar el geometry al mapa
+        # Agregar el geometry al mapa SIN TOOLTIP (más simple y evita errores)
         folium.GeoJson(
             gdf.__geo_interface__,
             style_function=lambda x: {
@@ -186,12 +186,7 @@ if FOLIUM_AVAILABLE:
                 'color': 'blue',
                 'weight': 2,
                 'fillOpacity': 0.2
-            },
-            tooltip=folium.GeoJsonTooltip(
-                fields=['id_subLote'] if 'id_subLote' in gdf.columns else [],
-                aliases=['Sub-Lote:'] if 'id_subLote' in gdf.columns else ['Área:'],
-                localize=True
-            )
+            }
         ).add_to(m)
         
         # Agregar control de capas
