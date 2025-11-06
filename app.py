@@ -218,7 +218,7 @@ if FOLIUM_AVAILABLE:
         # Crear mapa base
         m = folium.Map(
             location=[center_lat, center_lon],
-            zoom_start=14,
+            zoom_start=16,
             tiles=None,
             control_scale=True
         )
@@ -288,13 +288,13 @@ if FOLIUM_AVAILABLE:
         
         legend_html = '''
         <div style="position: fixed; 
-                    bottom: 50px; left: 50px; width: 200px; height: auto; 
+                    bottom: 30px; left: 30px; width: 130px; height: auto; 
                     background-color: white; border:2px solid grey; z-index:9999; 
                     font-size:14px; padding: 10px">
         <p><strong>Tipos de Superficie</strong></p>
         '''
         for tipo, color in colores_leyenda.items():
-            legend_html += f'<p><i style="background:{color}; width:20px; height:20px; display:inline-block; margin-right:5px;"></i> {tipo}</p>'
+            legend_html += f'<p><i style="background:{color}; width:12px; height:12px; display:inline-block; margin-right:3px;"></i> {tipo}</p>'
         legend_html += '</div>'
         
         m.get_root().html.add_child(folium.Element(legend_html))
@@ -1219,7 +1219,7 @@ def analisis_forrajero_completo_realista(gdf, tipo_pastura, peso_promedio, carga
                 base_map_option
             )
             if mapa_analisis:
-                st_folium(mapa_analisis, width=1200, height=500, returned_objects=[])
+                st_folium(mapa_analisis, width=1200, height=700, returned_objects=[])
         
         # PASO 6: BOTÓN DE EXPORTACIÓN GEOJSON
         if st.session_state.gdf_analizado is not None:
