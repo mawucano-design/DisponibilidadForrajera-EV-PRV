@@ -12,12 +12,14 @@ from matplotlib.colors import LinearSegmentedColormap
 import io
 from shapely.geometry import Polygon
 import math
-import requests
-import rasterio
-from rasterio.mask import mask
-import json
-from fpdf import FPDF
-import base64
+# === Reemplazo de fpdf por reportlab ===
+from reportlab.lib.pagesizes import A4
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.lib import colors
+# =======================================
+
 # Importaciones opcionales para folium con manejo de errores
 try:
     import folium
@@ -28,11 +30,14 @@ except ImportError as e:
     FOLIUM_AVAILABLE = False
     folium = None
     st_folium = None
+
 st.set_page_config(page_title="🌱 Analizador Forrajero GEE", layout="wide")
 st.title("🌱 ANALIZADOR FORRAJERO - DETECCIÓN REALISTA DE VEGETACIÓN")
 st.markdown("---")
+
 # Configurar para restaurar .shx automáticamente
 os.environ['SHAPE_RESTORE_SHX'] = 'YES'
+
 # Inicializar variables de personalización con valores por defecto
 ms_optimo = 4000
 crecimiento_diario = 80
@@ -40,6 +45,7 @@ consumo_porcentaje = 0.025
 tasa_utilizacion = 0.55
 umbral_ndvi_suelo = 0.15
 umbral_ndvi_pastura = 0.6
+
 # Inicializar session state
 if 'gdf_cargado' not in st.session_state:
     st.session_state.gdf_cargado = None
@@ -51,10 +57,10 @@ if 'mapa_detallado_bytes' not in st.session_state:
     st.session_state.mapa_detallado_bytes = None
 if 'generando_pdf' not in st.session_state:
     st.session_state.generando_pdf = False
+
 # Sidebar
 with st.sidebar:
     st.header("⚙️ Configuración")
-    # Selector de mapa base - SOLO si folium está disponible
     if FOLIUM_AVAILABLE:
         st.subheader("🗺️ Mapa Base")
         base_map_option = st.selectbox(
@@ -65,16 +71,17 @@ with st.sidebar:
         )
     else:
         base_map_option = "ESRI Satélite"
-    # Selección de satélite
+    
     st.subheader("🛰️ Fuente de Datos Satelitales")
     fuente_satelital = st.selectbox(
         "Seleccionar satélite:",
         ["SENTINEL-2", "LANDSAT-8", "LANDSAT-9", "SIMULADO"],
         help="Sentinel-2: Mayor resolución (10m). Landsat: Cobertura global histórica."
     )
+    
     tipo_pastura = st.selectbox("Tipo de Pastura:", 
                                ["ALFALFA", "RAYGRASS", "FESTUCA", "AGROPIRRO", "PASTIZAL_NATURAL", "PERSONALIZADO"])
-    # Configuración de fechas para imágenes satelitales
+    
     st.subheader("📅 Configuración Temporal")
     fecha_imagen = st.date_input(
         "Fecha de imagen satelital:",
@@ -83,7 +90,7 @@ with st.sidebar:
         help="Selecciona la fecha para la imagen satelital"
     )
     nubes_max = st.slider("Máximo % de nubes permitido:", 0, 100, 20)
-    # Parámetros avanzados de detección de vegetación
+    
     st.subheader("🌿 Parámetros de Detección de Vegetación")
     umbral_ndvi_minimo = st.slider("Umbral NDVI mínimo vegetación:", 0.05, 0.3, 0.15, 0.01,
                                   help="NDVI por debajo de este valor se considera suelo desnudo")
@@ -91,7 +98,7 @@ with st.sidebar:
                                   help="NDVI por encima de este valor se considera vegetación densa")
     sensibilidad_suelo = st.slider("Sensibilidad detección suelo:", 0.1, 1.0, 0.5, 0.1,
                                   help="Mayor valor = más estricto en detectar suelo desnudo")
-    # Mostrar parámetros personalizables si se selecciona PERSONALIZADO
+    
     if tipo_pastura == "PERSONALIZADO":
         st.subheader("📊 Parámetros Forrajeros Personalizados")
         ms_optimo = st.number_input("Biomasa Óptima (kg MS/ha):", min_value=1000, max_value=10000, value=4000)
@@ -100,13 +107,15 @@ with st.sidebar:
         tasa_utilizacion = st.number_input("Tasa Utilización:", min_value=0.3, max_value=0.8, value=0.55, step=0.01, format="%.2f")
         umbral_ndvi_suelo = st.number_input("Umbral NDVI Suelo:", min_value=0.05, max_value=0.3, value=0.15, step=0.01, format="%.2f")
         umbral_ndvi_pastura = st.number_input("Umbral NDVI Pastura:", min_value=0.3, max_value=0.8, value=0.6, step=0.01, format="%.2f")
+    
     st.subheader("📊 Parámetros Ganaderos")
     peso_promedio = st.slider("Peso promedio animal (kg):", 300, 600, 450)
     carga_animal = st.slider("Carga animal (cabezas):", 50, 1000, 100)
+    
     st.subheader("🎯 División de Potrero")
     n_divisiones = st.slider("Número de sub-lotes:", min_value=12, max_value=32, value=24)
+    
     st.subheader("📤 Subir Lote")
-    # Selector de tipo de archivo
     tipo_archivo = st.radio(
         "Formato del archivo:",
         ["Shapefile (ZIP)", "KML"],
@@ -116,11 +125,11 @@ with st.sidebar:
         uploaded_file = st.file_uploader("Subir ZIP con shapefile del potrero", type=['zip'])
     else:
         uploaded_file = st.file_uploader("Subir archivo KML del potrero", type=['kml'])
+
 # =============================================================================
-# FUNCIONES PARA CARGAR ARCHIVOS (KML Y SHAPEFILE)
+# FUNCIONES PARA CARGAR ARCHIVOS
 # =============================================================================
 def cargar_shapefile_desde_zip(uploaded_zip):
-    """Carga un shapefile desde un archivo ZIP"""
     try:
         with tempfile.TemporaryDirectory() as tmp_dir:
             with zipfile.ZipFile(uploaded_zip, 'r') as zip_ref:
@@ -136,196 +145,145 @@ def cargar_shapefile_desde_zip(uploaded_zip):
     except Exception as e:
         st.error(f"❌ Error cargando shapefile: {str(e)}")
         return None
+
 def cargar_kml(uploaded_kml):
-    """Carga un archivo KML"""
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix='.kml') as tmp_file:
             tmp_file.write(uploaded_kml.getvalue())
             tmp_file.flush()
             gdf = gpd.read_file(tmp_file.name, driver='KML')
-            # Limpiar archivo temporal
             os.unlink(tmp_file.name)
             return gdf
     except Exception as e:
         st.error(f"❌ Error cargando KML: {str(e)}")
         return None
+
 # =============================================================================
-# FUNCIONES PARA GENERAR INFORME PDF
+# ✅ FUNCIÓN DE EXPORTACIÓN A PDF CON REPORTLAB (FUNCIONAL)
 # =============================================================================
-def generar_informe_pdf_simple(gdf_analizado, tipo_pastura, peso_promedio, carga_animal, mapa_detallado_path=None):
-    """Genera un informe PDF simple sin caracteres especiales problemáticos"""
-    pdf = FPDF()
-    pdf.add_page()
-    # Encabezado
-    pdf.set_font("Arial", 'B', 16)
-    pdf.cell(0, 10, "INFORME DE ANALISIS FORRAJERO", 0, 1, 'C')
-    pdf.set_font("Arial", 'I', 12)
-    pdf.cell(0, 10, f"Generado: {datetime.now().strftime('%d/%m/%Y %H:%M')}", 0, 1, 'C')
-    pdf.ln(10)
-    # Resumen ejecutivo
-    pdf.set_font("Arial", 'B', 14)
-    pdf.cell(0, 10, "RESUMEN EJECUTIVO", 0, 1, 'L')
-    pdf.set_fill_color(200, 220, 255)
-    pdf.cell(0, 10, "", 0, 1, 'L', 1)
-    pdf.ln(5)
-    # Calcular métricas generales
-    area_total = gdf_analizado['area_ha'].sum()
-    biomasa_prom = gdf_analizado['biomasa_disponible_kg_ms_ha'].mean()
-    ndvi_prom = gdf_analizado['ndvi'].mean()
-    # Distribución de tipos de superficie
-    distribucion = gdf_analizado['tipo_superficie'].value_counts()
-    distribucion_texto = ", ".join([f"{tipo}: {count} sub-lotes ({(count/len(gdf_analizado))*100:.1f}%)" 
-                                   for tipo, count in distribucion.items()])
-    pdf.set_font("Arial", '', 12)
-    resumen_texto = f"""Analisis forrajero realizado para pastura de tipo {tipo_pastura}.
-Area total analizada: {area_total:.2f} hectareas
-Biomasa disponible promedio: {biomasa_prom:.0f} kg MS/ha
-NDVI promedio: {ndvi_prom:.3f}
-Carga animal configurada: {carga_animal} cabezas
-Peso promedio: {peso_promedio} kg
-Distribucion de tipos de superficie:
-{distribucion_texto}"""
-    pdf.multi_cell(0, 8, resumen_texto)
-    pdf.ln(10)
-    # Recomendaciones
-    pdf.set_font("Arial", 'B', 14)
-    pdf.cell(0, 10, "RECOMENDACIONES TECNICAS", 0, 1, 'L')
-    pdf.set_fill_color(200, 220, 255)
-    pdf.cell(0, 10, "", 0, 1, 'L', 1)
-    pdf.ln(5)
-    # Calcular recomendaciones basadas en los resultados
-    area_suelo_desnudo = gdf_analizado[gdf_analizado['tipo_superficie'].isin(['SUELO_DESNUDO', 'SUELO_PARCIAL'])]['area_ha'].sum()
-    area_vegetacion_densa = gdf_analizado[gdf_analizado['tipo_superficie'] == 'VEGETACION_DENSA']['area_ha'].sum()
-    dias_promedio = gdf_analizado['dias_permanencia'].mean()
-    pdf.set_font("Arial", '', 12)
-    recomendaciones = []
-    if area_suelo_desnudo > area_total * 0.3:
-        recomendaciones.append("- ALTA PRESENCIA DE SUELO DESNUDO: Considerar resiembra o recuperacion de areas degradadas")
-    if area_vegetacion_densa < area_total * 0.4:
-        recomendaciones.append("- VEGETACION OPTIMA LIMITADA: Evaluar practicas de fertilizacion y manejo")
-    if dias_promedio < 3:
-        recomendaciones.append("- CARGA ANIMAL ELEVADA: Considerar reducir carga o suplementar alimentacion")
-    elif dias_promedio > 7:
-        recomendaciones.append("- SUBUTILIZACION DEL FORRAJE: Posibilidad de incrementar carga animal")
-    if biomasa_prom < 1000:
-        recomendaciones.append("- BIOMASA DISPONIBLE BAJA: Implementar rotaciones mas largas entre pastoreos")
-    elif biomasa_prom > 3000:
-        recomendaciones.append("- EXCELENTE DISPONIBILIDAD FORRAJERA: Optimizar aprovechamiento con rotaciones adecuadas")
-    # Recomendaciones generales
-    recomendaciones.extend([
-        "- Monitorear regularmente la condicion de la pastura",
-        "- Ajustar carga animal segun disponibilidad estacional",
-        "- Implementar rotacion estrategica de potreros",
-        "- Considerar suplementacion en periodos criticos"
-    ])
-    for rec in recomendaciones:
-        pdf.multi_cell(0, 8, rec)
-        pdf.ln(2)
-    pdf.ln(10)
-    # Métricas por sub-lote
-    pdf.set_font("Arial", 'B', 14)
-    pdf.cell(0, 10, "METRICAS POR SUB-LOTE", 0, 1, 'L')
-    pdf.set_fill_color(200, 220, 255)
-    pdf.cell(0, 10, "", 0, 1, 'L', 1)
-    pdf.ln(5)
-    # Preparar datos para la tabla
-    pdf.set_font("Arial", 'B', 10)
-    columnas = ['Sub-Lote', 'Area (ha)', 'Tipo Superficie', 'NDVI', 'Biomasa (kg/ha)', 'EV/Ha', 'Dias']
-    col_width = 180 / len(columnas)
-    # Headers de tabla
-    for header in columnas:
-        pdf.cell(col_width, 10, header, 1, 0, 'C')
-    pdf.ln()
-    # Datos de tabla
-    pdf.set_font("Arial", '', 9)
-    for idx, row in gdf_analizado.iterrows():
-        pdf.cell(col_width, 8, str(row['id_subLote']), 1, 0, 'C')
-        pdf.cell(col_width, 8, f"{row['area_ha']:.2f}", 1, 0, 'C')
-        pdf.cell(col_width, 8, str(row['tipo_superficie']), 1, 0, 'C')
-        pdf.cell(col_width, 8, f"{row['ndvi']:.3f}", 1, 0, 'C')
-        pdf.cell(col_width, 8, f"{row['biomasa_disponible_kg_ms_ha']:.0f}", 1, 0, 'C')
-        pdf.cell(col_width, 8, f"{row['ev_ha']:.2f}", 1, 0, 'C')
-        pdf.cell(col_width, 8, f"{row['dias_permanencia']:.1f}", 1, 0, 'C')
-        pdf.ln()
-    pdf.ln(10)
-    # Estadísticas generales
-    pdf.add_page()
-    pdf.set_font("Arial", 'B', 14)
-    pdf.cell(0, 10, "ESTADISTICAS GENERALES", 0, 1, 'L')
-    pdf.set_fill_color(200, 220, 255)
-    pdf.cell(0, 10, "", 0, 1, 'L', 1)
-    pdf.ln(5)
-    stats_data = [
-        ['Metrica', 'Valor'],
-        ['Area Total (ha)', f"{area_total:.2f}"],
-        ['Sub-Lotes', f"{len(gdf_analizado)}"],
-        ['NDVI Promedio', f"{ndvi_prom:.3f}"],
-        ['Biomasa Promedio (kg/ha)', f"{biomasa_prom:.0f}"],
-        ['Dias Permanencia Prom', f"{dias_promedio:.1f}"],
-        ['Cobertura Vegetal Prom', f"{gdf_analizado['cobertura_vegetal'].mean():.1%}"]
-    ]
-    pdf.set_font("Arial", 'B', 10)
-    col_width_stats = 90
-    for stat in stats_data:
-        pdf.cell(col_width_stats, 8, stat[0], 1, 0, 'L')
-        pdf.cell(col_width_stats, 8, stat[1], 1, 1, 'C')
-    # Agregar mapa si está disponible y es válido
-    if mapa_detallado_path and os.path.exists(mapa_detallado_path):
-        try:
-            with open(mapa_detallado_path, 'rb') as f:
-                header = f.read(8)
-                if header.startswith(b'\x89PNG'):
-                    pdf.ln(10)
-                    pdf.set_font("Arial", 'B', 14)
-                    pdf.cell(0, 10, "MAPAS DE ANALISIS", 0, 1, 'L')
-                    pdf.set_fill_color(200, 220, 255)
-                    pdf.cell(0, 10, "", 0, 1, 'L', 1)
-                    pdf.ln(5)
-                    pdf.set_font("Arial", '', 12)
-                    pdf.multi_cell(0, 8, "Mapa de tipos de superficie y biomasa disponible:")
-                    pdf.ln(5)
-                    pdf.image(mapa_detallado_path, x=10, w=180)
-                else:
-                    pdf.cell(0, 10, "⚠️ Mapa no válido (no PNG)", 0, 1, 'C')
-        except Exception as e:
-            pdf.cell(0, 10, f"⚠️ Error insertando mapa: {e}", 0, 1, 'C')
-    return pdf
 def exportar_informe_pdf(gdf_analizado, tipo_pastura, peso_promedio, carga_animal, mapa_detallado_bytes=None):
-    """Exporta el análisis completo a PDF - ✅ ROBUSTO: maneja None/bytes/BytesIO"""
+    """Exporta el análisis completo a PDF usando ReportLab (robusto y con Unicode)."""
     try:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            mapa_path = None
-            if mapa_detallado_bytes is not None:
-                try:
-                    if isinstance(mapa_detallado_bytes, io.BytesIO):
-                        mapa_bytes = mapa_detallado_bytes.getvalue()
-                    elif isinstance(mapa_detallado_bytes, bytes):
-                        mapa_bytes = mapa_detallado_bytes
-                    else:
-                        st.warning("⚠️ Formato inesperado del mapa. Omitiendo imagen.")
-                        mapa_bytes = None
-                    if mapa_bytes:
-                        mapa_path = os.path.join(tmp_dir, "mapa_analisis.png")
-                        with open(mapa_path, 'wb') as f:
-                            f.write(mapa_bytes)
-                except Exception as e:
-                    st.warning(f"⚠️ No se pudo procesar el mapa para el PDF: {e}")
-                    mapa_path = None
-            pdf = generar_informe_pdf_simple(gdf_analizado, tipo_pastura, peso_promedio, carga_animal, mapa_path)
-            pdf_path = os.path.join(tmp_dir, "informe_forrajero.pdf")
-            pdf.output(pdf_path)
-            with open(pdf_path, 'rb') as f:
-                return f.read()
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1*inch)
+        styles = getSampleStyleSheet()
+        normal_style = styles['Normal']
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=16,
+            spaceAfter=30,
+            alignment=1
+        )
+        heading_style = ParagraphStyle(
+            'CustomHeading',
+            parent=styles['Heading2'],
+            fontSize=14,
+            spaceAfter=12,
+            spaceBefore=12,
+            textColor=colors.darkblue
+        )
+
+        story = []
+        story.append(Paragraph("INFORME DE ANÁLISIS FORRAJERO", title_style))
+        story.append(Spacer(1, 20))
+
+        # Información general
+        story.append(Paragraph("INFORMACIÓN GENERAL", heading_style))
+        info_data = [
+            ["Tipo de Pastura:", tipo_pastura],
+            ["Carga Animal:", f"{carga_animal} cabezas"],
+            ["Peso Promedio:", f"{peso_promedio} kg"],
+            ["Fecha de Generación:", datetime.now().strftime("%d/%m/%Y %H:%M")]
+        ]
+        info_table = Table(info_data, colWidths=[2*inch, 3*inch])
+        info_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        story.append(info_table)
+        story.append(Spacer(1, 20))
+
+        # Estadísticas
+        area_total = gdf_analizado['area_ha'].sum()
+        biomasa_prom = gdf_analizado['biomasa_disponible_kg_ms_ha'].mean()
+        ndvi_prom = gdf_analizado['ndvi'].mean()
+        dias_promedio = gdf_analizado['dias_permanencia'].mean()
+
+        story.append(Paragraph("ESTADÍSTICAS DEL ANÁLISIS", heading_style))
+        stats_data = [
+            ["Estadística", "Valor"],
+            ["Área Total", f"{area_total:.2f} ha"],
+            ["Biomasa Disponible Prom.", f"{biomasa_prom:.0f} kg MS/ha"],
+            ["NDVI Promedio", f"{ndvi_prom:.3f}"],
+            ["Días de Permanencia Prom.", f"{dias_promedio:.1f}"]
+        ]
+        stats_table = Table(stats_data, colWidths=[3*inch, 2*inch])
+        stats_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        story.append(stats_table)
+        story.append(Spacer(1, 20))
+
+        # Mapa
+        if mapa_detallado_bytes is not None:
+            story.append(PageBreak())
+            story.append(Paragraph("MAPA DE ANÁLISIS", heading_style))
+            try:
+                mapa_img = Image(mapa_detallado_bytes, width=6*inch, height=3.5*inch)
+                story.append(mapa_img)
+                story.append(Spacer(1, 10))
+                story.append(Paragraph("Figura 1: Mapa de tipos de superficie y biomasa disponible.", normal_style))
+            except Exception as e:
+                story.append(Paragraph(f"Error al insertar el mapa: {e}", normal_style))
+
+        # Tabla de resultados por sub-lote (primeras 10)
+        story.append(Spacer(1, 20))
+        story.append(Paragraph("RESULTADOS POR SUB-LOTE (Primeras 10 filas)", heading_style))
+        columnas_tabla = ['id_subLote', 'area_ha', 'tipo_superficie', 'ndvi', 'biomasa_disponible_kg_ms_ha', 'dias_permanencia']
+        df_tabla = gdf_analizado[columnas_tabla].head(10).copy()
+        df_tabla['area_ha'] = df_tabla['area_ha'].round(2)
+        df_tabla['ndvi'] = df_tabla['ndvi'].round(3)
+        df_tabla['biomasa_disponible_kg_ms_ha'] = df_tabla['biomasa_disponible_kg_ms_ha'].round(0)
+        df_tabla['dias_permanencia'] = df_tabla['dias_permanencia'].round(1)
+
+        table_data = [df_tabla.columns.tolist()]
+        for _, row in df_tabla.iterrows():
+            table_data.append(row.tolist())
+
+        result_table = Table(table_data, colWidths=[0.7*inch, 0.8*inch, 1.2*inch, 0.7*inch, 1.2*inch, 0.9*inch])
+        result_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey])
+        ]))
+        story.append(result_table)
+
+        doc.build(story)
+        buffer.seek(0)
+        return buffer.getvalue()
+
     except Exception as e:
         st.error(f"❌ Error en exportar_informe_pdf: {e}")
         import traceback
         st.code(traceback.format_exc(), language="python")
         return None
+
 # =============================================================================
-# CONFIGURACIÓN DE MAPAS BASE - SOLO si folium está disponible
+# CONFIGURACIÓN DE MAPAS BASE
 # =============================================================================
 if FOLIUM_AVAILABLE:
-    # Configuración de mapas base
     BASE_MAPS_CONFIG = {
         "ESRI Satélite": {
             "tiles": 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
@@ -344,99 +302,47 @@ if FOLIUM_AVAILABLE:
         }
     }
 
-    # ✅ FUNCIÓN CORREGIDA: mapa con fit_bounds (sin calcular_zoom_automatico)
     def crear_mapa_interactivo(gdf, base_map_name="ESRI Satélite"):
-        """
-        Crea un mapa interactivo con ajuste automático a los límites del polígono cargado ✅
-        """
         if gdf is None or len(gdf) == 0:
             return None
-
-        # Obtener los límites (bounds) del GeoDataFrame
-        bounds = gdf.total_bounds  # [minx, miny, maxx, maxy]
+        bounds = gdf.total_bounds
         centroid = gdf.geometry.centroid.iloc[0]
-
-        m = folium.Map(
-            location=[centroid.y, centroid.x],
-            tiles=None,
-            control_scale=True
-        )
-
-        # Agregar capas base
+        m = folium.Map(location=[centroid.y, centroid.x], tiles=None, control_scale=True)
         for map_name, config in BASE_MAPS_CONFIG.items():
             folium.TileLayer(
-                tiles=config["tiles"],
-                attr=config["attr"],
-                name=config["name"],
-                overlay=False,
-                control=True
+                tiles=config["tiles"], attr=config["attr"], name=config["name"], overlay=False, control=True
             ).add_to(m)
-
-        # Establecer la capa base seleccionada
         selected_config = BASE_MAPS_CONFIG[base_map_name]
         folium.TileLayer(
-            tiles=selected_config["tiles"],
-            attr=selected_config["attr"],
-            name=selected_config["name"],
-            overlay=False,
-            control=False
+            tiles=selected_config["tiles"], attr=selected_config["attr"], name=selected_config["name"], overlay=False, control=False
         ).add_to(m)
-
-        folium.GeoJson(
-            gdf.__geo_interface__,
-            style_function=lambda x: {
-                'fillColor': '#3388ff',
-                'color': 'blue',
-                'weight': 2,
-                'fillOpacity': 0.2
-            }
-        ).add_to(m)
-
+        folium.GeoJson(gdf.__geo_interface__, style_function=lambda x: {
+            'fillColor': '#3388ff', 'color': 'blue', 'weight': 2, 'fillOpacity': 0.2
+        }).add_to(m)
         folium.Marker(
             [centroid.y, centroid.x],
             popup=f"Centro del Potrero<br>Lat: {centroid.y:.4f}<br>Lon: {centroid.x:.4f}",
             tooltip="Centro del Potrero",
             icon=folium.Icon(color='green', icon='info-sign')
         ).add_to(m)
-
-        # ✅ CORRECCIÓN CLAVE: ajustar vista automáticamente al polígono
+        # ✅ CORRECCIÓN CLAVE: ajuste automático de vista
         m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
-
         folium.LayerControl().add_to(m)
         return m
 
-    # ✅ FUNCIÓN CORREGIDA: mapa de análisis con fit_bounds
     def crear_mapa_analisis_interactivo(gdf_analizado, tipo_pastura, base_map_name="ESRI Satélite"):
-        """
-        Crea un mapa interactivo para los resultados del análisis con ajuste automático ✅
-        """
         if gdf_analizado is None or len(gdf_analizado) == 0:
             return None
-
         bounds = gdf_analizado.total_bounds
         centroid = gdf_analizado.geometry.centroid.iloc[0]
-        m = folium.Map(
-            location=[centroid.y, centroid.x],
-            tiles=None,
-            control_scale=True
-        )
-
-        # Agregar todas como opciones
+        m = folium.Map(location=[centroid.y, centroid.x], tiles=None, control_scale=True)
         for map_name, config in BASE_MAPS_CONFIG.items():
             folium.TileLayer(
-                tiles=config["tiles"],
-                attr=config["attr"],
-                name=config["name"],
-                overlay=False,
-                control=True
+                tiles=config["tiles"], attr=config["attr"], name=config["name"], overlay=False, control=True
             ).add_to(m)
         selected_config = BASE_MAPS_CONFIG[base_map_name]
         folium.TileLayer(
-            tiles=selected_config["tiles"],
-            attr=selected_config["attr"],
-            name=selected_config["name"],
-            overlay=False,
-            control=False
+            tiles=selected_config["tiles"], attr=selected_config["attr"], name=selected_config["name"], overlay=False, control=False
         ).add_to(m)
 
         def estilo_por_superficie(feature):
@@ -448,13 +354,7 @@ if FOLIUM_AVAILABLE:
                 'VEGETACION_MODERADA': '#a6d96a',
                 'VEGETACION_DENSA': '#1a9850'
             }
-            color = colores.get(tipo_superficie, '#3388ff')
-            return {
-                'fillColor': color,
-                'color': 'black',
-                'weight': 1.5,
-                'fillOpacity': 0.6
-            }
+            return {'fillColor': colores.get(tipo_superficie, '#3388ff'), 'color': 'black', 'weight': 1.5, 'fillOpacity': 0.6}
 
         folium.GeoJson(
             gdf_analizado.__geo_interface__,
@@ -479,8 +379,7 @@ if FOLIUM_AVAILABLE:
             'VEGETACION_DENSA': '#1a9850'
         }
         legend_html = '''
-        <div style="position: fixed; 
-                    bottom: 50px; left: 50px; width: 200px; height: auto; 
+        <div style="position: fixed; bottom: 50px; left: 50px; width: 200px; height: auto; 
                     background-color: white; border:2px solid grey; z-index:9999; 
                     font-size:14px; padding: 10px">
         <p><strong>Tipos de Superficie</strong></p>
@@ -489,18 +388,15 @@ if FOLIUM_AVAILABLE:
             legend_html += f'<p><i style="background:{color}; width:20px; height:20px; display:inline-block; margin-right:5px;"></i> {tipo}</p>'
         legend_html += '</div>'
         m.get_root().html.add_child(folium.Element(legend_html))
-
-        # ✅ CORRECCIÓN CLAVE: ajustar vista automáticamente a los resultados
+        # ✅ CORRECCIÓN CLAVE: ajuste automático de vista
         m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
-
         folium.LayerControl().add_to(m)
         return m
 
 else:
-    def crear_mapa_interactivo(gdf, base_map_name="ESRI Satélite"):
-        return None
-    def crear_mapa_analisis_interactivo(gdf_analizado, tipo_pastura, base_map_name="ESRI Satélite"):
-        return None
+    def crear_mapa_interactivo(gdf, base_map_name="ESRI Satélite"): return None
+    def crear_mapa_analisis_interactivo(gdf_analizado, tipo_pastura, base_map_name="ESRI Satélite"): return None
+
 # =============================================================================
 # FUNCIÓN PARA EXPORTAR GEOJSON
 # =============================================================================
@@ -516,6 +412,7 @@ def exportar_geojson(gdf_analizado, tipo_pastura):
     except Exception as e:
         st.error(f"❌ Error exportando GeoJSON: {str(e)}")
         return None, None
+
 # =============================================================================
 # PARÁMETROS FORRAJEROS Y FUNCIONES BÁSICAS
 # =============================================================================
@@ -606,6 +503,7 @@ PARAMETROS_FORRAJEROS_BASE = {
         'FACTOR_COBERTURA': 0.75
     }
 }
+
 def obtener_parametros_forrajeros(tipo_pastura):
     if tipo_pastura == "PERSONALIZADO":
         return {
@@ -627,6 +525,7 @@ def obtener_parametros_forrajeros(tipo_pastura):
         }
     else:
         return PARAMETROS_FORRAJEROS_BASE[tipo_pastura]
+
 def calcular_superficie(gdf):
     try:
         if gdf.crs and gdf.crs.is_geographic:
@@ -636,6 +535,7 @@ def calcular_superficie(gdf):
         return area_m2 / 10000
     except:
         return gdf.geometry.area / 10000
+
 def dividir_potrero_en_subLotes(gdf, n_zonas):
     if len(gdf) == 0:
         return gdf
@@ -672,6 +572,7 @@ def dividir_potrero_en_subLotes(gdf, n_zonas):
         return nuevo_gdf
     else:
         return gdf
+
 # =============================================================================
 # ALGORITMOS MEJORADOS DE DETECCIÓN DE VEGETACIÓN - REALISTA Y SENSIBLE
 # =============================================================================
@@ -694,6 +595,7 @@ class DetectorVegetacionRealista:
             'cobertura_suelo_desnudo_max': 0.1,
             'cobertura_vegetacion_escasa_min': 0.3,
         }
+
     def clasificar_vegetacion_realista(self, ndvi, evi, savi, bsi, ndbi, msavi2=None):
         es_suelo_desnudo = False
         es_suelo_parcial = False
@@ -719,6 +621,7 @@ class DetectorVegetacionRealista:
             criterios_suelo_parcial += 1
         if criterios_suelo_parcial >= 2 and not es_suelo_desnudo:
             es_suelo_parcial = True
+
         if es_suelo_desnudo:
             categoria_ndvi = "SUELO_DESNUDO"
             cobertura_base = 0.05
@@ -734,6 +637,7 @@ class DetectorVegetacionRealista:
         else:
             categoria_ndvi = "VEGETACION_DENSA"
             cobertura_base = 0.9
+
         criterios_vegetacion = 0
         if evi > 0.15:
             criterios_vegetacion += 1
@@ -745,8 +649,10 @@ class DetectorVegetacionRealista:
             criterios_vegetacion += 1
         if msavi2 and msavi2 > 0.15:
             criterios_vegetacion += 1
+
         categoria_final = categoria_ndvi
         cobertura_final = cobertura_base
+
         if (es_suelo_desnudo or es_suelo_parcial) and categoria_ndvi not in ["SUELO_DESNUDO", "SUELO_PARCIAL"]:
             if criterios_suelo_fuertes >= 3:
                 categoria_final = "SUELO_DESNUDO"
@@ -761,13 +667,16 @@ class DetectorVegetacionRealista:
             else:
                 categoria_final = "VEGETACION_ESCASA"
                 cobertura_final = 0.5
+
         if self.sensibilidad_suelo > 0.5:
             factor_sensibilidad = self.sensibilidad_suelo ** 2
             if categoria_final in ["VEGETACION_ESCASA", "VEGETACION_MODERADA"]:
                 if ndvi < 0.3 + (0.3 * (1 - factor_sensibilidad)):
                     categoria_final = "SUELO_PARCIAL"
                     cobertura_final = max(0.1, cobertura_final * 0.6)
+
         return categoria_final, max(0.01, min(0.95, cobertura_final))
+
     def calcular_biomasa_realista(self, ndvi, evi, savi, categoria_vegetacion, cobertura, params):
         if categoria_vegetacion == "SUELO_DESNUDO":
             return 20, 2, 0.2
@@ -787,6 +696,7 @@ class DetectorVegetacionRealista:
             factor_biomasa = 0.85 + (ndvi * 0.2)
             factor_crecimiento = 0.9
             factor_calidad = 0.85 + (ndvi * 0.15)
+
         factor_cobertura = cobertura ** 0.7
         biomasa_base = params['MS_POR_HA_OPTIMO'] * factor_biomasa
         biomasa_ajustada = biomasa_base * factor_cobertura
@@ -795,6 +705,7 @@ class DetectorVegetacionRealista:
         crecimiento_diario = min(200, max(1, crecimiento_diario))
         calidad_forrajera = min(0.95, max(0.1, factor_calidad * factor_cobertura))
         return biomasa_ms_ha, crecimiento_diario, calidad_forrajera
+
 def simular_patrones_reales_con_suelo(id_subLote, x_norm, y_norm, fuente_satelital):
     zonas_suelo_desnudo = {
         1: 0.08, 6: 0.12, 11: 0.09, 25: 0.11, 30: 0.07
@@ -811,6 +722,7 @@ def simular_patrones_reales_con_suelo(id_subLote, x_norm, y_norm, fuente_satelit
     zonas_vegetacion_densa = {
         5: 0.68, 10: 0.72, 14: 0.75, 15: 0.71, 19: 0.78, 20: 0.74, 23: 0.69, 24: 0.76, 29: 0.73, 32: 0.70
     }
+    
     if id_subLote in zonas_suelo_desnudo:
         ndvi_base = zonas_suelo_desnudo[id_subLote]
     elif id_subLote in zonas_suelo_parcial:
@@ -827,8 +739,10 @@ def simular_patrones_reales_con_suelo(id_subLote, x_norm, y_norm, fuente_satelit
             ndvi_base = 0.15 + (distancia_borde * 0.3)
         else:
             ndvi_base = 0.4 + (distancia_borde * 0.4)
+
     variabilidad = np.random.normal(0, 0.05)
     ndvi = max(0.05, min(0.85, ndvi_base + variabilidad))
+
     if ndvi < 0.15:
         evi = ndvi * 0.8
         savi = ndvi * 0.9
@@ -853,7 +767,9 @@ def simular_patrones_reales_con_suelo(id_subLote, x_norm, y_norm, fuente_satelit
         bsi = -0.1 + np.random.uniform(-0.05, 0.05)
         ndbi = -0.05 + np.random.uniform(-0.02, 0.02)
         msavi2 = ndvi * 1.2
+
     return ndvi, evi, savi, bsi, ndbi, msavi2
+
 def calcular_metricas_ganaderas(gdf_analizado, tipo_pastura, peso_promedio, carga_animal):
     params = obtener_parametros_forrajeros(tipo_pastura)
     metricas = []
@@ -869,6 +785,7 @@ def calcular_metricas_ganaderas(gdf_analizado, tipo_pastura, peso_promedio, carg
             ev_soportable = max(0.01, ev_soportable)
         else:
             ev_soportable = 0.01
+
         if ev_soportable > 0 and area_ha > 0:
             ev_ha = ev_soportable / area_ha
             if ev_ha < 0.1:
@@ -878,6 +795,7 @@ def calcular_metricas_ganaderas(gdf_analizado, tipo_pastura, peso_promedio, carg
                 ev_ha_display = ev_ha
         else:
             ev_ha_display = 0.01
+
         if carga_animal > 0:
             consumo_total_diario = carga_animal * consumo_individual_kg
             if consumo_total_diario > 0 and biomasa_total_disponible > 0:
@@ -892,12 +810,14 @@ def calcular_metricas_ganaderas(gdf_analizado, tipo_pastura, peso_promedio, carg
                 dias_permanencia = 0.1
         else:
             dias_permanencia = 0.1
+
         if carga_animal > 0 and biomasa_total_disponible > 0:
             consumo_potencial_diario = carga_animal * consumo_individual_kg
             biomasa_por_dia = biomasa_total_disponible / params['TASA_UTILIZACION_RECOMENDADA']
             tasa_utilizacion = min(1.0, consumo_potencial_diario / biomasa_por_dia)
         else:
             tasa_utilizacion = 0
+
         if biomasa_disponible >= 2000:
             estado_forrajero = 4
         elif biomasa_disponible >= 1200:
@@ -908,6 +828,7 @@ def calcular_metricas_ganaderas(gdf_analizado, tipo_pastura, peso_promedio, carg
             estado_forrajero = 1
         else:
             estado_forrajero = 0
+
         metricas.append({
             'ev_soportable': round(ev_soportable, 2),
             'dias_permanencia': max(0.1, round(dias_permanencia, 1)),
@@ -918,6 +839,7 @@ def calcular_metricas_ganaderas(gdf_analizado, tipo_pastura, peso_promedio, carg
             'ev_ha': round(ev_ha_display, 3)
         })
     return metricas
+
 def calcular_indices_forrajeros_realista(gdf, tipo_pastura, fuente_satelital, fecha_imagen, nubes_max=20,
                                        umbral_ndvi_minimo=0.15, umbral_ndvi_optimo=0.6, sensibilidad_suelo=0.5):
     try:
@@ -933,6 +855,7 @@ def calcular_indices_forrajeros_realista(gdf, tipo_pastura, fuente_satelital, fe
         y_coords = gdf_centroids['y'].tolist()
         x_min, x_max = min(x_coords), max(x_coords)
         y_min, y_max = min(y_coords), max(y_coords)
+
         st.info(f"🔍 Aplicando detección REALISTA que responde a suelo desnudo...")
         for idx, row in gdf_centroids.iterrows():
             id_subLote = row['id_subLote']
@@ -947,6 +870,7 @@ def calcular_indices_forrajeros_realista(gdf, tipo_pastura, fuente_satelital, fe
             biomasa_ms_ha, crecimiento_diario, calidad_forrajera = detector.calcular_biomasa_realista(
                 ndvi, evi, savi, categoria_vegetacion, cobertura_vegetal, params
             )
+
             if categoria_vegetacion in ["SUELO_DESNUDO"]:
                 biomasa_disponible = 20
             elif categoria_vegetacion in ["SUELO_PARCIAL"]:
@@ -959,6 +883,7 @@ def calcular_indices_forrajeros_realista(gdf, tipo_pastura, fuente_satelital, fe
                                     eficiencia_cosecha * (1 - perdidas) * 
                                     factor_aprovechamiento * cobertura_vegetal)
                 biomasa_disponible = max(20, min(4000, biomasa_disponible))
+
             resultados.append({
                 'id_subLote': id_subLote,
                 'ndvi': round(float(ndvi), 3),
@@ -977,12 +902,14 @@ def calcular_indices_forrajeros_realista(gdf, tipo_pastura, fuente_satelital, fe
                 'x_norm': round(x_norm, 3),
                 'y_norm': round(y_norm, 3)
             })
+
         df_resultados = pd.DataFrame(resultados)
         st.success(f"✅ Análisis REALISTA completado. Distribución de tipos de superficie:")
         distribucion = df_resultados['tipo_superficie'].value_counts()
         for tipo, count in distribucion.items():
             porcentaje = (count / len(df_resultados)) * 100
             st.write(f"   - {tipo}: {count} sub-lotes ({porcentaje:.1f}%)")
+
         ndvi_promedio = df_resultados['ndvi'].mean()
         st.info(f"📊 NDVI promedio: {ndvi_promedio:.3f} (Distribución realista)")
         return resultados
@@ -991,6 +918,7 @@ def calcular_indices_forrajeros_realista(gdf, tipo_pastura, fuente_satelital, fe
         import traceback
         st.error(f"Detalle: {traceback.format_exc()}")
         return []
+
 def crear_mapa_detallado_vegetacion(gdf_analizado, tipo_pastura):
     try:
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 10))
@@ -1001,6 +929,7 @@ def crear_mapa_detallado_vegetacion(gdf_analizado, tipo_pastura):
             'VEGETACION_MODERADA': '#a6d96a',
             'VEGETACION_DENSA': '#1a9850'
         }
+
         for idx, row in gdf_analizado.iterrows():
             tipo_superficie = row['tipo_superficie']
             color = colores_superficie.get(tipo_superficie, '#cccccc')
@@ -1011,17 +940,21 @@ def crear_mapa_detallado_vegetacion(gdf_analizado, tipo_pastura):
                        xytext=(5, 5), textcoords="offset points", 
                        fontsize=7, color='black', weight='bold',
                        bbox=dict(boxstyle="round,pad=0.2", facecolor='white', alpha=0.8))
+
         ax1.set_title(f'🌿 MAPA DE TIPOS DE SUPERFICIE - {tipo_pastura}\nDetección Realista - Incluye Suelo Desnudo', 
                      fontsize=14, fontweight='bold', pad=20)
         ax1.set_xlabel('Longitud')
         ax1.set_ylabel('Latitud')
         ax1.grid(True, alpha=0.3)
+
         leyenda_elementos = []
         for tipo, color in colores_superficie.items():
             leyenda_elementos.append(mpatches.Patch(color=color, label=tipo))
         ax1.legend(handles=leyenda_elementos, loc='upper right', fontsize=9)
+
         cmap_biomasa = LinearSegmentedColormap.from_list('biomasa_mejorada', 
                                                         ['#d73027', '#fee08b', '#a6d96a', '#1a9850'])
+
         for idx, row in gdf_analizado.iterrows():
             biomasa = row['biomasa_disponible_kg_ms_ha']
             valor_norm = biomasa / 4000
@@ -1034,15 +967,18 @@ def crear_mapa_detallado_vegetacion(gdf_analizado, tipo_pastura):
                        xytext=(5, 5), textcoords="offset points", 
                        fontsize=7, color='black', weight='bold',
                        bbox=dict(boxstyle="round,pad=0.2", facecolor='white', alpha=0.8))
+
         ax2.set_title(f'📊 MAPA DE BIOMASA DISPONIBLE - {tipo_pastura}\nBiomasa Aprovechable (kg MS/ha) - Detección Realista', 
                      fontsize=14, fontweight='bold', pad=20)
         ax2.set_xlabel('Longitud')
         ax2.set_ylabel('Latitud')
         ax2.grid(True, alpha=0.3)
+
         sm = plt.cm.ScalarMappable(cmap=cmap_biomasa, norm=plt.Normalize(vmin=0, vmax=4000))
         sm.set_array([])
         cbar = plt.colorbar(sm, ax=ax2, shrink=0.8)
         cbar.set_label('Biomasa Disponible (kg MS/ha)', fontsize=10, fontweight='bold')
+
         plt.tight_layout()
         buf = io.BytesIO()
         plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
@@ -1052,6 +988,7 @@ def crear_mapa_detallado_vegetacion(gdf_analizado, tipo_pastura):
     except Exception as e:
         st.error(f"❌ Error creando mapa detallado: {str(e)}")
         return None
+
 def analisis_forrajero_completo_realista(gdf, tipo_pastura, peso_promedio, carga_animal, n_divisiones, 
                                        fuente_satelital, fecha_imagen, nubes_max,
                                        umbral_ndvi_minimo=0.15, umbral_ndvi_optimo=0.6, sensibilidad_suelo=0.5):
@@ -1066,35 +1003,45 @@ def analisis_forrajero_completo_realista(gdf, tipo_pastura, peso_promedio, carga
             st.metric("Umbral NDVI Óptimo", f"{umbral_ndvi_optimo:.2f}")
         with col3:
             st.metric("Sensibilidad Suelo", f"{sensibilidad_suelo:.1f}")
+
         params = obtener_parametros_forrajeros(tipo_pastura)
+
         st.subheader("📐 DIVIDIENDO POTRERO EN SUB-LOTES")
         with st.spinner("Dividiendo potrero..."):
             gdf_dividido = dividir_potrero_en_subLotes(gdf, n_divisiones)
         st.success(f"✅ Potrero dividido en {len(gdf_dividido)} sub-lotes")
+
         areas_ha = calcular_superficie(gdf_dividido)
         area_total = areas_ha.sum()
+
         st.subheader("🛰️ CALCULANDO ÍNDICES FORRAJEROS REALISTAS")
         with st.spinner("Aplicando algoritmos realistas que detectan suelo desnudo..."):
             indices_forrajeros = calcular_indices_forrajeros_realista(
                 gdf_dividido, tipo_pastura, fuente_satelital, fecha_imagen, nubes_max,
                 umbral_ndvi_minimo, umbral_ndvi_optimo, sensibilidad_suelo
             )
+
         if not indices_forrajeros:
             st.error("❌ No se pudieron calcular los índices forrajeros")
             return False
+
         gdf_analizado = gdf_dividido.copy()
         gdf_analizado['area_ha'] = areas_ha
         for idx, indice in enumerate(indices_forrajeros):
             for key, value in indice.items():
                 if key != 'id_subLote':
                     gdf_analizado.loc[gdf_analizado.index[idx], key] = value
+
         st.subheader("🐄 CALCULANDO MÉTRICAS GANADERAS REALISTAS")
         with st.spinner("Calculando equivalentes vaca y días de permanencia..."):
             metricas_ganaderas = calcular_metricas_ganaderas(gdf_analizado, tipo_pastura, peso_promedio, carga_animal)
+
         for idx, metrica in enumerate(metricas_ganaderas):
             for key, value in metrica.items():
                 gdf_analizado.loc[gdf_analizado.index[idx], key] = value
+
         st.session_state.gdf_analizado = gdf_analizado
+
         st.subheader("🗺️ MAPA DETALLADO DE VEGETACIÓN")
         mapa_detallado = crear_mapa_detallado_vegetacion(gdf_analizado, tipo_pastura)
         if mapa_detallado:
@@ -1107,6 +1054,7 @@ def analisis_forrajero_completo_realista(gdf, tipo_pastura, peso_promedio, carga
                 "image/png",
                 key="descarga_detallado"
             )
+
         if FOLIUM_AVAILABLE and st.session_state.gdf_analizado is not None:
             st.subheader("🛰️ MAPA INTERACTIVO - ESRI SATÉLITE")
             st.info("Visualización interactiva de los resultados sobre imágenes satelitales ESRI")
@@ -1117,6 +1065,7 @@ def analisis_forrajero_completo_realista(gdf, tipo_pastura, peso_promedio, carga
             )
             if mapa_analisis:
                 st_folium(mapa_analisis, width=1200, height=500, returned_objects=[])
+
         if st.session_state.gdf_analizado is not None:
             st.subheader("💾 EXPORTAR RESULTADOS")
             col1, col2, col3 = st.columns(3)
@@ -1143,7 +1092,6 @@ def analisis_forrajero_completo_realista(gdf, tipo_pastura, peso_promedio, carga
                 )
                 st.info("El CSV contiene los datos tabulares sin geometrías")
             with col3:
-                # ✅ BOTÓN PDF ESTABLE — versión final robusta
                 if st.button("📄 Generar Informe PDF", use_container_width=True, key="btn_pdf_estable"):
                     st.session_state.generando_pdf = True
                 if st.session_state.generando_pdf:
@@ -1177,6 +1125,7 @@ def analisis_forrajero_completo_realista(gdf, tipo_pastura, peso_promedio, carga
                             except Exception as e:
                                 st.exception(e)
                                 st.session_state.generando_pdf = False
+
         st.subheader("📊 RESUMEN DE RESULTADOS REALISTAS")
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -1191,6 +1140,7 @@ def analisis_forrajero_completo_realista(gdf, tipo_pastura, peso_promedio, carga
         with col4:
             cobertura_prom = gdf_analizado['cobertura_vegetal'].mean()
             st.metric("Cobertura Vegetal Prom", f"{cobertura_prom:.1%}")
+
         st.subheader("🔬 DETALLES POR SUB-LOTE")
         columnas_detalle = ['id_subLote', 'area_ha', 'tipo_superficie', 'ndvi', 'cobertura_vegetal', 
                           'biomasa_disponible_kg_ms_ha', 'ev_ha', 'dias_permanencia']
@@ -1198,13 +1148,16 @@ def analisis_forrajero_completo_realista(gdf, tipo_pastura, peso_promedio, carga
         tabla_detalle.columns = ['Sub-Lote', 'Área (ha)', 'Tipo Superficie', 'NDVI', 'Cobertura',
                                'Biomasa Disp (kg MS/ha)', 'EV/Ha', 'Días Permanencia']
         st.dataframe(tabla_detalle, use_container_width=True)
+
         st.session_state.analisis_completado = True
         return True
+
     except Exception as e:
         st.error(f"❌ Error en análisis forrajero realista: {str(e)}")
         import traceback
         st.error(f"Detalle: {traceback.format_exc()}")
         return False
+
 # =============================================================================
 # INTERFAZ PRINCIPAL
 # =============================================================================
@@ -1230,6 +1183,7 @@ if uploaded_file is not None:
                     st.metric("Pastura", tipo_pastura)
                 with col4:
                     st.metric("Satélite", fuente_satelital)
+
                 if FOLIUM_AVAILABLE:
                     st.markdown("---")
                     st.markdown("### 🗺️ VISUALIZACIÓN DEL POTRERO")
@@ -1242,6 +1196,7 @@ if uploaded_file is not None:
                     st.warning("⚠️ Para ver el mapa interactivo con ESRI Satélite, instala folium: `pip install folium streamlit-folium`")
         except Exception as e:
             st.error(f"❌ Error cargando archivo: {str(e)}")
+
 st.markdown("---")
 st.markdown("### 🚀 ACCIÓN PRINCIPAL - DETECCIÓN REALISTA")
 if st.session_state.gdf_cargado is not None:
