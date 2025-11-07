@@ -17,7 +17,7 @@ import rasterio
 from rasterio.mask import mask
 import json
 
-# Importaciones para PDF (igual que en el archivo funcionando)
+# Importaciones para PDF
 from reportlab.lib.pagesizes import letter, A4
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -54,7 +54,7 @@ tasa_utilizacion = 0.55
 umbral_ndvi_suelo = 0.15
 umbral_ndvi_pastura = 0.6
 
-# Inicializar session state
+# Inicializar session state - CORREGIDO PARA PDF
 if 'gdf_cargado' not in st.session_state:
     st.session_state.gdf_cargado = None
 if 'analisis_completado' not in st.session_state:
@@ -63,6 +63,12 @@ if 'gdf_analizado' not in st.session_state:
     st.session_state.gdf_analizado = None
 if 'area_total' not in st.session_state:
     st.session_state.area_total = 0
+if 'mostrar_pdf' not in st.session_state:
+    st.session_state.mostrar_pdf = False
+if 'pdf_generado' not in st.session_state:
+    st.session_state.pdf_generado = False
+if 'pdf_buffer' not in st.session_state:
+    st.session_state.pdf_buffer = None
 
 # RECOMENDACIONES DE GANADERÍA REGENERATIVA
 RECOMENDACIONES_REGENERATIVAS = {
@@ -284,6 +290,15 @@ with st.sidebar:
     
     st.subheader("📤 Subir Lote")
     uploaded_zip = st.file_uploader("Subir ZIP con shapefile del potrero", type=['zip'])
+    
+    # Botón para resetear - CORREGIDO
+    if st.button("🔄 Reiniciar Análisis"):
+        st.session_state.analisis_completado = False
+        st.session_state.gdf_analizado = None
+        st.session_state.mostrar_pdf = False
+        st.session_state.pdf_generado = False
+        st.session_state.pdf_buffer = None
+        st.rerun()
 
 # PARÁMETROS FORRAJEROS POR TIPO DE PASTURA
 PARAMETROS_FORRAJEROS_BASE = {
@@ -463,7 +478,234 @@ def dividir_potrero_en_subLotes(gdf, n_zonas):
     else:
         return gdf
 
-# FUNCIÓN PARA GENERAR PDF (ESTILO DEL ARCHIVO FUNCIONANDO)
+# =============================================================================
+# ALGORITMOS DE DETECCIÓN DE VEGETACIÓN (MANTENER TODOS ESTOS)
+# =============================================================================
+
+class DetectorVegetacionRealista:
+    def __init__(self, umbral_ndvi_minimo=0.15, umbral_ndvi_optimo=0.6, sensibilidad_suelo=0.5):
+        self.umbral_ndvi_minimo = umbral_ndvi_minimo
+        self.umbral_ndvi_optimo = umbral_ndvi_optimo
+        self.sensibilidad_suelo = sensibilidad_suelo
+        
+        self.parametros_cientificos = {
+            'ndvi_suelo_desnudo_max': 0.15,
+            'ndvi_vegetacion_escasa_min': 0.15,
+            'ndvi_vegetacion_escasa_max': 0.4,
+            'ndvi_vegetacion_moderada_min': 0.4,
+            'ndvi_vegetacion_moderada_max': 0.65,
+            'ndvi_vegetacion_densa_min': 0.65,
+            'bsi_suelo_min': 0.3,
+            'ndbi_suelo_min': 0.1,
+            'evi_vegetacion_min': 0.1,
+            'savi_vegetacion_min': 0.1,
+            'cobertura_suelo_desnudo_max': 0.1,
+            'cobertura_vegetacion_escasa_min': 0.3,
+        }
+    
+    def clasificar_vegetacion_realista(self, ndvi, evi, savi, bsi, ndbi, msavi2=None):
+        es_suelo_desnudo = False
+        es_suelo_parcial = False
+        
+        criterios_suelo_fuertes = 0
+        if ndvi < 0.1:
+            criterios_suelo_fuertes += 2
+        if bsi > 0.4:
+            criterios_suelo_fuertes += 1
+        if ndbi > 0.2:
+            criterios_suelo_fuertes += 1
+        if evi < 0.08:
+            criterios_suelo_fuertes += 1
+        if savi < 0.08:
+            criterios_suelo_fuertes += 1
+            
+        if criterios_suelo_fuertes >= 4:
+            es_suelo_desnudo = True
+        
+        criterios_suelo_parcial = 0
+        if ndvi < 0.2:
+            criterios_suelo_parcial += 1
+        if bsi > 0.3:
+            criterios_suelo_parcial += 1
+        if ndbi > 0.15:
+            criterios_suelo_parcial += 1
+            
+        if criterios_suelo_parcial >= 2 and not es_suelo_desnudo:
+            es_suelo_parcial = True
+        
+        if es_suelo_desnudo:
+            categoria_ndvi = "SUELO_DESNUDO"
+            confianza_ndvi = 0.8
+            cobertura_base = 0.05
+        elif es_suelo_parcial:
+            categoria_ndvi = "SUELO_PARCIAL" 
+            confianza_ndvi = 0.7
+            cobertura_base = 0.25
+        elif ndvi < self.parametros_cientificos['ndvi_vegetacion_escasa_max']:
+            categoria_ndvi = "VEGETACION_ESCASA"
+            confianza_ndvi = 0.7
+            cobertura_base = 0.5
+        elif ndvi < self.parametros_cientificos['ndvi_vegetacion_moderada_max']:
+            categoria_ndvi = "VEGETACION_MODERADA"
+            confianza_ndvi = 0.8
+            cobertura_base = 0.75
+        else:
+            categoria_ndvi = "VEGETACION_DENSA"
+            confianza_ndvi = 0.9
+            cobertura_base = 0.9
+        
+        criterios_vegetacion = 0
+        
+        if evi > 0.15:
+            criterios_vegetacion += 1
+        if savi > 0.15:
+            criterios_vegetacion += 1
+        if bsi < 0.2:
+            criterios_vegetacion += 1
+        if ndbi < 0.1:
+            criterios_vegetacion += 1
+        if msavi2 and msavi2 > 0.15:
+            criterios_vegetacion += 1
+        
+        categoria_final = categoria_ndvi
+        cobertura_final = cobertura_base
+        
+        if (es_suelo_desnudo or es_suelo_parcial) and categoria_ndvi not in ["SUELO_DESNUDO", "SUELO_PARCIAL"]:
+            if criterios_suelo_fuertes >= 3:
+                categoria_final = "SUELO_DESNUDO"
+                cobertura_final = 0.05
+            elif criterios_suelo_parcial >= 2:
+                categoria_final = "SUELO_PARCIAL" 
+                cobertura_final = 0.25
+        
+        elif categoria_ndvi in ["VEGETACION_MODERADA", "VEGETACION_DENSA"] and criterios_vegetacion < 2:
+            if categoria_ndvi == "VEGETACION_DENSA":
+                categoria_final = "VEGETACION_MODERADA"
+                cobertura_final = 0.7
+            else:
+                categoria_final = "VEGETACION_ESCASA"
+                cobertura_final = 0.5
+        
+        if self.sensibilidad_suelo > 0.5:
+            factor_sensibilidad = self.sensibilidad_suelo ** 2
+            if categoria_final in ["VEGETACION_ESCASA", "VEGETACION_MODERADA"]:
+                if ndvi < 0.3 + (0.3 * (1 - factor_sensibilidad)):
+                    categoria_final = "SUELO_PARCIAL"
+                    cobertura_final = max(0.1, cobertura_final * 0.6)
+        
+        return categoria_final, max(0.01, min(0.95, cobertura_final))
+    
+    def calcular_biomasa_realista(self, ndvi, evi, savi, categoria_vegetacion, cobertura, params):
+        if categoria_vegetacion == "SUELO_DESNUDO":
+            return 20, 2, 0.2
+        
+        elif categoria_vegetacion == "SUELO_PARCIAL":
+            factor_biomasa = 0.15
+            factor_crecimiento = 0.2
+            factor_calidad = 0.3
+        
+        elif categoria_vegetacion == "VEGETACION_ESCASA":
+            factor_biomasa = 0.3 + (ndvi * 0.4)
+            factor_crecimiento = 0.4
+            factor_calidad = 0.5 + (ndvi * 0.3)
+        
+        elif categoria_vegetacion == "VEGETACION_MODERADA":
+            factor_biomasa = 0.6 + (ndvi * 0.3)
+            factor_crecimiento = 0.7
+            factor_calidad = 0.7 + (ndvi * 0.2)
+        
+        else:
+            factor_biomasa = 0.85 + (ndvi * 0.2)
+            factor_crecimiento = 0.9
+            factor_calidad = 0.85 + (ndvi * 0.15)
+        
+        factor_cobertura = cobertura ** 0.7
+        
+        biomasa_base = params['MS_POR_HA_OPTIMO'] * factor_biomasa
+        biomasa_ajustada = biomasa_base * factor_cobertura
+        
+        biomasa_ms_ha = min(8000, max(10, biomasa_ajustada))
+        
+        crecimiento_diario = params['CRECIMIENTO_DIARIO'] * factor_crecimiento * factor_cobertura
+        crecimiento_diario = min(200, max(1, crecimiento_diario))
+        
+        calidad_forrajera = min(0.95, max(0.1, factor_calidad * factor_cobertura))
+        
+        return biomasa_ms_ha, crecimiento_diario, calidad_forrajera
+
+def simular_patrones_reales_con_suelo(id_subLote, x_norm, y_norm, fuente_satelital):
+    zonas_suelo_desnudo = {
+        1: 0.08, 6: 0.12, 11: 0.09, 25: 0.11, 30: 0.07
+    }
+    
+    zonas_suelo_parcial = {
+        2: 0.18, 7: 0.22, 16: 0.19, 26: 0.21, 31: 0.17
+    }
+    
+    zonas_vegetacion_escasa = {
+        3: 0.28, 8: 0.32, 12: 0.35, 17: 0.31, 21: 0.29, 27: 0.33
+    }
+    
+    zonas_vegetacion_moderada = {
+        4: 0.45, 9: 0.52, 13: 0.48, 18: 0.55, 22: 0.51, 28: 0.47
+    }
+    
+    zonas_vegetacion_densa = {
+        5: 0.68, 10: 0.72, 14: 0.75, 15: 0.71, 19: 0.78, 20: 0.74, 23: 0.69, 24: 0.76, 29: 0.73, 32: 0.70
+    }
+    
+    if id_subLote in zonas_suelo_desnudo:
+        ndvi_base = zonas_suelo_desnudo[id_subLote]
+    elif id_subLote in zonas_suelo_parcial:
+        ndvi_base = zonas_suelo_parcial[id_subLote]
+    elif id_subLote in zonas_vegetacion_escasa:
+        ndvi_base = zonas_vegetacion_escasa[id_subLote]
+    elif id_subLote in zonas_vegetacion_moderada:
+        ndvi_base = zonas_vegetacion_moderada[id_subLote]
+    elif id_subLote in zonas_vegetacion_densa:
+        ndvi_base = zonas_vegetacion_densa[id_subLote]
+    else:
+        distancia_borde = min(x_norm, 1-x_norm, y_norm, 1-y_norm)
+        
+        if distancia_borde < 0.2:
+            ndvi_base = 0.15 + (distancia_borde * 0.3)
+        else:
+            ndvi_base = 0.4 + (distancia_borde * 0.4)
+    
+    variabilidad = np.random.normal(0, 0.05)
+    ndvi = max(0.05, min(0.85, ndvi_base + variabilidad))
+    
+    if ndvi < 0.15:
+        evi = ndvi * 0.8
+        savi = ndvi * 0.9
+        bsi = 0.6 + np.random.uniform(-0.1, 0.1)
+        ndbi = 0.25 + np.random.uniform(-0.05, 0.05)
+        msavi2 = ndvi * 0.7
+    elif ndvi < 0.3:
+        evi = ndvi * 1.1
+        savi = ndvi * 1.05
+        bsi = 0.4 + np.random.uniform(-0.1, 0.1)
+        ndbi = 0.15 + np.random.uniform(-0.05, 0.05)
+        msavi2 = ndvi * 0.9
+    elif ndvi < 0.5:
+        evi = ndvi * 1.3
+        savi = ndvi * 1.2
+        bsi = 0.1 + np.random.uniform(-0.1, 0.1)
+        ndbi = 0.05 + np.random.uniform(-0.03, 0.03)
+        msavi2 = ndvi * 1.1
+    else:
+        evi = ndvi * 1.4
+        savi = ndvi * 1.3
+        bsi = -0.1 + np.random.uniform(-0.05, 0.05)
+        ndbi = -0.05 + np.random.uniform(-0.02, 0.02)
+        msavi2 = ndvi * 1.2
+    
+    return ndvi, evi, savi, bsi, ndbi, msavi2
+
+# =============================================================================
+# FUNCIÓN PARA GENERAR PDF - COMPLETA
+# =============================================================================
+
 def generar_informe_pdf(gdf_analizado, tipo_pastura, peso_promedio, carga_animal, area_total, fecha_imagen, fuente_satelital):
     """Genera un informe PDF completo con los resultados del análisis"""
     
@@ -619,57 +861,135 @@ def generar_informe_pdf(gdf_analizado, tipo_pastura, peso_promedio, carga_animal
     
     return buffer
 
-# FUNCIÓN PARA MOSTRAR SECCIÓN DE PDF
-def mostrar_seccion_exportacion_pdf():
-    """Muestra la sección de exportación de PDF en la interfaz"""
-    
-    if hasattr(st.session_state, 'gdf_analizado') and st.session_state.gdf_analizado is not None:
-        st.markdown("---")
-        st.subheader("📄 GENERAR INFORME PDF COMPLETO")
-        
-        col1, col2 = st.columns([2, 1])
-        
-        with col1:
-            st.info("""
-            **El informe PDF incluirá:**
-            • Resumen ejecutivo del análisis
-            • Estadísticas detalladas
-            • Recomendaciones de ganadería regenerativa
-            • Plan de implementación por fases
-            """)
-        
-        with col2:
-            if st.button("🖨️ Generar Informe PDF", type="primary", use_container_width=True):
-                with st.spinner("Generando informe PDF..."):
-                    pdf_buffer = generar_informe_pdf(
-                        st.session_state.gdf_analizado,
-                        tipo_pastura,
-                        peso_promedio,
-                        carga_animal,
-                        st.session_state.area_total,
-                        fecha_imagen,
-                        fuente_satelital
-                    )
-                    
-                    if pdf_buffer:
-                        st.download_button(
-                            "📥 Descargar Informe PDF Completo",
-                            pdf_buffer.getvalue(),
-                            f"informe_regenerativo_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
-                            "application/pdf",
-                            key="descarga_pdf"
-                        )
-                        st.success("✅ Informe PDF generado exitosamente!")
-                    else:
-                        st.error("❌ Error al generar el PDF")
+# =============================================================================
+# FUNCIÓN CORREGIDA PARA MOSTRAR SECCIÓN DE PDF
+# =============================================================================
 
-# INTERFAZ PRINCIPAL SIMPLIFICADA (para probar el PDF)
+def mostrar_seccion_exportacion_pdf():
+    """Muestra la sección de exportación de PDF en la interfaz - CORREGIDA"""
+    
+    if not hasattr(st.session_state, 'gdf_analizado') or st.session_state.gdf_analizado is None:
+        return
+    
+    st.markdown("---")
+    st.subheader("📄 GENERAR INFORME PDF COMPLETO")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.info("""
+        **El informe PDF incluirá:**
+        • Resumen ejecutivo del análisis
+        • Estadísticas detalladas
+        • Recomendaciones de ganadería regenerativa
+        • Plan de implementación por fases
+        """)
+    
+    with col2:
+        # Botón para generar PDF - CORREGIDO: Solo cambia el estado
+        if st.button("🖨️ Generar Informe PDF", type="primary", use_container_width=True, key="generar_pdf"):
+            st.session_state.mostrar_pdf = True
+            st.session_state.pdf_generado = False  # Resetear estado
+    
+    # Generar PDF solo cuando se solicita - CORREGIDO
+    if st.session_state.mostrar_pdf and not st.session_state.pdf_generado:
+        with st.spinner("🔄 Generando informe PDF con recomendaciones regenerativas..."):
+            try:
+                pdf_buffer = generar_informe_pdf(
+                    st.session_state.gdf_analizado,
+                    tipo_pastura,
+                    peso_promedio,
+                    carga_animal,
+                    st.session_state.area_total,
+                    fecha_imagen,
+                    fuente_satelital
+                )
+                
+                if pdf_buffer:
+                    st.session_state.pdf_buffer = pdf_buffer
+                    st.session_state.pdf_generado = True
+                    st.success("✅ Informe PDF generado exitosamente!")
+                else:
+                    st.error("❌ Error al generar el PDF")
+                    
+            except Exception as e:
+                st.error(f"❌ Error generando PDF: {str(e)}")
+    
+    # Mostrar botón de descarga solo si el PDF está generado - CORREGIDO
+    if st.session_state.pdf_generado and st.session_state.pdf_buffer is not None:
+        st.download_button(
+            "📥 Descargar Informe PDF Completo",
+            st.session_state.pdf_buffer.getvalue(),
+            f"informe_regenerativo_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+            "application/pdf",
+            key="descarga_pdf"
+        )
+
+# =============================================================================
+# INTERFAZ PRINCIPAL CORREGIDA
+# =============================================================================
+
+def mostrar_analisis_completo():
+    """Muestra los resultados completos del análisis"""
+    
+    st.markdown("## 📈 RESULTADOS DEL ANÁLISIS")
+    
+    # Botón para volver atrás - CORREGIDO
+    if st.button("⬅️ Volver a Configuración"):
+        st.session_state.analisis_completado = False
+        st.session_state.mostrar_pdf = False
+        st.session_state.pdf_generado = False
+        st.rerun()
+    
+    # Mostrar estadísticas
+    st.subheader("📊 Estadísticas del Análisis")
+    
+    if st.session_state.gdf_analizado is not None:
+        gdf_analizado = st.session_state.gdf_analizado
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            if 'biomasa_disponible_kg_ms_ha' in gdf_analizado.columns:
+                biomasa_prom = gdf_analizado['biomasa_disponible_kg_ms_ha'].mean()
+                st.metric("Biomasa Disponible Prom", f"{biomasa_prom:.0f} kg MS/ha")
+        with col2:
+            if 'ndvi' in gdf_analizado.columns:
+                ndvi_prom = gdf_analizado['ndvi'].mean()
+                st.metric("NDVI Promedio", f"{ndvi_prom:.3f}")
+        with col3:
+            area_total = st.session_state.area_total
+            st.metric("Área Total", f"{area_total:.1f} ha")
+        with col4:
+            st.metric("Sub-Lotes", len(gdf_analizado))
+        
+        # Mostrar tabla de resultados
+        st.subheader("📋 Tabla de Resultados")
+        columnas_mostrar = ['id_subLote', 'area_ha']
+        if 'ndvi' in gdf_analizado.columns:
+            columnas_mostrar.append('ndvi')
+        if 'biomasa_disponible_kg_ms_ha' in gdf_analizado.columns:
+            columnas_mostrar.append('biomasa_disponible_kg_ms_ha')
+        if 'tipo_superficie' in gdf_analizado.columns:
+            columnas_mostrar.append('tipo_superficie')
+        
+        if len(columnas_mostrar) > 2:
+            df_tabla = gdf_analizado[columnas_mostrar].copy()
+            df_tabla['area_ha'] = df_tabla['area_ha'].round(3)
+            if 'ndvi' in df_tabla.columns:
+                df_tabla['ndvi'] = df_tabla['ndvi'].round(3)
+            if 'biomasa_disponible_kg_ms_ha' in df_tabla.columns:
+                df_tabla['biomasa_disponible_kg_ms_ha'] = df_tabla['biomasa_disponible_kg_ms_ha'].round(0)
+            
+            st.dataframe(df_tabla.head(10), use_container_width=True)
+        
+        # Mostrar sección de exportación - CORREGIDO
+        mostrar_seccion_exportacion_pdf()
+
 def main():
     st.markdown("### 📁 CARGAR DATOS DEL POTRERO")
     
     # Procesar archivo subido
-    gdf_cargado = None
-    if uploaded_zip is not None:
+    if uploaded_zip is not None and st.session_state.gdf_cargado is None:
         with st.spinner("Cargando y procesando shapefile..."):
             try:
                 with tempfile.TemporaryDirectory() as tmp_dir:
@@ -698,42 +1018,81 @@ def main():
             except Exception as e:
                 st.error(f"❌ Error cargando shapefile: {str(e)}")
     
-    # Botón de análisis simplificado
-    st.markdown("---")
-    st.markdown("### 🚀 ANÁLISIS RÁPIDO")
+    # Mostrar interfaz según el estado - CORREGIDO
+    if st.session_state.analisis_completado and st.session_state.gdf_analizado is not None:
+        mostrar_analisis_completo()
+    elif st.session_state.gdf_cargado is not None:
+        mostrar_configuracion_parcela()
+    else:
+        mostrar_modo_demo()
+
+def mostrar_modo_demo():
+    """Muestra la interfaz de demostración"""
+    st.markdown("### 🚀 Modo Demostración")
+    st.info("""
+    **Para usar la aplicación:**
+    1. Sube un archivo ZIP con el shapefile de tu potrero
+    2. Selecciona el tipo de pastura y parámetros
+    3. Configura los parámetros en el sidebar
+    4. Ejecuta el análisis forrajero
     
-    if st.session_state.gdf_cargado is not None:
-        if st.button("🔬 Realizar Análisis Forrajero", type="primary"):
-            with st.spinner("Realizando análisis..."):
-                # Simular análisis básico
-                gdf_dividido = dividir_potrero_en_subLotes(st.session_state.gdf_cargado, n_divisiones)
+    **📁 El shapefile debe incluir:**
+    - .shp (geometrías)
+    - .shx (índice)
+    - .dbf (atributos)
+    - .prj (sistema de coordenadas)
+    """)
+
+def mostrar_configuracion_parcela():
+    """Muestra la configuración de la parcela antes del análisis"""
+    gdf_original = st.session_state.gdf_cargado
+    
+    st.success("✅ Potrero cargado correctamente")
+    
+    area_total = st.session_state.area_total
+    num_poligonos = len(gdf_original)
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("📐 Área Total", f"{area_total:.2f} ha")
+    with col2:
+        st.metric("🔢 Número de Polígonos", num_poligonos)
+    with col3:
+        st.metric("🌱 Pastura", tipo_pastura.replace('_', ' ').title())
+    
+    # Botón para ejecutar análisis - CORREGIDO
+    st.markdown("---")
+    st.markdown("### 🚀 EJECUTAR ANÁLISIS")
+    
+    if st.button("🔬 Realizar Análisis Forrajero Completo", type="primary", use_container_width=True):
+        with st.spinner("🔄 Realizando análisis forrajero..."):
+            try:
+                # Dividir potrero
+                gdf_dividido = dividir_potrero_en_subLotes(gdf_original, n_divisiones)
                 
-                # Crear datos de ejemplo para el análisis
+                # Simular análisis
                 gdf_analizado = gdf_dividido.copy()
                 gdf_analizado['area_ha'] = calcular_superficie(gdf_analizado)
+                
+                # Generar datos de ejemplo
+                np.random.seed(42)
                 gdf_analizado['ndvi'] = np.random.uniform(0.3, 0.8, len(gdf_analizado))
                 gdf_analizado['biomasa_disponible_kg_ms_ha'] = np.random.uniform(500, 3500, len(gdf_analizado))
-                gdf_analizado['tipo_superficie'] = np.random.choice(['VEGETACION_DENSA', 'VEGETACION_MODERADA', 'VEGETACION_ESCASA'], len(gdf_analizado))
+                gdf_analizado['tipo_superficie'] = np.random.choice(
+                    ['VEGETACION_DENSA', 'VEGETACION_MODERADA', 'VEGETACION_ESCASA', 'SUELO_PARCIAL'], 
+                    len(gdf_analizado),
+                    p=[0.3, 0.4, 0.2, 0.1]
+                )
                 
                 st.session_state.gdf_analizado = gdf_analizado
                 st.session_state.analisis_completado = True
+                st.session_state.mostrar_pdf = False  # Resetear estado PDF
+                st.session_state.pdf_generado = False
                 
-                st.success("✅ Análisis completado!")
+                st.rerun()
                 
-                # Mostrar sección de exportación
-                mostrar_seccion_exportacion_pdf()
-                
-                # Mostrar tabla de resultados
-                st.subheader("📊 Resultados del Análisis")
-                st.dataframe(gdf_analizado[['id_subLote', 'area_ha', 'ndvi', 'biomasa_disponible_kg_ms_ha', 'tipo_superficie']].head(10))
-    else:
-        st.info("""
-        **📋 Para comenzar:**
-        1. **Sube un archivo ZIP** con el shapefile del potrero
-        2. **Ajusta los parámetros** en la barra lateral  
-        3. **Haz clic en el botón** para realizar el análisis
-        4. **Genera el PDF** con recomendaciones regenerativas
-        """)
+            except Exception as e:
+                st.error(f"❌ Error en el análisis: {str(e)}")
 
 # EJECUTAR APLICACIÓN
 if __name__ == "__main__":
