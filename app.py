@@ -349,7 +349,7 @@ if FOLIUM_AVAILABLE:
             tipo_superficie = feature['properties']['tipo_superficie']
             colores = {
                 'SUELO_DESNUDO': '#d73027',
-                'SUELO_PARCIAL': '#fdae61', 
+                'SUELO_PARCIAL': '#fdae61',
                 'VEGETACION_ESCASA': '#fee08b',
                 'VEGETACION_MODERADA': '#a6d96a',
                 'VEGETACION_DENSA': '#1a9850'
@@ -1069,6 +1069,8 @@ def analisis_forrajero_completo_realista(gdf, tipo_pastura, peso_promedio, carga
         if st.session_state.gdf_analizado is not None:
             st.subheader("💾 EXPORTAR RESULTADOS")
             col1, col2, col3 = st.columns(3)
+            
+            # Columna 1: GeoJSON
             with col1:
                 geojson_str, filename = exportar_geojson(st.session_state.gdf_analizado, tipo_pastura)
                 if geojson_str:
@@ -1080,6 +1082,8 @@ def analisis_forrajero_completo_realista(gdf, tipo_pastura, peso_promedio, carga
                         key="exportar_geojson"
                     )
                     st.info("El GeoJSON contiene todos los datos del análisis")
+            
+            # Columna 2: CSV
             with col2:
                 csv_data = st.session_state.gdf_analizado.drop(columns=['geometry']).to_csv(index=False)
                 csv_filename = f"analisis_forrajero_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
@@ -1091,40 +1095,57 @@ def analisis_forrajero_completo_realista(gdf, tipo_pastura, peso_promedio, carga
                     key="exportar_csv"
                 )
                 st.info("El CSV contiene los datos tabulares sin geometrías")
+            
+            # Columna 3: PDF - VERSIÓN CORREGIDA
             with col3:
-                if st.button("📄 Generar Informe PDF", use_container_width=True, key="btn_pdf_estable"):
+                # Botón para generar PDF
+                if st.button("📄 Generar Informe PDF", 
+                           use_container_width=True, 
+                           key="btn_generar_pdf",
+                           type="primary"):
                     st.session_state.generando_pdf = True
+                    st.rerun()  # Forzar actualización
+                
+                # Mostrar spinner y generar PDF si está en proceso
                 if st.session_state.generando_pdf:
-                    with st.spinner("📄 Generando informe PDF..."):
-                        if st.session_state.gdf_analizado is None:
-                            st.error("❌ No hay análisis disponible")
-                            st.session_state.generando_pdf = False
-                        else:
-                            try:
-                                pdf_bytes = exportar_informe_pdf(
-                                    st.session_state.gdf_analizado,
-                                    tipo_pastura,
-                                    peso_promedio,
-                                    carga_animal,
-                                    st.session_state.mapa_detallado_bytes
+                    with st.spinner("📄 Generando informe PDF... Esto puede tomar unos segundos"):
+                        try:
+                            # Generar PDF
+                            pdf_bytes = exportar_informe_pdf(
+                                st.session_state.gdf_analizado,
+                                tipo_pastura,
+                                peso_promedio,
+                                carga_animal,
+                                st.session_state.mapa_detallado_bytes
+                            )
+                            
+                            if pdf_bytes:
+                                # Crear nombre de archivo único
+                                pdf_filename = f"informe_forrajero_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+                                
+                                # Botón de descarga
+                                st.download_button(
+                                    "📥 Descargar Informe PDF",
+                                    pdf_bytes,
+                                    pdf_filename,
+                                    "application/pdf",
+                                    key=f"descarga_pdf_{datetime.now().strftime('%Y%m%d%H%M%S')}",
+                                    use_container_width=True
                                 )
-                                if pdf_bytes:
-                                    pdf_filename = f"informe_forrajero_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
-                                    st.download_button(
-                                        "📥 Descargar Informe PDF",
-                                        pdf_bytes,
-                                        pdf_filename,
-                                        "application/pdf",
-                                        key=f"descarga_pdf_{datetime.now().strftime('%Y%m%d%H%M%S')}"
-                                    )
-                                    st.success("✅ PDF generado. Usa el botón de arriba para descargar.")
-                                    st.session_state.generando_pdf = False
-                                else:
-                                    st.error("❌ No se pudo generar el PDF")
-                                    st.session_state.generando_pdf = False
-                            except Exception as e:
-                                st.exception(e)
-                                st.session_state.generando_pdf = False
+                                st.success("✅ PDF generado correctamente. Usa el botón de arriba para descargar.")
+                            else:
+                                st.error("❌ No se pudo generar el PDF. Revise los logs.")
+                            
+                        except Exception as e:
+                            st.error(f"❌ Error generando PDF: {str(e)}")
+                            st.code(f"Detalle del error: {e}", language="python")
+                        
+                        finally:
+                            # Resetear el estado independientemente del resultado
+                            st.session_state.generando_pdf = False
+                
+                # Mensaje informativo
+                st.info("El PDF incluye estadísticas, mapa y tabla de resultados")
 
         st.subheader("📊 RESUMEN DE RESULTADOS REALISTAS")
         col1, col2, col3, col4 = st.columns(4)
