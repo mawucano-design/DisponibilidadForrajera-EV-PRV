@@ -52,6 +52,8 @@ if 'analisis_completado' not in st.session_state:
     st.session_state.analisis_completado = False
 if 'gdf_analizado' not in st.session_state:
     st.session_state.gdf_analizado = None
+if 'mapa_detallado_bytes' not in st.session_state:
+    st.session_state.mapa_detallado_bytes = None
 
 # Sidebar
 with st.sidebar:
@@ -218,8 +220,9 @@ class InformeForrajeroPDF(FPDF):
         self.ln(5)
     
     def add_image(self, image_path, w=180):
-        self.image(image_path, x=10, y=None, w=w)
-        self.ln(5)
+        if os.path.exists(image_path):
+            self.image(image_path, x=10, y=None, w=w)
+            self.ln(5)
 
 def generar_informe_pdf(gdf_analizado, tipo_pastura, peso_promedio, carga_animal, mapa_detallado_path=None):
     """Genera un informe PDF completo con los resultados del análisis"""
@@ -387,9 +390,41 @@ if FOLIUM_AVAILABLE:
         }
     }
 
+    def calcular_zoom_automatico(gdf):
+        """Calcula el zoom automático basado en la extensión del polígono"""
+        if gdf is None or len(gdf) == 0:
+            return 14
+        
+        # Obtener los límites del polígono
+        bounds = gdf.total_bounds
+        minx, miny, maxx, maxy = bounds
+        
+        # Calcular el tamaño del área
+        width = maxx - minx
+        height = maxy - miny
+        max_dimension = max(width, height)
+        
+        # Ajustar el zoom basado en el tamaño del área
+        if max_dimension > 10.0:  # Área muy grande
+            zoom = 10
+        elif max_dimension > 5.0:  # Área grande
+            zoom = 11
+        elif max_dimension > 2.0:  # Área mediana
+            zoom = 12
+        elif max_dimension > 1.0:  # Área pequeña
+            zoom = 13
+        elif max_dimension > 0.5:  # Área muy pequeña
+            zoom = 14
+        elif max_dimension > 0.1:  # Área extremadamente pequeña
+            zoom = 15
+        else:  # Área mínima
+            zoom = 16
+        
+        return zoom
+
     def crear_mapa_interactivo(gdf, base_map_name="ESRI Satélite"):
         """
-        Crea un mapa interactivo con múltiples opciones de base map
+        Crea un mapa interactivo con ZOOM AUTOMÁTICO al polígono cargado
         """
         if gdf is None or len(gdf) == 0:
             return None
@@ -398,10 +433,13 @@ if FOLIUM_AVAILABLE:
         centroid = gdf.geometry.centroid.iloc[0]
         center_lat, center_lon = centroid.y, centroid.x
         
-        # Crear mapa base
+        # Calcular zoom automático
+        zoom_inicial = calcular_zoom_automatico(gdf)
+        
+        # Crear mapa base con zoom automático
         m = folium.Map(
             location=[center_lat, center_lon],
-            zoom_start=14,
+            zoom_start=zoom_inicial,
             tiles=None,  # Important: no tiles por defecto
             control_scale=True
         )
@@ -460,10 +498,13 @@ if FOLIUM_AVAILABLE:
         centroid = gdf_analizado.geometry.centroid.iloc[0]
         center_lat, center_lon = centroid.y, centroid.x
         
+        # Calcular zoom automático
+        zoom_inicial = calcular_zoom_automatico(gdf_analizado)
+        
         # Crear mapa base
         m = folium.Map(
             location=[center_lat, center_lon],
-            zoom_start=14,
+            zoom_start=zoom_inicial,
             tiles=None,
             control_scale=True
         )
@@ -1443,6 +1484,9 @@ def analisis_forrajero_completo_realista(gdf, tipo_pastura, peso_promedio, carga
         if mapa_detallado:
             st.image(mapa_detallado, use_container_width=True)
             
+            # Guardar mapa en session state para el PDF
+            st.session_state.mapa_detallado_bytes = mapa_detallado
+            
             # Descarga del mapa
             st.download_button(
                 "📥 Descargar Mapa Detallado",
@@ -1466,7 +1510,7 @@ def analisis_forrajero_completo_realista(gdf, tipo_pastura, peso_promedio, carga
             if mapa_analisis:
                 st_folium(mapa_analisis, width=1200, height=500, returned_objects=[])
         
-        # PASO 6: BOTÓN DE EXPORTACIÓN MEJORADO CON PDF
+        # PASO 6: BOTÓN DE EXPORTACIÓN MEJORADO CON PDF - FIXED
         if st.session_state.gdf_analizado is not None:
             st.subheader("💾 EXPORTAR RESULTADOS")
             col1, col2, col3 = st.columns(3)
@@ -1498,29 +1542,30 @@ def analisis_forrajero_completo_realista(gdf, tipo_pastura, peso_promedio, carga
                 st.info("El CSV contiene los datos tabulares sin geometrías")
             
             with col3:
-                # Exportar PDF
-                if st.button("📄 Generar Informe PDF", use_container_width=True):
-                    with st.spinner("Generando informe PDF con recomendaciones..."):
-                        pdf_bytes = exportar_informe_pdf(
-                            st.session_state.gdf_analizado, 
-                            tipo_pastura, 
-                            peso_promedio, 
-                            carga_animal,
-                            mapa_detallado
+                # Exportar PDF - CORREGIDO: No vuelve al inicio
+                if st.session_state.gdf_analizado is not None:
+                    # Generar PDF inmediatamente cuando se hace clic
+                    pdf_bytes = exportar_informe_pdf(
+                        st.session_state.gdf_analizado, 
+                        tipo_pastura, 
+                        peso_promedio, 
+                        carga_animal,
+                        st.session_state.mapa_detallado_bytes
+                    )
+                    
+                    if pdf_bytes:
+                        pdf_filename = f"informe_forrajero_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+                        st.download_button(
+                            "📄 Descargar Informe PDF",
+                            pdf_bytes,
+                            pdf_filename,
+                            "application/pdf",
+                            key="descarga_pdf"
                         )
-                        
-                        if pdf_bytes:
-                            pdf_filename = f"informe_forrajero_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
-                            st.download_button(
-                                "📥 Descargar Informe PDF",
-                                pdf_bytes,
-                                pdf_filename,
-                                "application/pdf",
-                                key="descarga_pdf"
-                            )
-                            st.success("✅ Informe PDF generado exitosamente!")
-                        else:
-                            st.error("❌ Error generando el informe PDF")
+                        st.success("✅ Informe PDF generado exitosamente!")
+                        st.info("El PDF incluye: Resumen ejecutivo, recomendaciones técnicas, tablas detalladas y mapas")
+                    else:
+                        st.error("❌ Error generando el informe PDF")
         
         # Mostrar resumen de resultados
         st.subheader("📊 RESUMEN DE RESULTADOS REALISTAS")
@@ -1595,18 +1640,19 @@ if uploaded_file is not None:
                     st.metric("Satélite", fuente_satelital)
                 
                 # =============================================================================
-                # NUEVA SECCIÓN: MAPA INTERACTIVO CON ESRI SATÉLITE
+                # NUEVA SECCIÓN: MAPA INTERACTIVO CON ESRI SATÉLITE Y ZOOM AUTOMÁTICO
                 # =============================================================================
                 if FOLIUM_AVAILABLE:
                     st.markdown("---")
                     st.markdown("### 🗺️ VISUALIZACIÓN DEL POTRERO")
                     
-                    # Crear y mostrar mapa interactivo
+                    # Crear y mostrar mapa interactivo CON ZOOM AUTOMÁTICO
                     mapa_interactivo = crear_mapa_interactivo(gdf_cargado, base_map_option)
                     if mapa_interactivo:
                         st_folium(mapa_interactivo, width=1200, height=500, returned_objects=[])
                         
-                        st.info(f"🗺️ **Mapa Base:** {base_map_option} - Puedes cambiar entre diferentes mapas base usando el control en la esquina superior derecha del mapa.")
+                        st.info(f"🗺️ **Mapa Base:** {base_map_option} - Zoom automático aplicado al polígono cargado")
+                        st.info("🔍 Puedes cambiar entre diferentes mapas base usando el control en la esquina superior derecha del mapa.")
                 else:
                     st.warning("⚠️ Para ver el mapa interactivo con ESRI Satélite, instala folium: `pip install folium streamlit-folium`")
                         
@@ -1628,6 +1674,7 @@ if st.session_state.gdf_cargado is not None:
             <p><strong>Satélite:</strong> {fuente_satelital}</p>
             <p><strong>Sensibilidad suelo:</strong> {sensibilidad_suelo} (Óptima)</p>
             <p><strong>Mapa Base:</strong> {base_map_option}</p>
+            <p><strong>Zoom Automático:</strong> Activado</p>
         </div>
         """, unsafe_allow_html=True)
         
@@ -1666,6 +1713,7 @@ else:
     - Clasificación balanceada que respeta las condiciones reales
     - Cálculos de biomasa realistas para todos los tipos de superficie
     - Detección efectiva de suelo desnudo y áreas degradadas
+    - **Zoom automático** al polígono cargado
     - Visualización en mapa base ESRI Satélite
     - Exportación de resultados en GeoJSON, CSV y PDF
     """)
