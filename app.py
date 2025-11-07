@@ -54,7 +54,7 @@ tasa_utilizacion = 0.55
 umbral_ndvi_suelo = 0.15
 umbral_ndvi_pastura = 0.6
 
-# Inicializar session state - SOLO AÑADIR ESTADO PARA PDF
+# Inicializar session state
 if 'gdf_cargado' not in st.session_state:
     st.session_state.gdf_cargado = None
 if 'analisis_completado' not in st.session_state:
@@ -63,13 +63,12 @@ if 'gdf_analizado' not in st.session_state:
     st.session_state.gdf_analizado = None
 if 'area_total' not in st.session_state:
     st.session_state.area_total = 0
-# NUEVO: Estado para controlar la generación de PDF
 if 'pdf_generado' not in st.session_state:
     st.session_state.pdf_generado = False
 if 'pdf_buffer' not in st.session_state:
     st.session_state.pdf_buffer = None
 
-# RECOMENDACIONES DE GANADERÍA REGENERATIVA (MANTENER COMPLETO)
+# RECOMENDACIONES DE GANADERÍA REGENERATIVA
 RECOMENDACIONES_REGENERATIVAS = {
     'ALFALFA': {
         'PRÁCTICAS_REGENERATIVAS': [
@@ -229,7 +228,7 @@ RECOMENDACIONES_REGENERATIVAS = {
     }
 }
 
-# Sidebar (MANTENER COMPLETO)
+# Sidebar
 with st.sidebar:
     st.header("⚙️ Configuración")
     
@@ -290,7 +289,7 @@ with st.sidebar:
     st.subheader("📤 Subir Lote")
     uploaded_zip = st.file_uploader("Subir ZIP con shapefile del potrero", type=['zip'])
     
-    # Botón para resetear - ACTUALIZAR PARA INCLUIR ESTADO PDF
+    # Botón para resetear
     if st.button("🔄 Reiniciar Análisis"):
         st.session_state.analisis_completado = False
         st.session_state.gdf_analizado = None
@@ -298,7 +297,7 @@ with st.sidebar:
         st.session_state.pdf_buffer = None
         st.rerun()
 
-# PARÁMETROS FORRAJEROS POR TIPO DE PASTURA (MANTENER COMPLETO)
+# PARÁMETROS FORRAJEROS POR TIPO DE PASTURA
 PARAMETROS_FORRAJEROS_BASE = {
     'ALFALFA': {
         'MS_POR_HA_OPTIMO': 5000,
@@ -331,7 +330,7 @@ PARAMETROS_FORRAJEROS_BASE = {
         'UMBRAL_NDVI_SUELO': 0.15,
         'UMBRAL_NDVI_PASTURA': 0.6,
         'UMBRAL_BSI_SUELO': 0.3,
-        'UMBRAL_NDBI_SUELO': 0.1,
+        'UMBRAL_NDBI_SUELo': 0.1,
         'FACTOR_COBERTURA': 0.85
     },
     'FESTUCA': {
@@ -477,7 +476,7 @@ def dividir_potrero_en_subLotes(gdf, n_zonas):
         return gdf
 
 # =============================================================================
-# CONFIGURACIÓN DE MAPAS BASE - MANTENER COMPLETO
+# CONFIGURACIÓN DE MAPAS BASE
 # =============================================================================
 
 if FOLIUM_AVAILABLE:
@@ -647,7 +646,309 @@ else:
         return None
 
 # =============================================================================
-# FUNCIÓN PARA GENERAR PDF - MANTENER COMPLETA
+# FUNCIONES PARA MAPAS VISUALES
+# =============================================================================
+
+def crear_mapa_ndvi(gdf_analizado, tipo_pastura):
+    """Crea un mapa visual de NDVI"""
+    if gdf_analizado is None or len(gdf_analizado) == 0:
+        return None
+    
+    fig, ax = plt.subplots(1, 1, figsize=(12, 8))
+    
+    # Crear colormap para NDVI
+    cmap_ndvi = LinearSegmentedColormap.from_list('ndvi_cmap', 
+                                                 ['#8c510a', '#bf812d', '#dfc27d', '#f6e8c3', 
+                                                  '#c7eae5', '#80cdc1', '#35978f', '#01665e'])
+    
+    # Plotear cada polígono con color según NDVI
+    for idx, row in gdf_analizado.iterrows():
+        ndvi = row['ndvi']
+        color = cmap_ndvi(ndvi)
+        gdf_analizado.iloc[[idx]].plot(ax=ax, color=color, edgecolor='black', linewidth=0.5)
+        
+        # Añadir etiqueta de NDVI
+        centroid = row['geometry'].centroid
+        ax.text(centroid.x, centroid.y, f'{ndvi:.3f}', 
+                fontsize=8, ha='center', va='center', 
+                bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.7))
+    
+    # Configurar el mapa
+    ax.set_title(f'Mapa de NDVI - {tipo_pastura.replace("_", " ").title()}', fontsize=16, fontweight='bold')
+    ax.set_xlabel('Longitud')
+    ax.set_ylabel('Latitud')
+    
+    # Añadir barra de color
+    sm = plt.cm.ScalarMappable(cmap=cmap_ndvi, 
+                              norm=plt.Normalize(vmin=gdf_analizado['ndvi'].min(), 
+                                               vmax=gdf_analizado['ndvi'].max()))
+    sm._A = []
+    cbar = plt.colorbar(sm, ax=ax, shrink=0.8)
+    cbar.set_label('Valor NDVI', rotation=270, labelpad=20)
+    
+    ax.grid(True, alpha=0.3)
+    return fig
+
+def crear_mapa_biomasa(gdf_analizado, tipo_pastura):
+    """Crea un mapa visual de biomasa disponible"""
+    if gdf_analizado is None or len(gdf_analizado) == 0:
+        return None
+    
+    fig, ax = plt.subplots(1, 1, figsize=(12, 8))
+    
+    # Crear colormap para biomasa
+    cmap_biomasa = LinearSegmentedColormap.from_list('biomasa_cmap', 
+                                                    ['#d73027', '#fc8d59', '#fee08b', 
+                                                     '#d9ef8b', '#91cf60', '#1a9850'])
+    
+    # Plotear cada polígono con color según biomasa
+    for idx, row in gdf_analizado.iterrows():
+        biomasa = row['biomasa_disponible_kg_ms_ha']
+        color = cmap_biomasa(biomasa / gdf_analizado['biomasa_disponible_kg_ms_ha'].max())
+        gdf_analizado.iloc[[idx]].plot(ax=ax, color=color, edgecolor='black', linewidth=0.5)
+        
+        # Añadir etiqueta de biomasa
+        centroid = row['geometry'].centroid
+        ax.text(centroid.x, centroid.y, f'{biomasa:.0f}', 
+                fontsize=8, ha='center', va='center',
+                bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.7))
+    
+    # Configurar el mapa
+    ax.set_title(f'Mapa de Biomasa Disponible (kg MS/ha) - {tipo_pastura.replace("_", " ").title()}', 
+                 fontsize=16, fontweight='bold')
+    ax.set_xlabel('Longitud')
+    ax.set_ylabel('Latitud')
+    
+    # Añadir barra de color
+    sm = plt.cm.ScalarMappable(cmap=cmap_biomasa, 
+                              norm=plt.Normalize(vmin=gdf_analizado['biomasa_disponible_kg_ms_ha'].min(), 
+                                               vmax=gdf_analizado['biomasa_disponible_kg_ms_ha'].max()))
+    sm._A = []
+    cbar = plt.colorbar(sm, ax=ax, shrink=0.8)
+    cbar.set_label('Biomasa (kg MS/ha)', rotation=270, labelpad=20)
+    
+    ax.grid(True, alpha=0.3)
+    return fig
+
+def crear_mapa_tipo_superficie(gdf_analizado, tipo_pastura):
+    """Crea un mapa visual de tipos de superficie"""
+    if gdf_analizado is None or len(gdf_analizado) == 0:
+        return None
+    
+    fig, ax = plt.subplots(1, 1, figsize=(12, 8))
+    
+    # Definir colores para cada tipo de superficie
+    colores_superficie = {
+        'SUELO_DESNUDO': '#d73027',
+        'SUELO_PARCIAL': '#fdae61',
+        'VEGETACION_ESCASA': '#fee08b',
+        'VEGETACION_MODERADA': '#a6d96a',
+        'VEGETACION_DENSA': '#1a9850'
+    }
+    
+    # Plotear cada polígono con color según tipo de superficie
+    for idx, row in gdf_analizado.iterrows():
+        tipo = row['tipo_superficie']
+        color = colores_superficie.get(tipo, '#3388ff')
+        gdf_analizado.iloc[[idx]].plot(ax=ax, color=color, edgecolor='black', linewidth=0.5)
+        
+        # Añadir etiqueta de ID
+        centroid = row['geometry'].centroid
+        ax.text(centroid.x, centroid.y, f"{row['id_subLote']}", 
+                fontsize=9, ha='center', va='center', fontweight='bold',
+                bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.8))
+    
+    # Configurar el mapa
+    ax.set_title(f'Mapa de Tipos de Superficie - {tipo_pastura.replace("_", " ").title()}', 
+                 fontsize=16, fontweight='bold')
+    ax.set_xlabel('Longitud')
+    ax.set_ylabel('Latitud')
+    
+    # Crear leyenda
+    legend_patches = []
+    for tipo, color in colores_superficie.items():
+        patch = mpatches.Patch(color=color, label=tipo.replace('_', ' ').title())
+        legend_patches.append(patch)
+    
+    ax.legend(handles=legend_patches, loc='upper right', bbox_to_anchor=(1.15, 1))
+    ax.grid(True, alpha=0.3)
+    
+    return fig
+
+def crear_mapa_dias_permanencia(gdf_analizado, tipo_pastura):
+    """Crea un mapa visual de días de permanencia"""
+    if gdf_analizado is None or len(gdf_analizado) == 0:
+        return None
+    
+    fig, ax = plt.subplots(1, 1, figsize=(12, 8))
+    
+    # Crear colormap para días de permanencia
+    cmap_dias = LinearSegmentedColormap.from_list('dias_cmap', 
+                                                 ['#4575b4', '#74add1', '#abd9e9', '#e0f3f8', 
+                                                  '#fee090', '#fdae61', '#f46d43', '#d73027'])
+    
+    # Plotear cada polígono con color según días de permanencia
+    for idx, row in gdf_analizado.iterrows():
+        dias = row['dias_permanencia']
+        color = cmap_dias(dias / gdf_analizado['dias_permanencia'].max())
+        gdf_analizado.iloc[[idx]].plot(ax=ax, color=color, edgecolor='black', linewidth=0.5)
+        
+        # Añadir etiqueta de días
+        centroid = row['geometry'].centroid
+        ax.text(centroid.x, centroid.y, f'{dias:.1f}', 
+                fontsize=8, ha='center', va='center',
+                bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.7))
+    
+    # Configurar el mapa
+    ax.set_title(f'Mapa de Días de Permanencia - {tipo_pastura.replace("_", " ").title()}', 
+                 fontsize=16, fontweight='bold')
+    ax.set_xlabel('Longitud')
+    ax.set_ylabel('Latitud')
+    
+    # Añadir barra de color
+    sm = plt.cm.ScalarMappable(cmap=cmap_dias, 
+                              norm=plt.Normalize(vmin=gdf_analizado['dias_permanencia'].min(), 
+                                               vmax=gdf_analizado['dias_permanencia'].max()))
+    sm._A = []
+    cbar = plt.colorbar(sm, ax=ax, shrink=0.8)
+    cbar.set_label('Días de Permanencia', rotation=270, labelpad=20)
+    
+    ax.grid(True, alpha=0.3)
+    return fig
+
+def crear_mapa_ev_ha(gdf_analizado, tipo_pastura):
+    """Crea un mapa visual de Equivalentes Vacunos por hectárea"""
+    if gdf_analizado is None or len(gdf_analizado) == 0:
+        return None
+    
+    fig, ax = plt.subplots(1, 1, figsize=(12, 8))
+    
+    # Crear colormap para EV/ha
+    cmap_ev = LinearSegmentedColormap.from_list('ev_cmap', 
+                                               ['#d73027', '#fc8d59', '#fee08b', 
+                                                '#d9ef8b', '#91cf60'])
+    
+    # Plotear cada polígono con color según EV/ha
+    for idx, row in gdf_analizado.iterrows():
+        ev_ha = row['ev_ha']
+        color = cmap_ev(ev_ha / gdf_analizado['ev_ha'].max())
+        gdf_analizado.iloc[[idx]].plot(ax=ax, color=color, edgecolor='black', linewidth=0.5)
+        
+        # Añadir etiqueta de EV/ha
+        centroid = row['geometry'].centroid
+        ax.text(centroid.x, centroid.y, f'{ev_ha:.1f}', 
+                fontsize=8, ha='center', va='center',
+                bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.7))
+    
+    # Configurar el mapa
+    ax.set_title(f'Mapa de Equivalentes Vacunos por Ha - {tipo_pastura.replace("_", " ").title()}', 
+                 fontsize=16, fontweight='bold')
+    ax.set_xlabel('Longitud')
+    ax.set_ylabel('Latitud')
+    
+    # Añadir barra de color
+    sm = plt.cm.ScalarMappable(cmap=cmap_ev, 
+                              norm=plt.Normalize(vmin=gdf_analizado['ev_ha'].min(), 
+                                               vmax=gdf_analizado['ev_ha'].max()))
+    sm._A = []
+    cbar = plt.colorbar(sm, ax=ax, shrink=0.8)
+    cbar.set_label('EV/Ha', rotation=270, labelpad=20)
+    
+    ax.grid(True, alpha=0.3)
+    return fig
+
+def crear_mapa_combinado(gdf_analizado, tipo_pastura):
+    """Crea un mapa combinado con múltiples variables"""
+    if gdf_analizado is None or len(gdf_analizado) == 0:
+        return None
+    
+    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    axes = axes.flatten()
+    
+    # Mapa 1: Tipo de Superficie
+    colores_superficie = {
+        'SUELO_DESNUDO': '#d73027',
+        'SUELO_PARCIAL': '#fdae61',
+        'VEGETACION_ESCASA': '#fee08b',
+        'VEGETACION_MODERADA': '#a6d96a',
+        'VEGETACION_DENSA': '#1a9850'
+    }
+    
+    for idx, row in gdf_analizado.iterrows():
+        tipo = row['tipo_superficie']
+        color = colores_superficie.get(tipo, '#3388ff')
+        gdf_analizado.iloc[[idx]].plot(ax=axes[0], color=color, edgecolor='black', linewidth=0.5)
+    
+    axes[0].set_title('Tipos de Superficie', fontweight='bold')
+    legend_patches = [mpatches.Patch(color=color, label=tipo.replace('_', ' ').title()) 
+                     for tipo, color in list(colores_superficie.items())[:3]]  # Solo primeros 3 para no saturar
+    axes[0].legend(handles=legend_patches, loc='upper right')
+    
+    # Mapa 2: NDVI
+    cmap_ndvi = LinearSegmentedColormap.from_list('ndvi_cmap', 
+                                                 ['#8c510a', '#bf812d', '#dfc27d', '#f6e8c3', 
+                                                  '#c7eae5', '#80cdc1', '#35978f', '#01665e'])
+    
+    for idx, row in gdf_analizado.iterrows():
+        ndvi = row['ndvi']
+        color = cmap_ndvi(ndvi)
+        gdf_analizado.iloc[[idx]].plot(ax=axes[1], color=color, edgecolor='black', linewidth=0.5)
+    
+    axes[1].set_title('NDVI', fontweight='bold')
+    sm = plt.cm.ScalarMappable(cmap=cmap_ndvi, 
+                              norm=plt.Normalize(vmin=gdf_analizado['ndvi'].min(), 
+                                               vmax=gdf_analizado['ndvi'].max()))
+    sm._A = []
+    plt.colorbar(sm, ax=axes[1], shrink=0.8)
+    
+    # Mapa 3: Biomasa
+    cmap_biomasa = LinearSegmentedColormap.from_list('biomasa_cmap', 
+                                                    ['#d73027', '#fc8d59', '#fee08b', 
+                                                     '#d9ef8b', '#91cf60', '#1a9850'])
+    
+    for idx, row in gdf_analizado.iterrows():
+        biomasa = row['biomasa_disponible_kg_ms_ha']
+        color = cmap_biomasa(biomasa / gdf_analizado['biomasa_disponible_kg_ms_ha'].max())
+        gdf_analizado.iloc[[idx]].plot(ax=axes[2], color=color, edgecolor='black', linewidth=0.5)
+    
+    axes[2].set_title('Biomasa (kg MS/ha)', fontweight='bold')
+    sm2 = plt.cm.ScalarMappable(cmap=cmap_biomasa, 
+                               norm=plt.Normalize(vmin=gdf_analizado['biomasa_disponible_kg_ms_ha'].min(), 
+                                                vmax=gdf_analizado['biomasa_disponible_kg_ms_ha'].max()))
+    sm2._A = []
+    plt.colorbar(sm2, ax=axes[2], shrink=0.8)
+    
+    # Mapa 4: Días de Permanencia
+    cmap_dias = LinearSegmentedColormap.from_list('dias_cmap', 
+                                                 ['#4575b4', '#74add1', '#abd9e9', '#e0f3f8', 
+                                                  '#fee090', '#fdae61', '#f46d43', '#d73027'])
+    
+    for idx, row in gdf_analizado.iterrows():
+        dias = row['dias_permanencia']
+        color = cmap_dias(dias / gdf_analizado['dias_permanencia'].max())
+        gdf_analizado.iloc[[idx]].plot(ax=axes[3], color=color, edgecolor='black', linewidth=0.5)
+    
+    axes[3].set_title('Días de Permanencia', fontweight='bold')
+    sm3 = plt.cm.ScalarMappable(cmap=cmap_dias, 
+                               norm=plt.Normalize(vmin=gdf_analizado['dias_permanencia'].min(), 
+                                                vmax=gdf_analizado['dias_permanencia'].max()))
+    sm3._A = []
+    plt.colorbar(sm3, ax=axes[3], shrink=0.8)
+    
+    # Configuración general
+    for ax in axes:
+        ax.set_xlabel('Longitud')
+        ax.set_ylabel('Latitud')
+        ax.grid(True, alpha=0.3)
+    
+    plt.suptitle(f'Análisis Integral Forrajero - {tipo_pastura.replace("_", " ").title()}', 
+                 fontsize=18, fontweight='bold', y=0.95)
+    plt.tight_layout()
+    
+    return fig
+
+# =============================================================================
+# FUNCIÓN PARA GENERAR PDF
 # =============================================================================
 
 def generar_informe_pdf(gdf_analizado, tipo_pastura, peso_promedio, carga_animal, area_total, fecha_imagen, fuente_satelital):
@@ -709,101 +1010,121 @@ def generar_informe_pdf(gdf_analizado, tipo_pastura, peso_promedio, carga_animal
     
     story.append(Paragraph("ESTADÍSTICAS DEL ANÁLISIS", heading_style))
     
-  biomasa_promedio = gdf_analizado['biomasa_disponible_kg_ms_ha'].mean()
-biomasa_total = gdf_analizado['biomasa_disponible_kg_ms_ha'].sum() * area_total / len(gdf_analizado)
-ev_total = gdf_analizado['ev_ha'].sum() * area_total / len(gdf_analizado)
-dias_promedio = gdf_analizado['dias_permanencia'].mean()
-
-stats_data = [
-    ["Biomasa Disponible Promedio:", f"{biomasa_promedio:.0f} kg MS/ha"],
-    ["Biomasa Total Estimada:", f"{biomasa_total:.0f} kg MS"],
-    ["EV Total Disponible:", f"{ev_total:.0f} EV"],
-    ["Días de Permanencia Promedio:", f"{dias_promedio:.1f} días"],
-    ["Número de Sub-Lotes:", f"{len(gdf_analizado)}"],
-    ["Área por Sub-Lote:", f"{(area_total/len(gdf_analizado)):.2f} ha"]
-]
-
-stats_table = Table(stats_data, colWidths=[2.5*inch, 2.5*inch])
-stats_table.setStyle(TableStyle([
-    ('BACKGROUND', (0, 0), (-1, 0), colors.lightblue),
-    ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
-    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-    ('FONTSIZE', (0, 0), (-1, -1), 10),
-    ('BACKGROUND', (0, 1), (-1, -1), colors.white),
-    ('GRID', (0, 0), (-1, -1), 1, colors.black)
-]))
-story.append(stats_table)
-story.append(Spacer(1, 20))
-
-story.append(Paragraph("DISTRIBUCIÓN DE TIPOS DE SUPERFICIE", heading_style))
-
-conteo_tipos = gdf_analizado['tipo_superficie'].value_counts()
-distribucion_data = [["Tipo de Superficie", "Cantidad", "Porcentaje"]]
-
-for tipo, cantidad in conteo_tipos.items():
-    porcentaje = (cantidad / len(gdf_analizado)) * 100
-    distribucion_data.append([tipo.replace('_', ' ').title(), str(cantidad), f"{porcentaje:.1f}%"])
-
-dist_table = Table(distribucion_data, colWidths=[2*inch, 1.5*inch, 1.5*inch])
-dist_table.setStyle(TableStyle([
-    ('BACKGROUND', (0, 0), (-1, 0), colors.darkgreen),
-    ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-    ('FONTSIZE', (0, 0), (-1, -1), 9),
-    ('BACKGROUND', (0, 1), (-1, -1), colors.white),
-    ('GRID', (0, 0), (-1, -1), 1, colors.black)
-]))
-story.append(dist_table)
-story.append(Spacer(1, 20))
-
-story.append(Paragraph("RECOMENDACIONES DE GANADERÍA REGENERATIVA", heading_style))
-
-if tipo_pastura in RECOMENDACIONES_REGENERATIVAS:
-    recomendaciones = RECOMENDACIONES_REGENERATIVAS[tipo_pastura]
+    biomasa_promedio = gdf_analizado['biomasa_disponible_kg_ms_ha'].mean()
+    biomasa_total = gdf_analizado['biomasa_disponible_kg_ms_ha'].sum() * area_total / len(gdf_analizado)
+    ev_total = gdf_analizado['ev_ha'].sum() * area_total / len(gdf_analizado)
+    dias_promedio = gdf_analizado['dias_permanencia'].mean()
     
-    for categoria, items in recomendaciones.items():
-        story.append(Paragraph(f"<b>{categoria.replace('_', ' ').title()}:</b>", styles['Heading3']))
-        for item in items:
-            story.append(Paragraph(f"• {item}", normal_style))
-        story.append(Spacer(1, 8))
-
-story.append(PageBreak())
-
-story.append(Paragraph("DETALLE POR SUB-LOTE", heading_style))
-
-detalle_data = [["Sub-Lote", "Tipo Superficie", "NDVI", "Biomasa (kg MS/ha)", "EV/Ha", "Días"]]
-
-for _, row in gdf_analizado.iterrows():
-    detalle_data.append([
-        str(row['id_subLote']),
-        row['tipo_superficie'].replace('_', ' ').title(),
-        f"{row['ndvi']:.3f}",
-        f"{row['biomasa_disponible_kg_ms_ha']:.0f}",
-        f"{row['ev_ha']:.1f}",
-        f"{row['dias_permanencia']:.1f}"
-    ])
-
-detalle_table = Table(detalle_data, colWidths=[0.6*inch, 1.2*inch, 0.8*inch, 1.2*inch, 0.8*inch, 0.8*inch])
-detalle_table.setStyle(TableStyle([
-    ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
-    ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-    ('FONTSIZE', (0, 0), (-1, -1), 8),
-    ('BACKGROUND', (0, 1), (-1, -1), colors.white),
-    ('GRID', (0, 0), (-1, -1), 1, colors.black),
-    ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey])
-]))
-story.append(detalle_table)
-
-doc.build(story)
-buffer.seek(0)
-return buffer
+    stats_data = [
+        ["Biomasa Disponible Promedio:", f"{biomasa_promedio:.0f} kg MS/ha"],
+        ["Biomasa Total Estimada:", f"{biomasa_total:.0f} kg MS"],
+        ["EV Total Disponible:", f"{ev_total:.0f} EV"],
+        ["Días de Permanencia Promedio:", f"{dias_promedio:.1f} días"],
+        ["Número de Sub-Lotes:", f"{len(gdf_analizado)}"],
+        ["Área por Sub-Lote:", f"{(area_total/len(gdf_analizado)):.2f} ha"]
+    ]
+    
+    stats_table = Table(stats_data, colWidths=[2.5*inch, 2.5*inch])
+    stats_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.lightblue),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ]))
+    story.append(stats_table)
+    story.append(Spacer(1, 20))
+    
+    story.append(Paragraph("DISTRIBUCIÓN DE TIPOS DE SUPERFICIE", heading_style))
+    
+    conteo_tipos = gdf_analizado['tipo_superficie'].value_counts()
+    distribucion_data = [["Tipo de Superficie", "Cantidad", "Porcentaje"]]
+    
+    for tipo, cantidad in conteo_tipos.items():
+        porcentaje = (cantidad / len(gdf_analizado)) * 100
+        distribucion_data.append([tipo.replace('_', ' ').title(), str(cantidad), f"{porcentaje:.1f}%"])
+    
+    dist_table = Table(distribucion_data, colWidths=[2*inch, 1.5*inch, 1.5*inch])
+    dist_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.darkgreen),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ]))
+    story.append(dist_table)
+    story.append(Spacer(1, 20))
+    
+    # Agregar mapa al PDF
+    story.append(PageBreak())
+    story.append(Paragraph("MAPAS DE ANÁLISIS", heading_style))
+    
+    # Generar y agregar mapa de tipos de superficie al PDF
+    try:
+        fig_mapa = crear_mapa_tipo_superficie(gdf_analizado, tipo_pastura)
+        if fig_mapa:
+            buf_mapa = io.BytesIO()
+            fig_mapa.savefig(buf_mapa, format="png", dpi=150, bbox_inches='tight')
+            buf_mapa.seek(0)
+            
+            img = Image(buf_mapa, width=6*inch, height=4*inch)
+            story.append(img)
+            story.append(Spacer(1, 12))
+            story.append(Paragraph("Mapa de Tipos de Superficie", styles['Heading3']))
+            story.append(Spacer(1, 20))
+    except Exception as e:
+        story.append(Paragraph(f"Error al generar mapa: {str(e)}", normal_style))
+    
+    story.append(Paragraph("RECOMENDACIONES DE GANADERÍA REGENERATIVA", heading_style))
+    
+    if tipo_pastura in RECOMENDACIONES_REGENERATIVAS:
+        recomendaciones = RECOMENDACIONES_REGENERATIVAS[tipo_pastura]
+        
+        for categoria, items in recomendaciones.items():
+            story.append(Paragraph(f"<b>{categoria.replace('_', ' ').title()}:</b>", styles['Heading3']))
+            for item in items:
+                story.append(Paragraph(f"• {item}", normal_style))
+            story.append(Spacer(1, 8))
+    
+    story.append(PageBreak())
+    
+    story.append(Paragraph("DETALLE POR SUB-LOTE", heading_style))
+    
+    detalle_data = [["Sub-Lote", "Tipo Superficie", "NDVI", "Biomasa (kg MS/ha)", "EV/Ha", "Días"]]
+    
+    for _, row in gdf_analizado.iterrows():
+        detalle_data.append([
+            str(row['id_subLote']),
+            row['tipo_superficie'].replace('_', ' ').title(),
+            f"{row['ndvi']:.3f}",
+            f"{row['biomasa_disponible_kg_ms_ha']:.0f}",
+            f"{row['ev_ha']:.1f}",
+            f"{row['dias_permanencia']:.1f}"
+        ])
+    
+    detalle_table = Table(detalle_data, colWidths=[0.6*inch, 1.2*inch, 0.8*inch, 1.2*inch, 0.8*inch, 0.8*inch])
+    detalle_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 8),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey])
+    ]))
+    story.append(detalle_table)
+    
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
 
 # =============================================================================
-# FUNCIÓN PARA SIMULAR DATOS SATELITALES - COMPLETAR
+# FUNCIÓN PARA SIMULAR DATOS SATELITALES
 # =============================================================================
 
 def simular_datos_satelitales(gdf, tipo_pastura, fecha_imagen):
@@ -866,7 +1187,7 @@ def simular_datos_satelitales(gdf, tipo_pastura, fecha_imagen):
     return gdf_resultado
 
 # =============================================================================
-# FUNCIÓN PARA CALCULAR MÉTRICAS GANADERAS - COMPLETAR
+# FUNCIÓN PARA CALCULAR MÉTRICAS GANADERAS
 # =============================================================================
 
 def calcular_metricas_ganaderas(gdf_analizado, tipo_pastura, peso_promedio, carga_animal):
@@ -896,7 +1217,7 @@ def calcular_metricas_ganaderas(gdf_analizado, tipo_pastura, peso_promedio, carg
     return gdf_resultado
 
 # =============================================================================
-# INTERFAZ PRINCIPAL - CONTINUAR
+# INTERFAZ PRINCIPAL
 # =============================================================================
 
 def main():
@@ -1076,6 +1397,46 @@ def main():
             ax2.legend(loc='upper right')
             
             st.pyplot(fig)
+        
+        st.subheader("🗺️ Mapas de Análisis Visual")
+        
+        # Selector de tipo de mapa
+        tipo_mapa = st.selectbox(
+            "Seleccionar tipo de mapa:",
+            ["Mapa Combinado", "Tipos de Superficie", "NDVI", "Biomasa", "Días de Permanencia", "EV/Ha"],
+            index=0
+        )
+        
+        # Generar el mapa seleccionado
+        if tipo_mapa == "Mapa Combinado":
+            fig_mapa = crear_mapa_combinado(gdf_final, tipo_pastura)
+        elif tipo_mapa == "Tipos de Superficie":
+            fig_mapa = crear_mapa_tipo_superficie(gdf_final, tipo_pastura)
+        elif tipo_mapa == "NDVI":
+            fig_mapa = crear_mapa_ndvi(gdf_final, tipo_pastura)
+        elif tipo_mapa == "Biomasa":
+            fig_mapa = crear_mapa_biomasa(gdf_final, tipo_pastura)
+        elif tipo_mapa == "Días de Permanencia":
+            fig_mapa = crear_mapa_dias_permanencia(gdf_final, tipo_pastura)
+        elif tipo_mapa == "EV/Ha":
+            fig_mapa = crear_mapa_ev_ha(gdf_final, tipo_pastura)
+        
+        if fig_mapa:
+            st.pyplot(fig_mapa)
+            
+            # Botón para descargar el mapa
+            buf = io.BytesIO()
+            fig_mapa.savefig(buf, format="png", dpi=150, bbox_inches='tight')
+            buf.seek(0)
+            
+            st.download_button(
+                label="📥 Descargar Mapa",
+                data=buf,
+                file_name=f"mapa_{tipo_mapa.lower().replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M')}.png",
+                mime="image/png"
+            )
+        else:
+            st.warning("No se pudo generar el mapa")
         
         st.subheader("🌱 Recomendaciones de Ganadería Regenerativa")
         
