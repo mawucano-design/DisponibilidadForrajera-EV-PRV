@@ -1,26 +1,9 @@
-# --- Librerías base ---
 streamlit
+geopandas
 pandas
 numpy
 matplotlib
-requests
-
-# --- Geoespacial ---
-geopandas
-rasterio
 shapely
-fiona
-pyproj
-
-# --- Visualización y mapas ---
 folium
 streamlit-folium
-
-# --- Reportes PDF ---
 reportlab
-
-# --- Machine Learning / cálculos ---
-scikit-learn
-
-# --- Soporte general ---
-json5
