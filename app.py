@@ -164,6 +164,11 @@ def cargar_kml(uploaded_kml):
 def exportar_informe_pdf(gdf_analizado, tipo_pastura, peso_promedio, carga_animal, mapa_detallado_bytes=None):
     """Exporta el análisis completo a PDF usando ReportLab (robusto y con Unicode)."""
     try:
+        # Verificar que tenemos datos
+        if gdf_analizado is None or len(gdf_analizado) == 0:
+            st.error("❌ No hay datos para generar el PDF")
+            return None
+            
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1*inch)
         styles = getSampleStyleSheet()
@@ -1096,19 +1101,14 @@ def analisis_forrajero_completo_realista(gdf, tipo_pastura, peso_promedio, carga
                 )
                 st.info("El CSV contiene los datos tabulares sin geometrías")
             
-            # Columna 3: PDF - VERSIÓN CORREGIDA
+            # Columna 3: PDF - VERSIÓN CORREGIDA Y SIMPLIFICADA
             with col3:
-                # Botón para generar PDF
+                # Botón directo sin formulario - VERSIÓN FUNCIONAL
                 if st.button("📄 Generar Informe PDF", 
                            use_container_width=True, 
-                           key="btn_generar_pdf",
-                           type="primary"):
-                    st.session_state.generando_pdf = True
-                    st.rerun()  # Forzar actualización
-                
-                # Mostrar spinner y generar PDF si está en proceso
-                if st.session_state.generando_pdf:
-                    with st.spinner("📄 Generando informe PDF... Esto puede tomar unos segundos"):
+                           key="btn_pdf_final"):
+                    
+                    with st.spinner("📄 Generando informe PDF... Por favor espere"):
                         try:
                             # Generar PDF
                             pdf_bytes = exportar_informe_pdf(
@@ -1120,32 +1120,32 @@ def analisis_forrajero_completo_realista(gdf, tipo_pastura, peso_promedio, carga
                             )
                             
                             if pdf_bytes:
+                                # Mostrar éxito y botón de descarga
+                                st.success("✅ PDF generado exitosamente!")
+                                
                                 # Crear nombre de archivo único
                                 pdf_filename = f"informe_forrajero_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
                                 
                                 # Botón de descarga
                                 st.download_button(
-                                    "📥 Descargar Informe PDF",
+                                    "💾 Descargar PDF",
                                     pdf_bytes,
                                     pdf_filename,
                                     "application/pdf",
-                                    key=f"descarga_pdf_{datetime.now().strftime('%Y%m%d%H%M%S')}",
-                                    use_container_width=True
+                                    key=f"download_pdf_final",
+                                    use_container_width=True,
+                                    type="primary"
                                 )
-                                st.success("✅ PDF generado correctamente. Usa el botón de arriba para descargar.")
+                                
+                                st.info("📋 El PDF incluye: estadísticas, mapa detallado y tabla de resultados")
                             else:
-                                st.error("❌ No se pudo generar el PDF. Revise los logs.")
-                            
+                                st.error("❌ No se pudo generar el PDF. Verifique los datos.")
+                                
                         except Exception as e:
                             st.error(f"❌ Error generando PDF: {str(e)}")
-                            st.code(f"Detalle del error: {e}", language="python")
-                        
-                        finally:
-                            # Resetear el estado independientemente del resultado
-                            st.session_state.generando_pdf = False
+                            st.info("🔧 Si el problema persiste, verifique que todos los datos estén cargados correctamente")
                 
-                # Mensaje informativo
-                st.info("El PDF incluye estadísticas, mapa y tabla de resultados")
+                st.info("📄 El informe PDF incluye estadísticas, mapas y tabla de resultados detallados")
 
         st.subheader("📊 RESUMEN DE RESULTADOS REALISTAS")
         col1, col2, col3, col4 = st.columns(4)
