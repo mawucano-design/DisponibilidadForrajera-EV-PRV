@@ -21,7 +21,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.lib import colors
 
-# Folium (opcional)
+# Folium (opcional — manejado con try/except)
 try:
     import folium
     from streamlit_folium import st_folium
@@ -545,9 +545,10 @@ class DetectorVegetacionRealista:
             return min(base * 0.6, 3000), params['CRECIMIENTO_DIARIO'] * 0.7, 0.7
         return min(base * 0.9, 6000), params['CRECIMIENTO_DIARIO'] * 0.9, 0.85
 
-# Simulación de patrones (usa la función original en tu script si preferís)
+# -----------------------
+# SIMULACIÓN Y MÉTRICAS
+# -----------------------
 def simular_patrones_reales_con_suelo(id_subLote, x_norm, y_norm, fuente_satelital):
-    # Versión simple (heredada)
     base = 0.2 + 0.4 * ((id_subLote % 6) / 6)
     ndvi = max(0.05, min(0.85, base + np.random.normal(0, 0.05)))
     if ndvi < 0.15:
@@ -605,7 +606,6 @@ def calcular_metricas_ganaderas(gdf_analizado, tipo_pastura, peso_promedio, carg
         else:
             dias_permanencia = 0.1
 
-        # Estado forrajero por rangos (copiado de tu lógica)
         if biomasa_disponible >= 2000:
             estado_forrajero = 4
         elif biomasa_disponible >= 1200:
@@ -954,7 +954,7 @@ if uploaded_file is not None:
                 with col2:
                     st.metric("Área Total", f"{area_total:.1f} ha")
                 with col3:
-                    st.metric("Pastura", tipo_pastura)
+                    st.metric("Pastura", tipo_pastura) 
                 with col4:
                     st.metric("Satélite", fuente_satelital)
 
