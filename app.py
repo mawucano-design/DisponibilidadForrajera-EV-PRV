@@ -1,7 +1,7 @@
 # app.py
 """
-App completa: análisis forrajero + exportes + descarga automática DOCX al finalizar el análisis.
-Autor: Adaptado para el usuario
+App completa actualizada: análisis forrajero + exportes + informe DOCX con recomendaciones
+(técnicas + prácticas regenerativas) y descarga automática.
 """
 
 import streamlit as st
@@ -19,10 +19,12 @@ import io
 from shapely.geometry import Polygon
 import math
 import base64
+import streamlit.components.v1 as components
 
-# intentamos importar python-docx (requerido para generar DOCX)
+# Intento importar python-docx
 try:
     from docx import Document
+    from docx.shared import Inches
     DOCX_AVAILABLE = True
 except Exception:
     DOCX_AVAILABLE = False
@@ -37,10 +39,7 @@ except Exception:
     folium = None
     st_folium = None
 
-# Para insertar y ejecutar JS en Streamlit (descarga automática)
-import streamlit.components.v1 as components
-
-# Configuración general de Streamlit
+# Streamlit config
 st.set_page_config(page_title="🌱 Disponibilidad Forrajera PRV", layout="wide")
 st.title("🌱 Disponibilidad Forrajera PRV — Analizador Forrajero")
 st.markdown("---")
@@ -57,7 +56,7 @@ umbral_ndvi_pastura = 0.6
 # Session state
 for key in [
     'gdf_cargado', 'gdf_analizado', 'mapa_detallado_bytes',
-    'pdf_buffer', 'docx_buffer', 'analisis_completado'
+    'docx_buffer', 'analisis_completado', 'html_download_injected'
 ]:
     if key not in st.session_state:
         st.session_state[key] = None
@@ -135,9 +134,7 @@ with st.sidebar:
 # -----------------------
 def cargar_shapefile_desde_zip(uploaded_zip):
     try:
-        # uploaded_zip puede ser archivo tipo UploadedFile
         with tempfile.TemporaryDirectory() as tmp_dir:
-            # Si es BytesIO-like: guardarlo en un archivo temporal
             zip_path = os.path.join(tmp_dir, "upload.zip")
             with open(zip_path, "wb") as f:
                 f.write(uploaded_zip.getvalue())
@@ -147,8 +144,8 @@ def cargar_shapefile_desde_zip(uploaded_zip):
             if shp_files:
                 shp_path = os.path.join(tmp_dir, shp_files[0])
                 gdf = gpd.read_file(shp_path)
-                # normalizar geometrías
-                gdf = gdf.to_crs(gdf.crs or "EPSG:4326")
+                if gdf.crs is None:
+                    gdf.set_crs(epsg=4326, inplace=True, allow_override=True)
                 return gdf
             else:
                 st.error("❌ No se encontró archivo .shp en el ZIP")
@@ -159,22 +156,21 @@ def cargar_shapefile_desde_zip(uploaded_zip):
 
 def cargar_kml(uploaded_kml):
     try:
-        # Guardar temporalmente el kml
         with tempfile.NamedTemporaryFile(delete=False, suffix='.kml') as tmp_file:
             tmp_file.write(uploaded_kml.getvalue())
             tmp_file.flush()
             tmp_path = tmp_file.name
         gdf = gpd.read_file(tmp_path, driver='KML')
         os.unlink(tmp_path)
-        if not gdf.empty:
-            gdf = gdf.to_crs(gdf.crs or "EPSG:4326")
+        if not gdf.empty and gdf.crs is None:
+            gdf.set_crs(epsg=4326, inplace=True, allow_override=True)
         return gdf
     except Exception as e:
         st.error(f"❌ Error cargando KML: {e}")
         return None
 
 # -----------------------
-# UTILIDADES FORRAJERAS (breve)
+# UTILIDADES FORRAJERAS
 # -----------------------
 PARAMETROS_FORRAJEROS_BASE = {
     'ALFALFA': {'MS_POR_HA_OPTIMO': 5000, 'CRECIMIENTO_DIARIO': 100, 'CONSUMO_PORCENTAJE_PESO': 0.03,
@@ -202,7 +198,6 @@ def obtener_parametros_forrajeros(tipo_pastura):
 
 def calcular_superficie(gdf):
     try:
-        # Si CRS es geográfico, aproximamos reproyectando a EPSG:3857
         if gdf.crs is None or gdf.crs.is_geographic:
             gdf_m = gdf.to_crs(epsg=3857)
             area_m2 = gdf_m.geometry.area
@@ -249,7 +244,7 @@ def dividir_potrero_en_subLotes(gdf, n_zonas):
     return gdf
 
 # -----------------------
-# DETECCIÓN / SIMULACIÓN (mismo enfoque que tenías)
+# DETECCIÓN / SIMULACIÓN
 # -----------------------
 class DetectorVegetacionRealista:
     def __init__(self, umbral_ndvi_minimo=0.15, umbral_ndvi_optimo=0.6, sensibilidad_suelo=0.5):
@@ -423,7 +418,6 @@ def crear_mapa_detallado_vegetacion(gdf_analizado, tipo_pastura):
             'VEGETACION_MODERADA': '#a6d96a',
             'VEGETACION_DENSA': '#1a9850'
         }
-        # Plot tipos
         for idx, row in gdf_analizado.iterrows():
             tipo = row.get('tipo_superficie', 'VEGETACION_ESCASA')
             color = colores_superficie.get(tipo, '#cccccc')
@@ -431,7 +425,6 @@ def crear_mapa_detallado_vegetacion(gdf_analizado, tipo_pastura):
             c = row.geometry.centroid
             ax1.text(c.x, c.y, f"S{row['id_subLote']}", fontsize=7)
         ax1.set_title(f"Tipos de Superficie - {tipo_pastura}")
-        # Plot biomasa
         cmap = LinearSegmentedColormap.from_list('b', ['#d73027','#fee08b','#a6d96a','#1a9850'])
         for idx, row in gdf_analizado.iterrows():
             biom = row.get('biomasa_disponible_kg_ms_ha',0)
@@ -457,7 +450,6 @@ def crear_mapa_interactivo(gdf, base_map_name="ESRI Satélite"):
     bounds = gdf.total_bounds
     centroid = gdf.geometry.centroid.iloc[0]
     m = folium.Map(location=[centroid.y, centroid.x], tiles=None, control_scale=True)
-    # tiles
     ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
     folium.TileLayer(ESRI, attr='Esri', name='ESRI Satellite', overlay=False).add_to(m)
     folium.GeoJson(gdf.__geo_interface__, name='Polígono', style_function=lambda feat: {'color':'blue','weight':2,'fillOpacity':0.2}).add_to(m)
@@ -466,10 +458,11 @@ def crear_mapa_interactivo(gdf, base_map_name="ESRI Satélite"):
     return m
 
 # -----------------------
-# GENERAR INFORME DOCX (AUTOMÁTICO)
+# GENERAR INFORME DOCX (unificado técnico + práctico)
 # -----------------------
-def generar_informe_docx(gdf, tipo_pastura, peso_promedio, carga_animal, fecha_imagen):
-    """Genera y devuelve un BytesIO con el DOCX (informe resumido)."""
+def generar_informe_forrajero_docx(gdf, tipo_pastura, peso_promedio, carga_animal, fecha_imagen):
+    """Genera y devuelve un BytesIO con el DOCX que contiene el análisis y
+       las secciones: técnico + orientaciones prácticas (ganadería regenerativa)."""
     if not DOCX_AVAILABLE:
         st.error("La librería python-docx no está instalada. Ejecutá: pip install python-docx")
         return None
@@ -479,26 +472,31 @@ def generar_informe_docx(gdf, tipo_pastura, peso_promedio, carga_animal, fecha_i
         doc.add_heading(titulo, level=0)
         doc.add_paragraph(f"Generado: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
         doc.add_paragraph(f"Tipo de pastura: {tipo_pastura}")
+        doc.add_paragraph(f"Fuente de datos: {fuente_satelital}")
         doc.add_paragraph(f"Peso promedio animal: {peso_promedio} kg")
         doc.add_paragraph(f"Carga animal: {carga_animal} cabezas")
         doc.add_paragraph("")
-        # Resumen
+
+        # Estadísticas
         try:
             area_total = gdf['area_ha'].sum()
-            biomasa_prom = gdf['biomasa_disponible_kg_ms_ha'].mean()
-            ndvi_prom = gdf['ndvi'].mean()
-            dias_prom = gdf['dias_permanencia'].mean()
-            ev_total = gdf['ev_soportable'].sum()
+            biomasa_prom = float(gdf['biomasa_disponible_kg_ms_ha'].mean())
+            ndvi_prom = float(gdf['ndvi'].mean())
+            dias_prom = float(gdf['dias_permanencia'].mean())
+            ev_total = float(gdf['ev_soportable'].sum())
         except Exception:
-            area_total = biomasa_prom = ndvi_prom = dias_prom = ev_total = 0
+            area_total = biomasa_prom = ndvi_prom = dias_prom = ev_total = 0.0
+
         doc.add_heading("Resumen del Análisis", level=1)
         doc.add_paragraph(f"Área total (ha): {area_total:.2f}")
         doc.add_paragraph(f"Biomasa promedio (kg MS/ha): {biomasa_prom:.0f}")
         doc.add_paragraph(f"NDVI promedio: {ndvi_prom:.3f}")
-        doc.add_paragraph(f"Días permanencia promedio: {dias_prom:.1f}")
-        doc.add_paragraph(f"EV total: {ev_total:.2f}")
-        # Tabla (primeras 20 filas)
-        doc.add_heading("Resultados por Sub-lote (primeros 20)", level=1)
+        doc.add_paragraph(f"Días de permanencia promedio: {dias_prom:.1f}")
+        doc.add_paragraph(f"Equivalente Vaca (EV) total: {ev_total:.2f}")
+        doc.add_paragraph("")
+
+        # Tabla resumen por sub-lote (primeras 20)
+        doc.add_heading("Resultados por Sub-lote (primeras 20 filas)", level=1)
         columnas = ['id_subLote', 'area_ha', 'tipo_superficie', 'ndvi', 'cobertura_vegetal',
                    'biomasa_disponible_kg_ms_ha', 'dias_permanencia', 'ev_ha']
         cols_presentes = [c for c in columnas if c in gdf.columns]
@@ -508,57 +506,122 @@ def generar_informe_docx(gdf, tipo_pastura, peso_promedio, carga_animal, fecha_i
             hdr[i].text = c.replace('_',' ').title()
         for _, row in gdf.head(20).iterrows():
             r = table.add_row().cells
-            for i,c in enumerate(cols_presentes):
-                val = row.get(c,'')
+            for i, c in enumerate(cols_presentes):
+                val = row.get(c, '')
                 if pd.isna(val):
                     val = ''
                 r[i].text = str(val)
         doc.add_paragraph(f"Mostrando {min(20,len(gdf))} de {len(gdf)} sub-lotes.")
-        # Recomendación simple
-        doc.add_heading("Recomendaciones", level=1)
-        if biomasa_prom < 1000:
-            doc.add_paragraph("CRÍTICO: Biomasa muy baja. Considerar suplementación y reducción de carga.")
-        elif biomasa_prom < 2000:
-            doc.add_paragraph("ALERTA: Biomasa moderada. Monitorear y ajustar rotaciones.")
-        else:
-            doc.add_paragraph("ÓPTIMO: Biomasa adecuada.")
-        # Insertar imagen del mapa (si existe)
+        doc.add_paragraph("")
+
+        # Inserción del mapa (si existe)
         if st.session_state.mapa_detallado_bytes is not None:
             try:
                 img_buf = st.session_state.mapa_detallado_bytes
                 img_buf.seek(0)
-                # Guardar temporalmente y luego insert
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_img:
                     tmp_img.write(img_buf.read())
                     tmp_img.flush()
                     tmp_path = tmp_img.name
                 doc.add_page_break()
-                doc.add_heading("Mapa Detallado", level=1)
-                doc.add_picture(tmp_path, width=docx_shared_inch(6) if 'docx_shared_inch' in globals() else None)
-                os.remove(tmp_path)
+                doc.add_heading("Mapa Detallado de Análisis", level=1)
+                try:
+                    doc.add_picture(tmp_path, width=Inches(6))
+                except Exception:
+                    # Si no se puede insertar a tamaño, insertar sin width
+                    try:
+                        doc.add_picture(tmp_path)
+                    except Exception:
+                        pass
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
             except Exception:
-                # ignore image if fails (python-docx picture width handling can be tricky)
                 pass
+
+        # Conclusión breve
+        doc.add_heading("Conclusión", level=1)
+        if biomasa_prom <= 200:
+            estado = "Muy degradado / casi sin biomasa"
+        elif biomasa_prom < 600:
+            estado = "Baja biomasa"
+        elif biomasa_prom < 1200:
+            estado = "Biomasa moderada"
+        elif biomasa_prom < 2000:
+            estado = "Buena biomasa"
+        else:
+            estado = "Biomasa alta"
+        doc.add_paragraph(f"Estado general del potrero: {estado} (Biomasa promedio: {biomasa_prom:.0f} kg MS/ha)")
+
+        # ---------------- Recomendaciones regenerativas (TÉCNICAS) ----------------
+        doc.add_heading("Recomendaciones técnicas (Ganadería Regenerativa)", level=1)
+        # Principios generales
+        doc.add_paragraph("Principios aplicados: Descanso suficiente, alta densidad temporal, uso eficiente de la biomasa, continuidad del ciclo biológico.")
+        # Adaptación por estado
+        if biomasa_prom < 1000:
+            doc.add_paragraph("Estado: RECUPERACIÓN / CRÍTICO (biomasa baja). Recomendaciones técnicas:")
+            doc.add_paragraph("• Aumentar significativamente los periodos de descanso (60–120 días dependiendo de la estación).")
+            doc.add_paragraph("• Reducir la carga animal temporalmente; priorizar suplementación si es necesario.")
+            doc.add_paragraph("• Implementar pastoreo diferido en sectores críticos y proteger corredores de agua.")
+            doc.add_paragraph("• Aplicar técnicas de regeneración: cobertura orgánica, siembra de especies perennes y abonos orgánicos.")
+            doc.add_paragraph("• Evitar tráfico pesado en épocas húmedas para prevenir compactación.")
+        elif biomasa_prom < 2000:
+            doc.add_paragraph("Estado: MEJORA / INTERMEDIO. Recomendaciones técnicas:")
+            doc.add_paragraph("• Implementar rotación con alta densidad temporal por períodos cortos (1–3 días) y descansos moderados (45–75 días).")
+            doc.add_paragraph("• Monitorear crecimiento y ajustar la duración del pastoreo según rebrote.")
+            doc.add_paragraph("• Introducir o favorecer mezcla de gramíneas y leguminosas para mejorar calidad y fijación de N.")
+            doc.add_paragraph("• Promover prácticas que aumenten la retención de humedad y materia orgánica (coberturas, mulch).")
+        else:
+            doc.add_paragraph("Estado: CONSERVACIÓN / ÓPTIMO. Recomendaciones técnicas:")
+            doc.add_paragraph("• Mantener la rotación con descansos de 35–60 días según especie y estación.")
+            doc.add_paragraph("• Aprovechar biomasa con pastoreos de alta densidad y corta duración para estimular rebrote.")
+            doc.add_paragraph("• Monitorear y conservar hábitats de agua y áreas de protección riparia.")
+            doc.add_paragraph("• Evaluar enriquecimiento con leguminosas para mejorar proteína del forraje.")
+
+        # ---------------- Recomendaciones prácticas (PRODUCCIÓN) ----------------
+        doc.add_heading("Orientaciones prácticas para productores", level=1)
+        if biomasa_prom < 1000:
+            doc.add_paragraph("🌾 Acción Prioritaria: Recuperación rápida y reducción de presión.")
+            doc.add_paragraph("• Dejá los potreros descansar hasta que la planta recupere altura y color.")
+            doc.add_paragraph("• Mové los animales con frecuencia (siempre en diarios o cada 2 días) y evitá dejarlos mucho tiempo en el mismo potrero.")
+            doc.add_paragraph("• Si no hay suficiente forraje, reducí la carga y considerá suplementar con conservas.")
+            doc.add_paragraph("• Evitá entrar con maquinaria pesada o animales cuando el suelo esté muy húmedo.")
+        elif biomasa_prom < 2000:
+            doc.add_paragraph("🌿 Acción Prioritaria: Manejo activo y mejora.")
+            doc.add_paragraph("• Hacé descansos más largos entre pastoreos (45–75 días) y usá rotaciones cortas para estimular rebrote.")
+            doc.add_paragraph("• Introducí mezcla de especies donde sea posible para mejorar calidad del forraje.")
+            doc.add_paragraph("• Monitoreá el potrero cada 15–30 días para ajustar la duración del pastoreo.")
+        else:
+            doc.add_paragraph("🌱 Acción Prioritaria: Mantener y optimizar.")
+            doc.add_paragraph("• Rotá con descansos regulares (35–60 días) y aprovechá picos de crecimiento con pastoreos intensos y cortos.")
+            doc.add_paragraph("• Conservar cobertura vegetal y usar sombra/aguas para distribuir el ganado según disponibilidad.")
+            doc.add_paragraph("• Registrá y monitoreá (fotos, medidas) para detectar cambios tempranos.")
+
+        # Pequeñas prácticas complementarias
+        doc.add_paragraph("")
+        doc.add_paragraph("Prácticas complementarias sugeridas:")
+        doc.add_paragraph("• Mantener franjas de protección alrededor de cursos de agua.")
+        doc.add_paragraph("• Fomentar biodiversidad: árboles y arbustos dispersos para sombra y refugio.")
+        doc.add_paragraph("• Registrar datos simples: biomasa estimada, altura forrajera, % cubierta y días de descanso.")
+
+        # Pie
+        doc.add_paragraph("")
+        doc.add_paragraph("Este informe ofrece recomendaciones generales basadas en el análisis automatizado. Para planes de manejo específicos, contactá un técnico/agronomo local.")
         # Guardar en BytesIO
         buf = io.BytesIO()
         doc.save(buf)
         buf.seek(0)
         return buf
     except Exception as e:
-        st.error(f"❌ Error generando DOCX: {e}")
+        st.error(f"❌ Error generando informe DOCX: {e}")
         return None
-
-# Helper because python-docx needs Inches if used:
-try:
-    from docx.shared import Inches
-    def docx_shared_inch(x): return Inches(x)
-except Exception:
-    def docx_shared_inch(x): return None
 
 # -----------------------
 # FLUJO PRINCIPAL: carga, análisis, exportes
 # -----------------------
 st.markdown("### 📁 Cargar / visualizar lote")
+gdf_loaded = None
 if uploaded_file is not None:
     with st.spinner("Cargando archivo..."):
         try:
@@ -575,7 +638,6 @@ if uploaded_file is not None:
                 with col2: st.metric("Área total (ha)", f"{area_total:.2f}")
                 with col3: st.metric("Tipo pastura", tipo_pastura)
                 with col4: st.metric("Fuente datos", fuente_satelital)
-                # Mostrar mapa interactivo si está disponible
                 if FOLIUM_AVAILABLE:
                     st.markdown("---")
                     st.markdown("### 🗺️ Visualización del potrero (interactiva)")
@@ -583,7 +645,7 @@ if uploaded_file is not None:
                     if m:
                         st_folium(m, width=1200, height=500)
                 else:
-                    st.info("Instala folium y streamlit-folium para ver el mapa interactivo: pip install folium streamlit-folium")
+                    st.info("Instalá folium y streamlit-folium para ver el mapa interactivo: pip install folium streamlit-folium")
             else:
                 st.info("Carga completada pero no se detectaron geometrías válidas.")
         except Exception as e:
@@ -594,15 +656,12 @@ st.markdown("### 🚀 Ejecutar análisis")
 if st.session_state.gdf_cargado is not None:
     if st.button("🚀 Ejecutar Análisis Forrajero (Realista)"):
         with st.spinner("Ejecutando análisis..."):
-            resultado = analisis_forrajero_completo_realista = None
             try:
                 gdf_input = st.session_state.gdf_cargado.copy()
-                # dividir en sub-lotes
                 gdf_sub = dividir_potrero_en_subLotes(gdf_input, n_divisiones)
                 if gdf_sub is None or len(gdf_sub)==0:
                     st.error("No se pudo dividir el potrero en sub-lotes.")
                 else:
-                    # calcular área
                     areas = calcular_superficie(gdf_sub)
                     gdf_sub['area_ha'] = areas.values
                     indices = calcular_indices_forrajeros_realista(gdf_sub, tipo_pastura, fuente_satelital, fecha_imagen, nubes_max,
@@ -610,7 +669,6 @@ if st.session_state.gdf_cargado is not None:
                     if not indices:
                         st.error("No se pudieron calcular índices (indices vacío).")
                     else:
-                        # volcar índices a gdf_sub
                         for idx, rec in enumerate(indices):
                             for k,v in rec.items():
                                 if k != 'id_subLote':
@@ -618,7 +676,6 @@ if st.session_state.gdf_cargado is not None:
                                         gdf_sub.loc[gdf_sub.index[idx], k] = v
                                     except Exception:
                                         pass
-                        # métricas ganaderas
                         metricas = calcular_metricas_ganaderas(gdf_sub, tipo_pastura, peso_promedio, carga_animal)
                         for idx, met in enumerate(metricas):
                             for k,v in met.items():
@@ -626,15 +683,12 @@ if st.session_state.gdf_cargado is not None:
                                     gdf_sub.loc[gdf_sub.index[idx], k] = v
                                 except Exception:
                                     pass
-                        # guardar en session_state
                         st.session_state.gdf_analizado = gdf_sub
-                        # mapa detallado
                         mapa_buf = crear_mapa_detallado_vegetacion(gdf_sub, tipo_pastura)
                         if mapa_buf is not None:
                             st.image(mapa_buf, use_column_width=True)
                             st.session_state.mapa_detallado_bytes = mapa_buf
-                        # exportes simplificados: geojson y csv
-                        # GeoJSON
+                        # Exportes: GeoJSON y CSV
                         try:
                             geojson_str = gdf_sub.to_json()
                             st.download_button("📤 Exportar GeoJSON", geojson_str,
@@ -642,7 +696,6 @@ if st.session_state.gdf_cargado is not None:
                                                "application/geo+json")
                         except Exception as e:
                             st.error(f"Error exportando GeoJSON: {e}")
-                        # CSV
                         try:
                             csv_bytes = gdf_sub.drop(columns=['geometry']).to_csv(index=False).encode('utf-8')
                             st.download_button("📊 Exportar CSV", csv_bytes,
@@ -660,15 +713,13 @@ if st.session_state.gdf_cargado is not None:
                             st.dataframe(df_show, use_container_width=True)
                         except Exception:
                             st.info("No hay datos tabulares para mostrar.")
-                        # Generar informe DOCX y forzar descarga automática
+                        # Generar informe DOCX automáticamente
                         if DOCX_AVAILABLE:
-                            docx_buf = generar_informe_docx(gdf_sub, tipo_pastura, peso_promedio, carga_animal, fecha_imagen)
+                            docx_buf = generar_informe_forrajero_docx(gdf_sub, tipo_pastura, peso_promedio, carga_animal, fecha_imagen)
                             if docx_buf is not None:
                                 st.session_state.docx_buffer = docx_buf
-                                # Generar base64 string
                                 b64 = base64.b64encode(docx_buf.getvalue()).decode()
                                 filename = f"informe_disponibilidad_forrajera_prv_{tipo_pastura}_{fecha_imagen.strftime('%Y%m')}.docx"
-                                # Crear HTML que auto-click en el enlace de descarga
                                 html_download = f"""
                                 <html>
                                 <body>
@@ -677,17 +728,16 @@ if st.session_state.gdf_cargado is not None:
                                     const d = document.getElementById('dlink');
                                     d.click();
                                 </script>
-                                <p>Si la descarga automática no inició, <a href='data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,{b64}' download='{filename}'>hacé clic acá para descargar el informe</a>.</p>
+                                <p>Si la descarga automática no inició, <a href='data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,{b64}' download='{filename}'>hacé clic acá para descargar</a>.</p>
                                 </body>
                                 </html>
                                 """
-                                # Mostrar mensaje y render HTML para forzar la descarga
-                                st.success("✅ Informe DOCX generado. La descarga automática debería iniciarse en breve.")
-                                components.html(html_download, height=120)
+                                st.success("✅ Informe DOCX generado. Descarga automática iniciada (o hacé clic en el enlace).")
+                                components.html(html_download, height=140)
                             else:
                                 st.error("❌ No se pudo generar el informe DOCX.")
                         else:
-                            st.warning("python-docx no está instalado — no puedo generar DOCX. Instalar con: pip install python-docx")
+                            st.warning("python-docx no está instalado — no puedo generar DOCX. Ejecutá: pip install python-docx")
                         st.session_state.analisis_completado = True
             except Exception as e:
                 st.error(f"❌ Error ejecutando análisis: {e}")
