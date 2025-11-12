@@ -18,6 +18,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.lib import colors
+from reportlab.pdfgen import canvas
 # =======================================
 
 # Importaciones opcionales para folium con manejo de errores
@@ -55,8 +56,8 @@ if 'gdf_analizado' not in st.session_state:
     st.session_state.gdf_analizado = None
 if 'mapa_detallado_bytes' not in st.session_state:
     st.session_state.mapa_detallado_bytes = None
-if 'generando_pdf' not in st.session_state:
-    st.session_state.generando_pdf = False
+if 'pdf_bytes' not in st.session_state:
+    st.session_state.pdf_bytes = None
 
 # Sidebar
 with st.sidebar:
@@ -172,7 +173,8 @@ def exportar_informe_pdf(gdf_analizado, tipo_pastura, peso_promedio, carga_anima
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1*inch)
         styles = getSampleStyleSheet()
-        normal_style = styles['Normal']
+        
+        # Crear estilos personalizados
         title_style = ParagraphStyle(
             'CustomTitle',
             parent=styles['Heading1'],
@@ -190,6 +192,8 @@ def exportar_informe_pdf(gdf_analizado, tipo_pastura, peso_promedio, carga_anima
         )
 
         story = []
+        
+        # Título principal
         story.append(Paragraph("INFORME DE ANÁLISIS FORRAJERO", title_style))
         story.append(Spacer(1, 20))
 
@@ -237,33 +241,42 @@ def exportar_informe_pdf(gdf_analizado, tipo_pastura, peso_promedio, carga_anima
         story.append(stats_table)
         story.append(Spacer(1, 20))
 
-        # Mapa
+        # Mapa si está disponible
         if mapa_detallado_bytes is not None:
             story.append(PageBreak())
             story.append(Paragraph("MAPA DE ANÁLISIS", heading_style))
             try:
-                mapa_img = Image(mapa_detallado_bytes, width=6*inch, height=3.5*inch)
+                # Resetear el buffer del mapa para leerlo nuevamente
+                if hasattr(mapa_detallado_bytes, 'seek'):
+                    mapa_detallado_bytes.seek(0)
+                mapa_img = Image(mapa_detallado_bytes, width=6*inch, height=4*inch)
                 story.append(mapa_img)
                 story.append(Spacer(1, 10))
-                story.append(Paragraph("Figura 1: Mapa de tipos de superficie y biomasa disponible.", normal_style))
+                story.append(Paragraph("Figura 1: Mapa de tipos de superficie y biomasa disponible.", styles['Normal']))
             except Exception as e:
-                story.append(Paragraph(f"Error al insertar el mapa: {e}", normal_style))
+                story.append(Paragraph(f"Error al insertar el mapa: {str(e)}", styles['Normal']))
 
         # Tabla de resultados por sub-lote (primeras 10)
         story.append(Spacer(1, 20))
         story.append(Paragraph("RESULTADOS POR SUB-LOTE (Primeras 10 filas)", heading_style))
+        
         columnas_tabla = ['id_subLote', 'area_ha', 'tipo_superficie', 'ndvi', 'biomasa_disponible_kg_ms_ha', 'dias_permanencia']
         df_tabla = gdf_analizado[columnas_tabla].head(10).copy()
-        df_tabla['area_ha'] = df_tabla['area_ha'].round(2)
-        df_tabla['ndvi'] = df_tabla['ndvi'].round(3)
-        df_tabla['biomasa_disponible_kg_ms_ha'] = df_tabla['biomasa_disponible_kg_ms_ha'].round(0)
-        df_tabla['dias_permanencia'] = df_tabla['dias_permanencia'].round(1)
-
-        table_data = [df_tabla.columns.tolist()]
+        
+        # Preparar datos para la tabla
+        table_data = [['Sub-Lote', 'Área (ha)', 'Tipo Superficie', 'NDVI', 'Biomasa (kg MS/ha)', 'Días']]
+        
         for _, row in df_tabla.iterrows():
-            table_data.append(row.tolist())
+            table_data.append([
+                str(row['id_subLote']),
+                f"{row['area_ha']:.2f}",
+                row['tipo_superficie'],
+                f"{row['ndvi']:.3f}",
+                f"{row['biomasa_disponible_kg_ms_ha']:.0f}",
+                f"{row['dias_permanencia']:.1f}"
+            ])
 
-        result_table = Table(table_data, colWidths=[0.7*inch, 0.8*inch, 1.2*inch, 0.7*inch, 1.2*inch, 0.9*inch])
+        result_table = Table(table_data, colWidths=[0.6*inch, 0.7*inch, 1.2*inch, 0.6*inch, 1.1*inch, 0.6*inch])
         result_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
@@ -275,8 +288,10 @@ def exportar_informe_pdf(gdf_analizado, tipo_pastura, peso_promedio, carga_anima
         ]))
         story.append(result_table)
 
+        # Construir el PDF
         doc.build(story)
         buffer.seek(0)
+        
         return buffer.getvalue()
 
     except Exception as e:
@@ -1101,14 +1116,42 @@ def analisis_forrajero_completo_realista(gdf, tipo_pastura, peso_promedio, carga
                 )
                 st.info("El CSV contiene los datos tabulares sin geometrías")
             
-            # Columna 3: PDF - VERSIÓN CORREGIDA Y SIMPLIFICADA
+            # Columna 3: PDF - SOLUCIÓN DEFINITIVA
             with col3:
-                # Botón directo sin formulario - VERSIÓN FUNCIONAL
-                if st.button("📄 Generar Informe PDF", 
+                # Primero: Botón de prueba simple
+                st.markdown("**🧪 Prueba rápida:**")
+                if st.button("Generar PDF Simple", key="test_simple"):
+                    try:
+                        buffer = io.BytesIO()
+                        c = canvas.Canvas(buffer, pagesize=A4)
+                        c.drawString(100, 750, f"Prueba PDF - {tipo_pastura}")
+                        c.drawString(100, 730, f"Sub-lotes: {len(st.session_state.gdf_analizado)}")
+                        c.drawString(100, 710, f"Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+                        c.save()
+                        buffer.seek(0)
+                        test_pdf = buffer.getvalue()
+                        
+                        st.download_button(
+                            "📥 Descargar PDF Prueba",
+                            test_pdf,
+                            f"prueba_{tipo_pastura}_{datetime.now().strftime('%H%M%S')}.pdf",
+                            "application/pdf",
+                            key="test_pdf_download"
+                        )
+                        st.success("✅ PDF de prueba generado!")
+                    except Exception as e:
+                        st.error(f"❌ Error en prueba: {e}")
+                
+                st.markdown("---")
+                st.markdown("**📄 Informe completo:**")
+                
+                # Botón para generar PDF completo
+                if st.button("📄 GENERAR INFORME PDF COMPLETO", 
                            use_container_width=True, 
-                           key="btn_pdf_final"):
+                           type="primary",
+                           key="btn_pdf_completo"):
                     
-                    with st.spinner("📄 Generando informe PDF... Por favor espere"):
+                    with st.spinner("🔄 Generando informe PDF completo..."):
                         try:
                             # Generar PDF
                             pdf_bytes = exportar_informe_pdf(
@@ -1120,32 +1163,36 @@ def analisis_forrajero_completo_realista(gdf, tipo_pastura, peso_promedio, carga
                             )
                             
                             if pdf_bytes:
-                                # Mostrar éxito y botón de descarga
-                                st.success("✅ PDF generado exitosamente!")
-                                
-                                # Crear nombre de archivo único
-                                pdf_filename = f"informe_forrajero_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-                                
-                                # Botón de descarga
-                                st.download_button(
-                                    "💾 Descargar PDF",
-                                    pdf_bytes,
-                                    pdf_filename,
-                                    "application/pdf",
-                                    key=f"download_pdf_final",
-                                    use_container_width=True,
-                                    type="primary"
-                                )
-                                
-                                st.info("📋 El PDF incluye: estadísticas, mapa detallado y tabla de resultados")
+                                st.session_state.pdf_bytes = pdf_bytes
+                                st.success("✅ ¡PDF generado exitosamente!")
                             else:
-                                st.error("❌ No se pudo generar el PDF. Verifique los datos.")
+                                st.error("❌ No se pudo generar el PDF")
                                 
                         except Exception as e:
-                            st.error(f"❌ Error generando PDF: {str(e)}")
-                            st.info("🔧 Si el problema persiste, verifique que todos los datos estén cargados correctamente")
+                            st.error(f"❌ Error: {str(e)}")
                 
-                st.info("📄 El informe PDF incluye estadísticas, mapas y tabla de resultados detallados")
+                # Mostrar botón de descarga si el PDF está listo
+                if st.session_state.pdf_bytes is not None:
+                    st.download_button(
+                        "💾 DESCARGAR INFORME PDF",
+                        st.session_state.pdf_bytes,
+                        f"informe_forrajero_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                        "application/pdf",
+                        key="descarga_pdf_final",
+                        use_container_width=True,
+                        type="primary"
+                    )
+                    st.info("📋 El PDF incluye: estadísticas, mapa detallado y tabla de resultados")
+                
+                st.info("""
+                **📄 Informe PDF incluye:**
+                - Información general del análisis
+                - Estadísticas completas
+                - Mapa de tipos de superficie
+                - Mapa de biomasa disponible  
+                - Tabla de resultados por sub-lote
+                - Fecha y hora de generación
+                """)
 
         st.subheader("📊 RESUMEN DE RESULTADOS REALISTAS")
         col1, col2, col3, col4 = st.columns(4)
@@ -1240,6 +1287,8 @@ if st.session_state.gdf_cargado is not None:
                     use_container_width=True,
                     key="analisis_realista"):
             with st.spinner("🔬 Ejecutando análisis forrajero con detección realista..."):
+                # Resetear PDF anterior
+                st.session_state.pdf_bytes = None
                 resultado = analisis_forrajero_completo_realista(
                     st.session_state.gdf_cargado, 
                     tipo_pastura, 
