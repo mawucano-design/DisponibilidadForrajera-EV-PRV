@@ -161,113 +161,112 @@ def cargar_kml(uploaded_kml):
         return None
 
 # =============================================================================
-# ✅ FUNCIÓN DE EXPORTACIÓN A PDF CON REPORTLAB (VERSIÓN CORREGIDA STREAMLIT 2025)
+# ✅ FUNCIÓN CORREGIDA DE EXPORTACIÓN A PDF (ESTABLE PARA STREAMLIT)
 # =============================================================================
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
-from datetime import datetime
-import io
-import streamlit as st
+def generar_informe_forrajero_pdf(gdf_analizado, tipo_pastura, peso_promedio, carga_animal, mapa_detallado_bytes=None):
+    """Genera un informe PDF completo del análisis forrajero"""
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1*inch)
+    styles = getSampleStyleSheet()
 
-def exportar_informe_pdf(gdf_analizado, tipo_pastura, peso_promedio, carga_animal, mapa_detallado_bytes=None):
-    """Exporta el análisis completo a PDF usando ReportLab"""
-    try:
-        if gdf_analizado is None or len(gdf_analizado) == 0:
-            st.error("❌ No hay datos para generar el PDF")
-            return None
+    # Estilos personalizados
+    title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=16, textColor=colors.darkgreen, alignment=1)
+    heading_style = ParagraphStyle('Heading', parent=styles['Heading2'], fontSize=13, textColor=colors.darkblue, spaceAfter=10)
+    normal_style = styles['Normal']
 
-        buffer = io.BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1 * inch)
-        styles = getSampleStyleSheet()
+    story = []
 
-        # Estilos personalizados
-        title_style = ParagraphStyle(
-            'CustomTitle', parent=styles['Heading1'], fontSize=16,
-            textColor=colors.darkgreen, spaceAfter=30, alignment=1
-        )
-        heading_style = ParagraphStyle(
-            'CustomHeading', parent=styles['Heading2'], fontSize=14,
-            textColor=colors.darkblue, spaceAfter=12, spaceBefore=12
-        )
-        normal_style = styles['Normal']
+    # Título
+    story.append(Paragraph("INFORME DE ANÁLISIS FORRAJERO", title_style))
+    story.append(Spacer(1, 20))
 
-        story = []
-        story.append(Paragraph("INFORME DE ANÁLISIS FORRAJERO", title_style))
-        story.append(Spacer(1, 20))
+    # Información general
+    story.append(Paragraph("INFORMACIÓN GENERAL", heading_style))
+    info_data = [
+        ["Tipo de Pastura:", tipo_pastura],
+        ["Carga Animal:", f"{carga_animal} cabezas"],
+        ["Peso Promedio:", f"{peso_promedio} kg"],
+        ["Fecha de Generación:", datetime.now().strftime("%d/%m/%Y %H:%M")]
+    ]
+    info_table = Table(info_data, colWidths=[2*inch, 3*inch])
+    info_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ]))
+    story.append(info_table)
+    story.append(Spacer(1, 20))
 
-        # Tabla de info general
-        story.append(Paragraph("INFORMACIÓN GENERAL", heading_style))
-        info_data = [
-            ["Tipo de Pastura:", tipo_pastura],
-            ["Carga Animal:", f"{carga_animal} cabezas"],
-            ["Peso Promedio:", f"{peso_promedio} kg"],
-            ["Fecha de Generación:", datetime.now().strftime("%d/%m/%Y %H:%M")]
-        ]
-        info_table = Table(info_data, colWidths=[2 * inch, 3 * inch])
-        info_table.setStyle(TableStyle([
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, -1), 10),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.black)
-        ]))
-        story.append(info_table)
-        story.append(Spacer(1, 20))
+    # Estadísticas
+    area_total = gdf_analizado['area_ha'].sum()
+    biomasa_prom = gdf_analizado['biomasa_disponible_kg_ms_ha'].mean()
+    ndvi_prom = gdf_analizado['ndvi'].mean()
+    dias_promedio = gdf_analizado['dias_permanencia'].mean()
+    ev_total = gdf_analizado['ev_soportable'].sum()
 
-        # Estadísticas globales
-        area_total = gdf_analizado['area_ha'].sum()
-        biomasa_prom = gdf_analizado['biomasa_disponible_kg_ms_ha'].mean()
-        ndvi_prom = gdf_analizado['ndvi'].mean()
-        dias_promedio = gdf_analizado['dias_permanencia'].mean()
-        ev_total = gdf_analizado['ev_soportable'].sum()
+    story.append(Paragraph("ESTADÍSTICAS DEL ANÁLISIS", heading_style))
+    stats_data = [
+        ["Área Total (ha)", f"{area_total:.2f}"],
+        ["Biomasa Prom. (kg MS/ha)", f"{biomasa_prom:.0f}"],
+        ["NDVI Promedio", f"{ndvi_prom:.3f}"],
+        ["Días Permanencia Prom.", f"{dias_promedio:.1f}"],
+        ["EV Total", f"{ev_total:.1f}"]
+    ]
+    stats_table = Table(stats_data, colWidths=[3*inch, 2*inch])
+    stats_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ]))
+    story.append(stats_table)
+    story.append(Spacer(1, 20))
 
-        story.append(Paragraph("ESTADÍSTICAS DEL ANÁLISIS", heading_style))
-        stats_data = [
-            ["Área Total (ha)", f"{area_total:.2f}"],
-            ["Biomasa Promedio (kg MS/ha)", f"{biomasa_prom:.0f}"],
-            ["NDVI Promedio", f"{ndvi_prom:.3f}"],
-            ["Días de Permanencia Prom.", f"{dias_promedio:.1f}"],
-            ["EV Total", f"{ev_total:.1f}"]
-        ]
-        stats_table = Table(stats_data, colWidths=[3 * inch, 2 * inch])
-        stats_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.black)
-        ]))
-        story.append(stats_table)
-
-        # Insertar mapa si existe
-        if mapa_detallado_bytes is not None:
-            story.append(PageBreak())
-            story.append(Paragraph("MAPA DE ANÁLISIS", heading_style))
-            try:
-                mapa_detallado_bytes.seek(0)
-                story.append(Image(mapa_detallado_bytes, width=6 * inch, height=4 * inch))
-            except Exception as e:
-                story.append(Paragraph(f"Error al insertar mapa: {str(e)}", normal_style))
-
-        # Recomendaciones
+    # Mapa (opcional)
+    if mapa_detallado_bytes:
         story.append(PageBreak())
-        story.append(Paragraph("RECOMENDACIONES FORRAJERAS", heading_style))
-        if biomasa_prom < 1000:
-            recomendacion = "❌ CRÍTICO: Biomasa muy baja. Reducir carga animal y suplementar."
-        elif biomasa_prom < 2000:
-            recomendacion = "⚠️ ALERTA: Biomasa moderada. Monitorear y ajustar rotaciones."
-        else:
-            recomendacion = "✅ ÓPTIMO: Biomasa adecuada. Mantener manejo actual."
-        story.append(Paragraph(f"<b>Estado General:</b> {recomendacion}", normal_style))
+        story.append(Paragraph("MAPA DE ANÁLISIS", heading_style))
+        try:
+            mapa_detallado_bytes.seek(0)
+            img = Image(mapa_detallado_bytes, width=6*inch, height=4*inch)
+            story.append(img)
+            story.append(Spacer(1, 10))
+            story.append(Paragraph("Figura 1: Mapa de tipos de superficie y biomasa disponible.", normal_style))
+        except Exception as e:
+            story.append(Paragraph(f"Error al cargar el mapa: {e}", normal_style))
+        story.append(Spacer(1, 20))
 
-        doc.build(story)
-        buffer.seek(0)
-        return buffer.getvalue()
+    # Tabla resumen (primeras 10)
+    story.append(Paragraph("RESUMEN POR SUB-LOTE (Primeras 10 filas)", heading_style))
+    columnas = ['id_subLote', 'area_ha', 'tipo_superficie', 'ndvi', 'biomasa_disponible_kg_ms_ha', 'dias_permanencia', 'ev_ha']
+    df_tabla = gdf_analizado[columnas].head(10).round(3)
 
-    except Exception as e:
-        st.error(f"❌ Error en exportar_informe_pdf: {e}")
-        import traceback
-        st.error(traceback.format_exc())
-        return None
+    table_data = [df_tabla.columns.tolist()] + df_tabla.astype(str).values.tolist()
+    tabla = Table(table_data, colWidths=[0.8*inch]*len(columnas))
+    tabla.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.darkgreen),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ]))
+    story.append(tabla)
+    story.append(Spacer(1, 20))
+
+    # Recomendaciones
+    story.append(PageBreak())
+    story.append(Paragraph("RECOMENDACIONES FORRAJERAS", heading_style))
+    if biomasa_prom < 1000:
+        estado = "❌ CRÍTICO: Biomasa muy baja. Considerar suplementación y reducir carga animal."
+    elif biomasa_prom < 2000:
+        estado = "⚠️ ALERTA: Biomasa moderada. Monitorear crecimiento y ajustar rotaciones."
+    else:
+        estado = "✅ ÓPTIMO: Biomasa adecuada. Mantener manejo actual."
+    story.append(Paragraph(estado, normal_style))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
 
 # =============================================================================
 # CONFIGURACIÓN DE MAPAS BASE
