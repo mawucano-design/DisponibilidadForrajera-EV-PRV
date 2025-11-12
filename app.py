@@ -1111,6 +1111,23 @@ def analisis_forrajero_completo_realista(gdf, tipo_pastura, peso_promedio, carga
                                 
                         except Exception as e:
                             st.error(f"❌ Error generando PDF: {str(e)}")
+# --- Generar y descargar informe PDF ---
+mapa_buffer = crear_mapa_estatico(gdf_analizado, "Disponibilidad Forrajera", "biomasa", "FORRAJE", "N/A")
+
+pdf_buffer = generar_informe_forrajero_pdf(
+    gdf_analizado, 
+    tipo_pastura, 
+    peso_promedio, 
+    carga_animal, 
+    mapa_buffer
+)
+
+st.download_button(
+    label="📄 Descargar Informe PDF",
+    data=pdf_buffer,
+    file_name="Informe_Forrajero.pdf",
+    mime="application/pdf"
+)
 
         st.subheader("📊 RESUMEN DE RESULTADOS REALISTAS")
         col1, col2, col3, col4 = st.columns(4)
