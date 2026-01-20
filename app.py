@@ -1,6 +1,6 @@
 # app.py
 """
-App completa mejorada: análisis forrajero + clima NASA POWER + suelos INTA + dashboard + informes PDF/DOCX
+App completa mejorada: análisis forrajero + clima NASA POWER + suelos INTA + dashboard + mapas individuales + informes
 """
 import streamlit as st
 import geopandas as gpd
@@ -80,8 +80,8 @@ umbral_ndvi_pastura = 0.6
 # Session state
 for key in [
     'gdf_cargado', 'gdf_analizado', 'mapa_detallado_bytes',
-    'docx_buffer', 'pdf_buffer', 'analisis_completado',
-    'datos_clima', 'datos_suelo'
+    'mapa_biomasa_bytes', 'docx_buffer', 'pdf_buffer',
+    'analisis_completado', 'datos_clima', 'datos_suelo'
 ]:
     if key not in st.session_state:
         st.session_state[key] = None
@@ -217,7 +217,7 @@ class ServicioClimaNASA:
             return None
 
     @staticmethod
-    def _procesar_datos_nasa(data: Dict) -> Dict:  # ✅ Corregido: parámetro 'data' definido
+    def _procesar_datos_nasa( Dict) -> Dict:  # ✅ Corregido
         try:
             properties = data.get('properties', {})
             parameter = data.get('parameters', {})
@@ -301,7 +301,7 @@ class ServicioSuelosINTA:
             return None
 
     @staticmethod
-    def _procesar_datos_suelo(data: Dict) -> Dict:
+    def _procesar_datos_suelo( Dict) -> Dict:
         try:
             features = data.get('features', [])
             if not features:
@@ -534,6 +534,44 @@ def crear_mapa_interactivo_con_zoom(gdf, base_map_name="ESRI Satélite"):
         return m
     except Exception as e:
         st.error(f"❌ Error creando mapa interactivo: {e}")
+        return None
+
+# -----------------------
+# NUEVA FUNCIÓN: MAPA INDIVIDUAL DE BIOMASA
+# -----------------------
+def crear_mapa_biomasa_individual(gdf_analizado):
+    """Crea un mapa individual solo de biomasa disponible"""
+    try:
+        fig, ax = plt.subplots(1, 1, figsize=(10, 8))
+        cmap = LinearSegmentedColormap.from_list('biomasa', ['#d73027','#fee08b','#a6d96a','#1a9850'])
+        gdf_analizado['biomasa_norm'] = gdf_analizado['biomasa_disponible_kg_ms_ha'].clip(0, 4000) / 4000
+        gdf_analizado.plot(
+            column='biomasa_norm',
+            cmap=cmap,
+            legend=True,
+            ax=ax,
+            edgecolor='black',
+            linewidth=0.5,
+            legend_kwds={'label': "Biomasa (kg MS/ha)", 'orientation': "horizontal"}
+        )
+        for idx, row in gdf_analizado.iterrows():
+            c = row.geometry.centroid
+            ax.text(c.x, c.y, f"{row['biomasa_disponible_kg_ms_ha']:.0f}", 
+                    fontsize=8, ha='center', va='center', color='white', weight='bold')
+        ax.set_title("Biomasa Disponible (kg MS/ha)", fontsize=14, fontweight='bold')
+        if CTX_AVAILABLE:
+            try:
+                ctx.add_basemap(ax, crs=gdf_analizado.crs.to_string(), source=ctx.providers.Esri.WorldImagery)
+            except Exception:
+                pass
+        plt.tight_layout()
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+        buf.seek(0)
+        plt.close(fig)
+        return buf
+    except Exception as e:
+        st.error(f"❌ Error creando mapa individual de biomasa: {e}")
         return None
 
 # -----------------------
@@ -1036,7 +1074,6 @@ def crear_mapa_detallado_avanzado(gdf_analizado, tipo_pastura, datos_clima=None,
             ax4.text(0.1, y_pos, "📊 DATOS CLIMÁTICOS (NASA POWER)", fontsize=14, fontweight='bold',
                      transform=ax4.transAxes)
             y_pos -= 0.05
-            # ✅ CORREGIDO: • → -
             info_clima = [
                 f"- Precipitación total: {datos_clima.get('precipitacion_total', 0):.1f} mm",
                 f"- Precipitación promedio: {datos_clima.get('precipitacion_promedio', 0):.1f} mm/día",
@@ -1054,7 +1091,6 @@ def crear_mapa_detallado_avanzado(gdf_analizado, tipo_pastura, datos_clima=None,
             ax4.text(0.1, y_pos, "🌍 DATOS DE SUELO", fontsize=14, fontweight='bold',
                      transform=ax4.transAxes)
             y_pos -= 0.05
-            # ✅ CORREGIDO: • → -
             info_suelo = [
                 f"- Textura: {datos_suelo.get('textura', 'N/A')}",
                 f"- Materia orgánica: {datos_suelo.get('materia_organica', 0):.1f} %",
@@ -1085,7 +1121,6 @@ def generar_informe_completo(gdf_analizado, tipo_pastura, datos_clima=None, dato
     docx_buffer = None
     pdf_buffer = None
 
-    # === DOCX ===
     if DOCX_AVAILABLE:
         try:
             doc = Document()
@@ -1139,7 +1174,6 @@ def generar_informe_completo(gdf_analizado, tipo_pastura, datos_clima=None, dato
         except Exception as e:
             st.error(f"❌ Error generando DOCX: {e}")
 
-    # === PDF ===
     if FPDF_AVAILABLE:
         try:
             pdf = FPDF()
@@ -1193,8 +1227,8 @@ def generar_informe_completo(gdf_analizado, tipo_pastura, datos_clima=None, dato
             pdf.cell(0, 8, f"- Días de permanencia promedio: {dias_prom:.1f}", ln=True)
 
             pdf_buffer = io.BytesIO()
-            pdf_output = pdf.output(dest='S')  # ← YA ES BYTES
-            pdf_buffer.write(pdf_output)       # ← SIN .encode()
+            pdf_output = pdf.output(dest='S')
+            pdf_buffer.write(pdf_output)  # ✅ Sin .encode()
             pdf_buffer.seek(0)
         except Exception as e:
             st.error(f"❌ Error generando PDF: {e}")
@@ -1314,27 +1348,22 @@ def mostrar_dashboard():
         if 'estres_hidrico' in gdf.columns:
             st.metric("Estrés hídrico", f"{gdf['estres_hidrico'].mean():.2f}")
 
-    # Gráficos
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.markdown("### Distribución de biomasa")
-        fig1, ax1 = plt.subplots()
-        gdf['biomasa_disponible_kg_ms_ha'].hist(bins=10, ax=ax1, color='#1a9850')
-        ax1.set_xlabel("Biomasa (kg/ha)")
-        ax1.set_ylabel("Frecuencia")
-        st.pyplot(fig1)
+    # Mapa de biomasa en el dashboard
+    st.markdown("### 🌿 Biomasa Disponible por Sublote")
+    if st.session_state.mapa_biomasa_bytes:
+        st.image(st.session_state.mapa_biomasa_bytes, use_column_width=True)
+    else:
+        tmp_buf = crear_mapa_biomasa_individual(gdf)
+        if tmp_buf:
+            st.image(tmp_buf, use_column_width=True)
 
-    with col_b:
-        if 'estres_hidrico' in gdf.columns:
-            st.markdown("### Estrés hídrico por sublote")
-            fig2, ax2 = plt.subplots()
-            gdf.plot(column='estres_hidrico', legend=True, ax=ax2, cmap='OrRd')
-            if CTX_AVAILABLE:
-                try:
-                    ctx.add_basemap(ax2, crs=gdf.crs.to_string(), source=ctx.providers.Esri.WorldImagery)
-                except:
-                    pass
-            st.pyplot(fig2)
+    # Gráfico de distribución
+    st.markdown("### Distribución de biomasa")
+    fig1, ax1 = plt.subplots()
+    gdf['biomasa_disponible_kg_ms_ha'].hist(bins=10, ax=ax1, color='#1a9850')
+    ax1.set_xlabel("Biomasa (kg/ha)")
+    ax1.set_ylabel("Frecuencia")
+    st.pyplot(fig1)
 
     # Tabla resumen
     st.markdown("### Resumen por sublote")
@@ -1360,7 +1389,6 @@ def mostrar_dashboard():
 # -----------------------
 # FLUJO PRINCIPAL
 # -----------------------
-# Selector de pestañas
 tab1, tab2, tab3 = st.tabs(["📁 Cargar y Analizar", "📊 Dashboard de Resultados", "📚 Información"])
 
 with tab1:
@@ -1456,6 +1484,14 @@ with tab1:
                             if mapa_buf is not None:
                                 st.image(mapa_buf, use_column_width=True, caption="Mapa de análisis avanzado")
                                 st.session_state.mapa_detallado_bytes = mapa_buf
+
+                            # ✅ Crear mapa individual de biomasa
+                            mapa_biomasa_buf = crear_mapa_biomasa_individual(gdf_sub)
+                            if mapa_biomasa_buf:
+                                st.session_state.mapa_biomasa_bytes = mapa_biomasa_buf
+                                st.markdown("### 🌿 Mapa Individual: Biomasa Disponible")
+                                st.image(mapa_biomasa_buf, use_column_width=True)
+
                             st.session_state.analisis_completado = True
                 except Exception as e:
                     st.error(f"❌ Error ejecutando análisis: {e}")
