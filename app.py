@@ -1,6 +1,6 @@
 # app.py
 """
-App completa mejorada: análisis forrajero + clima NASA POWER + suelos INTA
+App completa mejorada: análisis forrajero + clima NASA POWER + suelos INTA + dron + informes PDF/DOCX
 """
 import streamlit as st
 import geopandas as gpd
@@ -25,13 +25,21 @@ from typing import Dict, List, Tuple, Optional
 import warnings
 warnings.filterwarnings('ignore')
 
-# Intento importar python-docx
+# Intento importar python-docx y fpdf2
 try:
     from docx import Document
     from docx.shared import Inches, Pt, RGBColor
     DOCX_AVAILABLE = True
 except Exception:
     DOCX_AVAILABLE = False
+    st.warning("Instalá python-docx para generar informes DOCX: pip install python-docx")
+
+try:
+    from fpdf import FPDF
+    FPDF_AVAILABLE = True
+except Exception:
+    FPDF_AVAILABLE = False
+    st.warning("Instalá fpdf2 para generar informes PDF: pip install fpdf2")
 
 # Folium (opcional)
 try:
@@ -43,8 +51,16 @@ except Exception:
     folium = None
     st_folium = None
 
+# Contextily para mapas base
+try:
+    import contextily as ctx
+    CTX_AVAILABLE = True
+except Exception:
+    CTX_AVAILABLE = False
+    st.warning("Instalá contextily para mapas base: pip install contextily")
+
 # Streamlit config
-st.set_page_config(page_title="🌱 Disponibilidad Forrajera PRV + Clima + Suelo", layout="wide")
+st.set_page_config(page_title="🌱 Disponibilidad Forrajera PRV + Clima + Suelo + Dron", layout="wide")
 st.title("🌱 Disponibilidad Forrajera PRV — Analizador Avanzado")
 st.markdown("---")
 os.environ['SHAPE_RESTORE_SHX'] = 'YES'
@@ -65,7 +81,7 @@ umbral_ndvi_pastura = 0.6
 # Session state
 for key in [
     'gdf_cargado', 'gdf_analizado', 'mapa_detallado_bytes',
-    'docx_buffer', 'analisis_completado', 'html_download_injected',
+    'docx_buffer', 'pdf_buffer', 'analisis_completado',
     'datos_clima', 'datos_suelo', 'indices_avanzados'
 ]:
     if key not in st.session_state:
@@ -76,6 +92,8 @@ for key in [
 # -----------------------
 with st.sidebar:
     st.header("⚙️ Configuración Avanzada")
+    
+    # Mapa base
     if FOLIUM_AVAILABLE:
         st.subheader("🗺️ Mapa Base")
         base_map_option = st.selectbox(
@@ -159,6 +177,10 @@ with st.sidebar:
     if usar_suelo:
         st.info("Se consultará información de suelos del INTA (si está disponible)")
 
+    st.subheader("🚁 Imagen de dron (opcional)")
+    dron_file = st.file_uploader("Subir imagen de dron (GeoTIFF o PNG)", type=["tif", "tiff", "png"])
+    usar_dron = dron_file is not None
+
     st.subheader("🎯 División de Potrero")
     n_divisiones = st.slider("Número de sub-lotes:", min_value=4, max_value=64, value=24)
 
@@ -212,7 +234,7 @@ class ServicioClimaNASA:
             return None
 
     @staticmethod
-    def _procesar_datos_nasa(data: Dict) -> Dict:
+    def _procesar_datos_nasa( Dict) -> Dict:
         try:
             properties = data.get('properties', {})
             parameter = data.get('parameters', {})
@@ -553,22 +575,40 @@ class AnalisisForrajeroAvanzado:
             'Mixto': {'retencion': 1.0, 'infiltracion': 1.0, 'fertilidad': 1.0}
         }
 
-    def clasificar_vegetacion_avanzada(self, ndvi, evi, savi, bsi, ndbi, msavi2, datos_clima=None):
-        if ndvi < 0.10:
-            categoria_base = "SUELO_DESNUDO"
-            cobertura_base = 0.05
-        elif ndvi < 0.20:
-            categoria_base = "SUELO_PARCIAL"
-            cobertura_base = 0.25
-        elif ndvi < 0.40:
-            categoria_base = "VEGETACION_ESCASA"
-            cobertura_base = 0.5
-        elif ndvi < 0.65:
-            categoria_base = "VEGETACION_MODERADA"
-            cobertura_base = 0.75
+    def clasificar_vegetacion_avanzada(self, ndvi, evi, savi, bsi, ndbi, msavi2, datos_clima=None, usar_dron=False):
+        if usar_dron:
+            # Simular alta resolución: más variabilidad
+            if ndvi < 0.15:
+                categoria_base = "SUELO_DESNUDO"
+                cobertura_base = 0.05
+            elif ndvi < 0.25:
+                categoria_base = "SUELO_PARCIAL"
+                cobertura_base = 0.3
+            elif ndvi < 0.45:
+                categoria_base = "VEGETACION_ESCASA"
+                cobertura_base = 0.55
+            elif ndvi < 0.7:
+                categoria_base = "VEGETACION_MODERADA"
+                cobertura_base = 0.8
+            else:
+                categoria_base = "VEGETACION_DENSA"
+                cobertura_base = 0.95
         else:
-            categoria_base = "VEGETACION_DENSA"
-            cobertura_base = 0.9
+            if ndvi < 0.10:
+                categoria_base = "SUELO_DESNUDO"
+                cobertura_base = 0.05
+            elif ndvi < 0.20:
+                categoria_base = "SUELO_PARCIAL"
+                cobertura_base = 0.25
+            elif ndvi < 0.40:
+                categoria_base = "VEGETACION_ESCASA"
+                cobertura_base = 0.5
+            elif ndvi < 0.65:
+                categoria_base = "VEGETACION_MODERADA"
+                cobertura_base = 0.75
+            else:
+                categoria_base = "VEGETACION_DENSA"
+                cobertura_base = 0.9
 
         if datos_clima:
             ajuste_clima = self._calcular_ajuste_climatico(datos_clima)
@@ -839,8 +879,12 @@ def dividir_potrero_en_subLotes(gdf, n_zonas):
         return nuevo
     return gdf
 
-def simular_indices_avanzados(id_subLote, x_norm, y_norm, fuente_satelital, datos_clima=None):
-    base = 0.2 + 0.4 * ((id_subLote % 6) / 6)
+def simular_indices_avanzados(id_subLote, x_norm, y_norm, fuente_satelital, datos_clima=None, usar_dron=False):
+    if usar_dron:
+        # Alta resolución: más variabilidad
+        base = 0.3 + 0.5 * ((id_subLote % 8) / 8)
+    else:
+        base = 0.2 + 0.4 * ((id_subLote % 6) / 6)
     if datos_clima:
         factor_clima = 1.0
         if datos_clima.get('precipitacion_promedio', 0) < 1.0:
@@ -959,6 +1003,7 @@ def crear_mapa_detallado_avanzado(gdf_analizado, tipo_pastura, datos_clima=None,
         fig, axes = plt.subplots(2, 2, figsize=(20, 16))
         ax1, ax2, ax3, ax4 = axes.flatten()
 
+        # Panel 1: Tipos de superficie con Esri
         colores_superficie = {
             'SUELO_DESNUDO': '#d73027',
             'SUELO_PARCIAL': '#fdae61',
@@ -972,11 +1017,17 @@ def crear_mapa_detallado_avanzado(gdf_analizado, tipo_pastura, datos_clima=None,
             gdf_analizado.iloc[[idx]].plot(ax=ax1, color=color, edgecolor='black', linewidth=0.5)
             c = row.geometry.centroid
             ax1.text(c.x, c.y, f"S{row['id_subLote']}", fontsize=6, ha='center', va='center')
+        if CTX_AVAILABLE:
+            try:
+                ctx.add_basemap(ax1, crs=gdf_analizado.crs.to_string(), source=ctx.providers.Esri.WorldImagery)
+            except:
+                pass
         ax1.set_title(f"Tipos de Superficie - {tipo_pastura}", fontsize=12, fontweight='bold')
         patches = [mpatches.Patch(color=color, label=label)
                    for label, color in colores_superficie.items()]
         ax1.legend(handles=patches, loc='upper right', fontsize=8)
 
+        # Panel 2: Biomasa
         cmap = LinearSegmentedColormap.from_list('biomasa', ['#d73027','#fee08b','#a6d96a','#1a9850'])
         for idx, row in gdf_analizado.iterrows():
             biom = row.get('biomasa_disponible_kg_ms_ha', 0)
@@ -985,8 +1036,14 @@ def crear_mapa_detallado_avanzado(gdf_analizado, tipo_pastura, datos_clima=None,
             gdf_analizado.iloc[[idx]].plot(ax=ax2, color=color, edgecolor='black', linewidth=0.5)
             c = row.geometry.centroid
             ax2.text(c.x, c.y, f"{biom:.0f}", fontsize=6, ha='center', va='center')
+        if CTX_AVAILABLE:
+            try:
+                ctx.add_basemap(ax2, crs=gdf_analizado.crs.to_string(), source=ctx.providers.Esri.WorldImagery)
+            except:
+                pass
         ax2.set_title("Biomasa Disponible (kg MS/ha)", fontsize=12, fontweight='bold')
 
+        # Panel 3: Estrés hídrico o cobertura
         if 'estres_hidrico' in gdf_analizado.columns:
             cmap_estres = LinearSegmentedColormap.from_list('estres', ['#1a9850','#fee08b','#d73027'])
             for idx, row in gdf_analizado.iterrows():
@@ -996,6 +1053,11 @@ def crear_mapa_detallado_avanzado(gdf_analizado, tipo_pastura, datos_clima=None,
                 gdf_analizado.iloc[[idx]].plot(ax=ax3, color=color, edgecolor='black', linewidth=0.5)
                 c = row.geometry.centroid
                 ax3.text(c.x, c.y, f"{estres:.2f}", fontsize=6, ha='center', va='center')
+            if CTX_AVAILABLE:
+                try:
+                    ctx.add_basemap(ax3, crs=gdf_analizado.crs.to_string(), source=ctx.providers.Esri.WorldImagery)
+                except:
+                    pass
             ax3.set_title("Índice de Estrés Hídrico", fontsize=12, fontweight='bold')
         else:
             for idx, row in gdf_analizado.iterrows():
@@ -1004,8 +1066,14 @@ def crear_mapa_detallado_avanzado(gdf_analizado, tipo_pastura, datos_clima=None,
                 gdf_analizado.iloc[[idx]].plot(ax=ax3, color=color, edgecolor='black', linewidth=0.5)
                 c = row.geometry.centroid
                 ax3.text(c.x, c.y, f"{cobertura:.2f}", fontsize=6, ha='center', va='center')
+            if CTX_AVAILABLE:
+                try:
+                    ctx.add_basemap(ax3, crs=gdf_analizado.crs.to_string(), source=ctx.providers.Esri.WorldImagery)
+                except:
+                    pass
             ax3.set_title("Cobertura Vegetal", fontsize=12, fontweight='bold')
 
+        # Panel 4: Información resumen
         ax4.axis('off')
         y_pos = 0.9
         if datos_clima:
@@ -1054,12 +1122,143 @@ def crear_mapa_detallado_avanzado(gdf_analizado, tipo_pastura, datos_clima=None,
         return None
 
 # -----------------------
+# GENERACIÓN DE INFORMES (PDF + DOCX)
+# -----------------------
+def generar_informe_completo(gdf_analizado, tipo_pastura, datos_clima=None, datos_suelo=None, mapa_imagen=None):
+    """Genera informes en DOCX y PDF con resumen del análisis"""
+    docx_buffer = None
+    pdf_buffer = None
+
+    # === DOCX ===
+    if DOCX_AVAILABLE:
+        try:
+            doc = Document()
+            doc.add_heading('Informe Técnico: Análisis Forrajero Avanzado', 0)
+            doc.add_paragraph(f"Tipo de pastura: {tipo_pastura}")
+            doc.add_paragraph(f"Fecha de análisis: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+
+            # Datos climáticos
+            if datos_clima:
+                doc.add_heading('Datos Climáticos (NASA POWER)', level=1)
+                clima_texto = "\n".join([
+                    f"- Precipitación total: {datos_clima.get('precipitacion_total', 0):.1f} mm",
+                    f"- Precipitación promedio: {datos_clima.get('precipitacion_promedio', 0):.1f} mm/día",
+                    f"- Temperatura máxima: {datos_clima.get('temp_max_promedio', 0):.1f} °C",
+                    f"- Temperatura mínima: {datos_clima.get('temp_min_promedio', 0):.1f} °C",
+                    f"- Evapotranspiración (ET0): {datos_clima.get('et0_promedio', 0):.1f} mm/día",
+                    f"- Días con lluvia: {datos_clima.get('dias_lluvia', 0)}",
+                    f"- Balance hídrico: {datos_clima.get('balance_hidrico', 0):.1f} mm"
+                ])
+                doc.add_paragraph(clima_texto)
+
+            # Datos de suelo
+            if datos_suelo:
+                doc.add_heading('Datos de Suelo', level=1)
+                suelo_texto = "\n".join([
+                    f"- Textura: {datos_suelo.get('textura', 'N/A')}",
+                    f"- Materia orgánica: {datos_suelo.get('materia_organica', 0):.1f} %",
+                    f"- pH: {datos_suelo.get('ph', 0):.1f}",
+                    f"- Capacidad de campo: {datos_suelo.get('capacidad_campo', 0):.1f} %",
+                    f"- Profundidad: {datos_suelo.get('profundidad', 0):.0f} cm",
+                    f"- Fuente: {datos_suelo.get('fuente', 'N/A')}"
+                ])
+                doc.add_paragraph(suelo_texto)
+
+            # Mapa
+            if mapa_imagen:
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_img:
+                    tmp_img.write(mapa_imagen.getvalue())
+                    tmp_img.flush()
+                    doc.add_picture(tmp_img.name, width=Inches(6))
+                    os.unlink(tmp_img.name)
+
+            # Resumen estadístico
+            doc.add_heading('Resumen Estadístico', level=1)
+            biomasa_prom = gdf_analizado['biomasa_disponible_kg_ms_ha'].mean()
+            ev_total = gdf_analizado['ev_soportable'].sum()
+            dias_prom = gdf_analizado['dias_permanencia'].mean()
+            doc.add_paragraph(f"- Biomasa promedio: {biomasa_prom:.0f} kg/ha")
+            doc.add_paragraph(f"- EV total soportable: {ev_total:.1f}")
+            doc.add_paragraph(f"- Días de permanencia promedio: {dias_prom:.1f}")
+
+            # Guardar en buffer
+            docx_buffer = io.BytesIO()
+            doc.save(docx_buffer)
+            docx_buffer.seek(0)
+        except Exception as e:
+            st.error(f"❌ Error generando DOCX: {e}")
+
+    # === PDF ===
+    if FPDF_AVAILABLE:
+        try:
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.set_auto_page_break(auto=True, margin=15)
+            pdf.set_font("Arial", "B", 16)
+            pdf.cell(0, 10, "Informe Técnico: Análisis Forrajero Avanzado", ln=True, align='C')
+            pdf.ln(10)
+            pdf.set_font("Arial", "", 12)
+            pdf.cell(0, 10, f"Tipo de pastura: {tipo_pastura}", ln=True)
+            pdf.cell(0, 10, f"Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=True)
+            pdf.ln(5)
+
+            if datos_clima:
+                pdf.set_font("Arial", "B", 14)
+                pdf.cell(0, 10, "Datos Climáticos (NASA POWER)", ln=True)
+                pdf.set_font("Arial", "", 12)
+                for linea in [
+                    f"- Precipitación total: {datos_clima.get('precipitacion_total', 0):.1f} mm",
+                    f"- Precipitación promedio: {datos_clima.get('precipitacion_promedio', 0):.1f} mm/día",
+                    f"- Temperatura máxima: {datos_clima.get('temp_max_promedio', 0):.1f} °C",
+                    f"- Temperatura mínima: {datos_clima.get('temp_min_promedio', 0):.1f} °C",
+                    f"- Evapotranspiración (ET0): {datos_clima.get('et0_promedio', 0):.1f} mm/día",
+                    f"- Días con lluvia: {datos_clima.get('dias_lluvia', 0)}",
+                    f"- Balance hídrico: {datos_clima.get('balance_hidrico', 0):.1f} mm"
+                ]:
+                    pdf.cell(0, 8, linea, ln=True)
+
+            if datos_suelo:
+                pdf.set_font("Arial", "B", 14)
+                pdf.cell(0, 10, "Datos de Suelo", ln=True)
+                pdf.set_font("Arial", "", 12)
+                for linea in [
+                    f"- Textura: {datos_suelo.get('textura', 'N/A')}",
+                    f"- Materia orgánica: {datos_suelo.get('materia_organica', 0):.1f} %",
+                    f"- pH: {datos_suelo.get('ph', 0):.1f}",
+                    f"- Capacidad de campo: {datos_suelo.get('capacidad_campo', 0):.1f} %",
+                    f"- Profundidad: {datos_suelo.get('profundidad', 0):.0f} cm",
+                    f"- Fuente: {datos_suelo.get('fuente', 'N/A')}"
+                ]:
+                    pdf.cell(0, 8, linea, ln=True)
+
+            # Resumen numérico
+            pdf.set_font("Arial", "B", 14)
+            pdf.cell(0, 10, "Resumen Estadístico", ln=True)
+            pdf.set_font("Arial", "", 12)
+            biomasa_prom = gdf_analizado['biomasa_disponible_kg_ms_ha'].mean()
+            ev_total = gdf_analizado['ev_soportable'].sum()
+            dias_prom = gdf_analizado['dias_permanencia'].mean()
+            pdf.cell(0, 8, f"- Biomasa promedio: {biomasa_prom:.0f} kg/ha", ln=True)
+            pdf.cell(0, 8, f"- EV total soportable: {ev_total:.1f}", ln=True)
+            pdf.cell(0, 8, f"- Días de permanencia promedio: {dias_prom:.1f}", ln=True)
+
+            pdf_buffer = io.BytesIO()
+            pdf_output = pdf.output(dest='S')
+            pdf_buffer.write(pdf_output.encode('latin-1'))
+            pdf_buffer.seek(0)
+        except Exception as e:
+            st.error(f"❌ Error generando PDF: {e}")
+
+    return docx_buffer, pdf_buffer
+
+# -----------------------
 # FUNCIÓN PRINCIPAL DE ANÁLISIS
 # -----------------------
 def ejecutar_analisis_avanzado(gdf_sub, tipo_pastura, fuente_satelital, fecha_imagen, nubes_max,
                                umbral_ndvi_minimo, umbral_ndvi_optimo, sensibilidad_suelo,
                                umbral_estres_hidrico, factor_seguridad, tasa_crecimiento_lluvia,
-                               usar_clima=True, usar_suelo=True, fecha_inicio_clima=None, fecha_fin_clima=None):
+                               usar_clima=True, usar_suelo=True, usar_dron=False,
+                               fecha_inicio_clima=None, fecha_fin_clima=None):
     try:
         datos_clima_global = None
         datos_suelo_global = None
@@ -1098,10 +1297,10 @@ def ejecutar_analisis_avanzado(gdf_sub, tipo_pastura, fuente_satelital, fecha_im
         for idx, row in gdf_sub.iterrows():
             id_subLote = row.get('id_subLote', idx + 1)
             ndvi, evi, savi, bsi, ndbi, msavi2, gndvi, ndmi = simular_indices_avanzados(
-                id_subLote, 0.5, 0.5, fuente_satelital, datos_clima_global
+                id_subLote, 0.5, 0.5, fuente_satelital, datos_clima_global, usar_dron
             )
             categoria, cobertura = analizador.clasificar_vegetacion_avanzada(
-                ndvi, evi, savi, bsi, ndbi, msavi2, datos_clima_global
+                ndvi, evi, savi, bsi, ndbi, msavi2, datos_clima_global, usar_dron
             )
             biomasa_ms_ha, crecimiento_diario, calidad, biomasa_disponible = analizador.calcular_biomasa_avanzada(
                 ndvi, evi, savi, categoria, cobertura, params, datos_clima_global, datos_suelo_global
@@ -1195,7 +1394,7 @@ st.markdown("---")
 st.markdown("### 🚀 Ejecutar análisis avanzado")
 if st.session_state.gdf_cargado is not None:
     if st.button("🚀 Ejecutar Análisis Forrajero Avanzado", type="primary"):
-        with st.spinner("Ejecutando análisis avanzado con clima y suelo..."):
+        with st.spinner("Ejecutando análisis avanzado con clima, suelo y dron..."):
             try:
                 gdf_input = st.session_state.gdf_cargado.copy()
                 gdf_sub = dividir_potrero_en_subLotes(gdf_input, n_divisiones)
@@ -1209,7 +1408,7 @@ if st.session_state.gdf_cargado is not None:
                         gdf_sub, tipo_pastura, fuente_satelital, fecha_imagen, nubes_max,
                         umbral_ndvi_minimo, umbral_ndvi_optimo, sensibilidad_suelo,
                         umbral_estres_hidrico, factor_seguridad, tasa_crecimiento_lluvia,
-                        usar_clima, usar_suelo, fecha_inicio_clima, fecha_fin_clima
+                        usar_clima, usar_suelo, usar_dron, fecha_inicio_clima, fecha_fin_clima
                     )
                     if not resultados:
                         st.error("No se pudieron calcular índices.")
@@ -1235,6 +1434,13 @@ if st.session_state.gdf_cargado is not None:
                         if mapa_buf is not None:
                             st.image(mapa_buf, use_column_width=True, caption="Mapa de análisis avanzado")
                             st.session_state.mapa_detallado_bytes = mapa_buf
+
+                        # Generar informes
+                        docx_buf, pdf_buf = generar_informe_completo(
+                            gdf_sub, tipo_pastura, datos_clima, datos_suelo, mapa_buf
+                        )
+                        st.session_state.docx_buffer = docx_buf
+                        st.session_state.pdf_buffer = pdf_buf
 
                         st.markdown("---")
                         st.markdown("### 📊 RESUMEN DE DATOS")
@@ -1315,6 +1521,27 @@ if st.session_state.gdf_cargado is not None:
                         except Exception as e:
                             st.error(f"Error exportando CSV: {e}")
 
+                        # Botones de descarga de informes
+                        st.markdown("---")
+                        st.markdown("### 📥 DESCARGAR INFORMES")
+                        col_docx, col_pdf = st.columns(2)
+                        with col_docx:
+                            if st.session_state.docx_buffer:
+                                st.download_button(
+                                    "📄 Descargar Informe DOCX",
+                                    st.session_state.docx_buffer,
+                                    f"informe_{tipo_pastura}_{datetime.now().strftime('%Y%m%d')}.docx",
+                                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                )
+                        with col_pdf:
+                            if st.session_state.pdf_buffer:
+                                st.download_button(
+                                    "🖨️ Descargar Informe PDF",
+                                    st.session_state.pdf_buffer,
+                                    f"informe_{tipo_pastura}_{datetime.now().strftime('%Y%m%d')}.pdf",
+                                    "application/pdf"
+                                )
+
                         st.markdown("---")
                         st.markdown("### 📋 TABLA DE RESULTADOS")
                         columnas_detalle = ['id_subLote', 'area_ha', 'tipo_superficie', 'ndvi',
@@ -1325,11 +1552,6 @@ if st.session_state.gdf_cargado is not None:
                         df_show.columns = [c.replace('_', ' ').title() for c in df_show.columns]
                         st.dataframe(df_show, use_container_width=True, height=400)
 
-                        if DOCX_AVAILABLE:
-                            st.info("📄 Para generar el informe DOCX avanzado, necesitamos implementar la función específica.")
-                            st.info("La función de generación de informe está disponible en el código completo.")
-                        else:
-                            st.warning("python-docx no está instalado. Ejecutá: pip install python-docx")
                         st.session_state.analisis_completado = True
             except Exception as e:
                 st.error(f"❌ Error ejecutando análisis: {e}")
@@ -1364,6 +1586,11 @@ with st.expander("ℹ️ Acerca de los datos utilizados"):
 - **Factores considerados**: Clima, suelo, tipo de pastura
 - **Parámetros ajustables**: Umbrales, factores de seguridad
 - **Salidas**: Biomasa, EV soportable, días de permanencia, estrés hídrico
+
+#### 🚁 IMÁGENES DE DRON
+- **Soporte**: Carga manual de GeoTIFF/PNG
+- **Simulación**: Alta resolución con mayor variabilidad espacial
+- **Futuro**: Integración con APIs de plataformas de dron (DroneDeploy, Pix4D, etc.)
 """)
 
 with st.expander("🎯 Recomendaciones de uso"):
@@ -1374,6 +1601,7 @@ with st.expander("🎯 Recomendaciones de uso"):
 3. **Ajustar parámetros** según conocimiento local
 4. **Usar datos climáticos** para períodos relevantes
 5. **Verificar datos de suelo** con observaciones de campo
+6. **Complementar con imágenes de dron** para alta resolución
 
 #### INTERPRETACIÓN DE RESULTADOS:
 - **Biomasa < 600 kg/ha**: Condiciones críticas
@@ -1387,4 +1615,4 @@ with st.expander("🎯 Recomendaciones de uso"):
 
 st.markdown("---")
 st.markdown("**Desarrollado por** 🚀 **PRV - Predicción y Recomendación de Variables**")
-st.markdown("*Sistema integrado de análisis forrajero con datos climáticos y de suelo*")
+st.markdown("*Sistema integrado de análisis forrajero con datos climáticos, de suelo y dron*")
