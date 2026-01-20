@@ -16,7 +16,8 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.colors import LinearSegmentedColormap
 import io
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, MultiPolygon
+from shapely.ops import unary_union
 import math
 import base64
 import streamlit.components.v1 as components
@@ -117,20 +118,29 @@ with st.sidebar:
 
     st.subheader("🎯 División de Potrero")
     n_divisiones = st.slider("Número de sub-lotes:", min_value=4, max_value=64, value=24)
+    
+    st.subheader("🔄 Opciones de Unión de Polígonos")
+    unir_poligonos = st.checkbox(
+        "Unir todos los polígonos en uno solo", 
+        value=True,
+        help="Si está activado, todos los polígonos del archivo se unirán en un solo potrero. Si está desactivado, se analizarán por separado."
+    )
 
     st.subheader("📤 Subir Lote")
     tipo_archivo = st.radio(
         "Formato del archivo:",
-        ["Shapefile (ZIP)", "KML"],
+        ["Shapefile (ZIP)", "KML", "KMZ"],
         horizontal=True
     )
     if tipo_archivo == "Shapefile (ZIP)":
         uploaded_file = st.file_uploader("Subir ZIP con shapefile del potrero", type=['zip'])
-    else:
+    elif tipo_archivo == "KML":
         uploaded_file = st.file_uploader("Subir archivo KML del potrero", type=['kml'])
+    else:  # KMZ
+        uploaded_file = st.file_uploader("Subir archivo KMZ del potrero", type=['kmz'])
 
 # -----------------------
-# FUNCIONES DE CARGA
+# FUNCIONES DE CARGA Y PROCESAMIENTO
 # -----------------------
 def cargar_shapefile_desde_zip(uploaded_zip):
     try:
@@ -168,6 +178,95 @@ def cargar_kml(uploaded_kml):
     except Exception as e:
         st.error(f"❌ Error cargando KML: {e}")
         return None
+
+def cargar_kmz(uploaded_kmz):
+    """
+    Carga un archivo KMZ (formato comprimido de KML)
+    """
+    try:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            # Guardar el archivo KMZ
+            kmz_path = os.path.join(tmp_dir, "upload.kmz")
+            with open(kmz_path, "wb") as f:
+                f.write(uploaded_kmz.getvalue())
+            
+            # Descomprimir el KMZ (es un ZIP)
+            with zipfile.ZipFile(kmz_path, 'r') as zip_ref:
+                zip_ref.extractall(tmp_dir)
+            
+            # Buscar archivos KML dentro del KMZ
+            kml_files = []
+            for root, dirs, files in os.walk(tmp_dir):
+                for file in files:
+                    if file.lower().endswith('.kml'):
+                        kml_files.append(os.path.join(root, file))
+            
+            if not kml_files:
+                st.error("❌ No se encontró archivo .kml en el KMZ")
+                return None
+            
+            # Cargar el primer KML encontrado (generalmente hay solo uno)
+            kml_path = kml_files[0]
+            gdf = gpd.read_file(kml_path, driver='KML')
+            
+            if not gdf.empty and gdf.crs is None:
+                gdf.set_crs(epsg=4326, inplace=True, allow_override=True)
+            
+            return gdf
+            
+    except Exception as e:
+        st.error(f"❌ Error cargando KMZ: {e}")
+        return None
+
+def unir_poligonos_gdf(gdf):
+    """
+    Une todos los polígonos de un GeoDataFrame en un solo polígono o multipolígono.
+    """
+    try:
+        if len(gdf) <= 1:
+            return gdf
+        
+        # Unir todas las geometrías
+        geometria_unida = unary_union(gdf.geometry)
+        
+        # Crear un nuevo GeoDataFrame con la geometría unida
+        if isinstance(geometria_unida, (Polygon, MultiPolygon)):
+            nuevo_gdf = gpd.GeoDataFrame(geometry=[geometria_unida], crs=gdf.crs)
+            return nuevo_gdf
+        else:
+            st.warning("⚠️ La unión de polígonos no produjo una geometría válida.")
+            return gdf
+            
+    except Exception as e:
+        st.error(f"❌ Error uniendo polígonos: {e}")
+        return gdf
+
+def procesar_y_unir_poligonos(gdf, unir=True):
+    """
+    Procesa el GeoDataFrame: si unir=True, une todos los polígonos.
+    También maneja multipolígonos.
+    """
+    if gdf is None or gdf.empty:
+        return gdf
+    
+    # Contar polígonos originales
+    n_poligonos_original = len(gdf)
+    
+    # Si no hay que unir, devolver el gdf original
+    if not unir:
+        return gdf
+    
+    # Si hay que unir, proceder con la unión
+    gdf_unido = unir_poligonos_gdf(gdf)
+    
+    n_poligonos_final = len(gdf_unido)
+    
+    if n_poligonos_final == 1:
+        st.success(f"✅ {n_poligonos_original} polígonos unidos en 1 potrero")
+    elif n_poligonos_final < n_poligonos_original:
+        st.info(f"ℹ️ {n_poligonos_original} polígonos reducidos a {n_poligonos_final} potreros")
+    
+    return gdf_unido
 
 # -----------------------
 # UTILIDADES FORRAJERAS
@@ -213,32 +312,55 @@ def calcular_superficie(gdf):
 def dividir_potrero_en_subLotes(gdf, n_zonas):
     if gdf is None or len(gdf) == 0:
         return gdf
-    potrero = gdf.iloc[0].geometry
-    minx, miny, maxx, maxy = potrero.bounds
-    sub_poligonos = []
-    n_cols = math.ceil(math.sqrt(n_zonas))
-    n_rows = math.ceil(n_zonas / n_cols)
-    width = (maxx - minx) / n_cols
-    height = (maxy - miny) / n_rows
-    for i in range(n_rows):
-        for j in range(n_cols):
-            if len(sub_poligonos) >= n_zonas:
-                break
-            cell_minx = minx + j * width
-            cell_maxx = minx + (j + 1) * width
-            cell_miny = miny + i * height
-            cell_maxy = miny + (i + 1) * height
-            cell = Polygon([
-                (cell_minx, cell_miny),
-                (cell_maxx, cell_miny),
-                (cell_maxx, cell_maxy),
-                (cell_minx, cell_maxy)
-            ])
-            inter = potrero.intersection(cell)
-            if not inter.is_empty and inter.area > 0:
-                sub_poligonos.append(inter)
-    if sub_poligonos:
-        nuevo = gpd.GeoDataFrame({'id_subLote': range(1, len(sub_poligonos)+1), 'geometry': sub_poligonos})
+    
+    # Manejar múltiples polígonos (potreros)
+    lista_potreros = []
+    for idx, potrero_row in gdf.iterrows():
+        potrero = potrero_row.geometry
+        
+        # Si es un MultiPolygon, dividir cada polígono por separado
+        if isinstance(potrero, MultiPolygon):
+            polygons = list(potrero.geoms)
+        else:
+            polygons = [potrero]
+        
+        for poly_idx, polygon in enumerate(polygons):
+            minx, miny, maxx, maxy = polygon.bounds
+            sub_poligonos = []
+            n_cols = math.ceil(math.sqrt(n_zonas))
+            n_rows = math.ceil(n_zonas / n_cols)
+            width = (maxx - minx) / n_cols
+            height = (maxy - miny) / n_rows
+            
+            for i in range(n_rows):
+                for j in range(n_cols):
+                    if len(sub_poligonos) >= n_zonas:
+                        break
+                    cell_minx = minx + j * width
+                    cell_maxx = minx + (j + 1) * width
+                    cell_miny = miny + i * height
+                    cell_maxy = miny + (i + 1) * height
+                    cell = Polygon([
+                        (cell_minx, cell_miny),
+                        (cell_maxx, cell_miny),
+                        (cell_maxx, cell_maxy),
+                        (cell_minx, cell_maxy)
+                    ])
+                    inter = polygon.intersection(cell)
+                    if not inter.is_empty and inter.area > 0:
+                        sub_poligonos.append(inter)
+            
+            # Agregar con identificadores
+            for sub_idx, sub_poly in enumerate(sub_poligonos):
+                lista_potreros.append({
+                    'id_potrero': idx + 1,
+                    'id_subpoligono': poly_idx + 1,
+                    'id_subLote': len(lista_potreros) + 1,
+                    'geometry': sub_poly
+                })
+    
+    if lista_potreros:
+        nuevo = gpd.GeoDataFrame(lista_potreros)
         nuevo.crs = gdf.crs
         return nuevo
     return gdf
@@ -475,6 +597,11 @@ def generar_informe_forrajero_docx(gdf, tipo_pastura, peso_promedio, carga_anima
         doc.add_paragraph(f"Fuente de datos: {fuente_satelital}")
         doc.add_paragraph(f"Peso promedio animal: {peso_promedio} kg")
         doc.add_paragraph(f"Carga animal: {carga_animal} cabezas")
+        
+        # Información sobre polígonos
+        n_potreros = gdf['id_potrero'].nunique() if 'id_potrero' in gdf.columns else 1
+        doc.add_paragraph(f"Número de potreros analizados: {n_potreros}")
+        
         doc.add_paragraph("")
 
         # Estadísticas
@@ -627,25 +754,48 @@ if uploaded_file is not None:
         try:
             if tipo_archivo == "Shapefile (ZIP)":
                 gdf_loaded = cargar_shapefile_desde_zip(uploaded_file)
-            else:
+            elif tipo_archivo == "KML":
                 gdf_loaded = cargar_kml(uploaded_file)
+            else:  # KMZ
+                gdf_loaded = cargar_kmz(uploaded_file)
+            
             if gdf_loaded is not None and len(gdf_loaded) > 0:
-                st.session_state.gdf_cargado = gdf_loaded
-                area_total = calcular_superficie(gdf_loaded).sum()
-                st.success("✅ Archivo cargado correctamente.")
-                col1,col2,col3,col4 = st.columns(4)
-                with col1: st.metric("Polígonos", len(gdf_loaded))
-                with col2: st.metric("Área total (ha)", f"{area_total:.2f}")
-                with col3: st.metric("Tipo pastura", tipo_pastura)
-                with col4: st.metric("Fuente datos", fuente_satelital)
-                if FOLIUM_AVAILABLE:
-                    st.markdown("---")
-                    st.markdown("### 🗺️ Visualización del potrero (interactiva)")
-                    m = crear_mapa_interactivo(gdf_loaded, base_map_option)
-                    if m:
-                        st_folium(m, width=1200, height=500)
+                # Mostrar información inicial sobre los polígonos
+                n_poligonos_original = len(gdf_loaded)
+                st.info(f"📊 Se cargaron {n_poligonos_original} polígonos")
+                
+                # Procesar y unir polígonos según la configuración del usuario
+                gdf_procesado = procesar_y_unir_poligonos(gdf_loaded, unir_poligonos)
+                
+                if gdf_procesado is not None and len(gdf_procesado) > 0:
+                    st.session_state.gdf_cargado = gdf_procesado
+                    area_total = calcular_superficie(gdf_procesado).sum()
+                    st.success("✅ Archivo cargado y procesado correctamente.")
+                    
+                    # Mostrar estadísticas
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1: 
+                        st.metric("Polígonos", len(gdf_procesado))
+                        if n_poligonos_original > 1:
+                            st.caption(f"(Original: {n_poligonos_original})")
+                    with col2: st.metric("Área total (ha)", f"{area_total:.2f}")
+                    with col3: st.metric("Tipo pastura", tipo_pastura)
+                    with col4: st.metric("Fuente datos", fuente_satelital)
+                    
+                    # Mostrar información adicional si hay múltiples potreros
+                    if len(gdf_procesado) > 1:
+                        st.warning(f"⚠️ Se analizarán {len(gdf_procesado)} potreros por separado. Cada uno se dividirá en {n_divisiones} sub-lotes.")
+                    
+                    if FOLIUM_AVAILABLE:
+                        st.markdown("---")
+                        st.markdown("### 🗺️ Visualización del potrero (interactiva)")
+                        m = crear_mapa_interactivo(gdf_procesado, base_map_option)
+                        if m:
+                            st_folium(m, width=1200, height=500)
+                    else:
+                        st.info("Instalá folium y streamlit-folium para ver el mapa interactivo: pip install folium streamlit-folium")
                 else:
-                    st.info("Instalá folium y streamlit-folium para ver el mapa interactivo: pip install folium streamlit-folium")
+                    st.info("Carga completada pero no se detectaron geometrías válidas después del procesamiento.")
             else:
                 st.info("Carga completada pero no se detectaron geometrías válidas.")
         except Exception as e:
@@ -658,12 +808,24 @@ if st.session_state.gdf_cargado is not None:
         with st.spinner("Ejecutando análisis..."):
             try:
                 gdf_input = st.session_state.gdf_cargado.copy()
+                
+                # Si hay múltiples potreros, mostramos información
+                n_potreros = len(gdf_input)
+                if n_potreros > 1:
+                    st.info(f"🔀 Analizando {n_potreros} potreros por separado")
+                
+                # Dividir cada potrero en sub-lotes
                 gdf_sub = dividir_potrero_en_subLotes(gdf_input, n_divisiones)
+                
                 if gdf_sub is None or len(gdf_sub)==0:
                     st.error("No se pudo dividir el potrero en sub-lotes.")
                 else:
                     areas = calcular_superficie(gdf_sub)
                     gdf_sub['area_ha'] = areas.values
+                    
+                    # Mostrar información sobre la división
+                    st.success(f"✅ División completada: {len(gdf_sub)} sub-lotes creados")
+                    
                     indices = calcular_indices_forrajeros_realista(gdf_sub, tipo_pastura, fuente_satelital, fecha_imagen, nubes_max,
                                                                   umbral_ndvi_minimo, umbral_ndvi_optimo, sensibilidad_suelo)
                     if not indices:
@@ -684,10 +846,13 @@ if st.session_state.gdf_cargado is not None:
                                 except Exception:
                                     pass
                         st.session_state.gdf_analizado = gdf_sub
+                        
+                        # Crear y mostrar mapa detallado
                         mapa_buf = crear_mapa_detallado_vegetacion(gdf_sub, tipo_pastura)
                         if mapa_buf is not None:
                             st.image(mapa_buf, use_column_width=True)
                             st.session_state.mapa_detallado_bytes = mapa_buf
+                        
                         # Exportes: GeoJSON y CSV
                         try:
                             geojson_str = gdf_sub.to_json()
@@ -703,6 +868,7 @@ if st.session_state.gdf_cargado is not None:
                                                "text/csv")
                         except Exception as e:
                             st.error(f"Error exportando CSV: {e}")
+                        
                         # Mostrar tabla
                         try:
                             columnas_detalle = ['id_subLote', 'area_ha', 'tipo_superficie', 'ndvi', 'cobertura_vegetal',
@@ -713,6 +879,7 @@ if st.session_state.gdf_cargado is not None:
                             st.dataframe(df_show, use_container_width=True)
                         except Exception:
                             st.info("No hay datos tabulares para mostrar.")
+                        
                         # Generar informe DOCX automáticamente
                         if DOCX_AVAILABLE:
                             docx_buf = generar_informe_forrajero_docx(gdf_sub, tipo_pastura, peso_promedio, carga_animal, fecha_imagen)
@@ -744,10 +911,12 @@ if st.session_state.gdf_cargado is not None:
                 import traceback
                 st.error(traceback.format_exc())
 else:
-    st.info("Carga un archivo (ZIP con shapefile o KML) en la barra lateral para comenzar.")
+    st.info("Carga un archivo (ZIP con shapefile, KML o KMZ) en la barra lateral para comenzar.")
 
 # Mensaje final / instrucciones
 st.markdown("---")
 st.markdown("**Notas:**")
 st.markdown("- Si la descarga automática no inicia por políticas del navegador, usá el enlace que aparece debajo del mensaje de éxito para descargar el .docx manualmente.")
 st.markdown("- Para convertir a PDF, abrí el .docx y guardá como PDF o usá tu conversor preferido.")
+st.markdown("- **Unión de polígonos**: Si activás la opción 'Unir todos los polígonos en uno solo', todos los polígonos del archivo se combinarán en un único potrero para el análisis.")
+st.markdown("- **Análisis múltiple**: Si desactivás la unión, cada polígono se analizará como un potrero separado, y cada uno se dividirá en sub-lotes individualmente.")
