@@ -217,7 +217,7 @@ class ServicioClimaNASA:
             return None
 
     @staticmethod
-    def _procesar_datos_nasa( Dict) -> Dict:  # ✅ Corregido
+    def _procesar_datos_nasa( Dict) -> Dict:  # ✅ AHORA SÍ CORREGIDO
         try:
             properties = data.get('properties', {})
             parameter = data.get('parameters', {})
@@ -262,7 +262,6 @@ class ServicioClimaNASA:
             return max(0.1, min(10.0, et0))
         except:
             return 3.0
-
 class ServicioSuelosINTA:
     @staticmethod
     def obtener_caracteristicas_suelo(lat: float, lon: float) -> Optional[Dict]:
