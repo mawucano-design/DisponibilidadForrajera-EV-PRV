@@ -561,23 +561,47 @@ def crear_mapa_interactivo_con_zoom(gdf, base_map_name="ESRI Satélite"):
         else:
             folium.TileLayer('OpenStreetMap', attr='OpenStreetMap', name='OpenStreetMap').add_to(m)
         
+        # Preparar datos para el tooltip
+        fields = []
+        aliases = []
+        
+        # Verificar qué campos están disponibles
+        if 'area_ha' in gdf.columns:
+            fields.append('area_ha')
+            aliases.append('Área (ha):')
+        
         # Agregar polígono con estilo
-        folium.GeoJson(
-            gdf.__geo_interface__, 
-            name='Potrero',
-            style_function=lambda feat: {
-                'fillColor': '#3186cc',
-                'color': '#3186cc',
-                'weight': 3,
-                'fillOpacity': 0.3,
-                'dashArray': '5, 5'
-            },
-            tooltip=folium.GeoJsonTooltip(
-                fields=['area_ha'] if 'area_ha' in gdf.columns else [],
-                aliases=['Área (ha):'],
-                localize=True
-            )
-        ).add_to(m)
+        if fields:
+            # Solo crear tooltip si hay campos disponibles
+            folium.GeoJson(
+                gdf.__geo_interface__, 
+                name='Potrero',
+                style_function=lambda feat: {
+                    'fillColor': '#3186cc',
+                    'color': '#3186cc',
+                    'weight': 3,
+                    'fillOpacity': 0.3,
+                    'dashArray': '5, 5'
+                },
+                tooltip=folium.GeoJsonTooltip(
+                    fields=fields,
+                    aliases=aliases,
+                    localize=True
+                )
+            ).add_to(m)
+        else:
+            # Sin tooltip
+            folium.GeoJson(
+                gdf.__geo_interface__, 
+                name='Potrero',
+                style_function=lambda feat: {
+                    'fillColor': '#3186cc',
+                    'color': '#3186cc',
+                    'weight': 3,
+                    'fillOpacity': 0.3,
+                    'dashArray': '5, 5'
+                }
+            ).add_to(m)
         
         # Ajustar el zoom para que se vea todo el polígono
         if len(gdf) > 0:
@@ -865,7 +889,7 @@ PARAMETROS_FORRAJEROS_AVANZADOS = {
     },
     'MEZCLA_LEGUMINOSAS': {
         'MS_POR_HA_OPTIMO': 4200, 
-        'CRECIMIENTO_DIARio': 85, 
+        'CRECIMIENTO_DIARIO': 85, 
         'CONSUMO_PORCENTAJE_PESO': 0.027,
         'TASA_UTILIZACION_RECOMENDADA': 0.58,
         'PROTEINA': 17.0,
@@ -1357,7 +1381,12 @@ if uploaded_file is not None:
                 
                 if gdf_procesado is not None and len(gdf_procesado) > 0:
                     st.session_state.gdf_cargado = gdf_procesado
-                    area_total = calcular_superficie(gdf_procesado).sum()
+                    
+                    # Calcular superficie
+                    areas = calcular_superficie(gdf_procesado)
+                    gdf_procesado['area_ha'] = areas.values
+                    area_total = gdf_procesado['area_ha'].sum()
+                    
                     st.success("✅ Archivo cargado y procesado correctamente.")
                     
                     # Mostrar información del área
