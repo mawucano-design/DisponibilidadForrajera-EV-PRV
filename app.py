@@ -1,7 +1,6 @@
 # app.py
 """
 App completa mejorada: análisis forrajero + clima NASA POWER + suelos INTA
-Con ESRI Satélite como mapa base por defecto e informe completo
 """
 
 import streamlit as st
@@ -31,9 +30,6 @@ warnings.filterwarnings('ignore')
 try:
     from docx import Document
     from docx.shared import Inches, Pt, RGBColor
-    from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from docx.enum.table import WD_TABLE_ALIGNMENT
-    from docx.enum.style import WD_STYLE_TYPE
     DOCX_AVAILABLE = True
 except Exception:
     DOCX_AVAILABLE = False
@@ -56,6 +52,8 @@ os.environ['SHAPE_RESTORE_SHX'] = 'YES'
 
 # ---------- APIs Externas ----------
 NASA_POWER_BASE_URL = "https://power.larc.nasa.gov/api/temporal/daily/point"
+# Cambiamos la URL del INTA a una más confiable (servicio WMS)
+INTA_SUELOS_WMS_URL = "https://geoserver.inta.gob.ar/geoserver/wms"
 INTA_SUELOS_WFS_URL = "https://geoserver.inta.gob.ar/geoserver/ows"
 
 # ---------- Parámetros por defecto ----------
@@ -70,7 +68,7 @@ umbral_ndvi_pastura = 0.6
 for key in [
     'gdf_cargado', 'gdf_analizado', 'mapa_detallado_bytes',
     'docx_buffer', 'analisis_completado', 'html_download_injected',
-    'datos_clima', 'datos_suelo', 'indices_avanzados', 'dashboard_metrics'
+    'datos_clima', 'datos_suelo', 'indices_avanzados'
 ]:
     if key not in st.session_state:
         st.session_state[key] = None
@@ -81,17 +79,15 @@ for key in [
 with st.sidebar:
     st.header("⚙️ Configuración Avanzada")
     
-    # Forzar ESRI Satélite como única opción de mapa base
-    st.subheader("🗺️ Mapa Base")
-    st.info("ESRI Satélite (configuración fija)")
-    base_map_option = "ESRI Satélite"
-    
-    # Ocultar selección de mapa base
-    # base_map_option = st.selectbox(
-    #     "Seleccionar mapa base:",
-    #     ["ESRI Satélite"],  # Solo ESRI disponible
-    #     index=0
-    # )
+    if FOLIUM_AVAILABLE:
+        st.subheader("🗺️ Mapa Base")
+        base_map_option = st.selectbox(
+            "Seleccionar mapa base:",
+            ["ESRI Satélite", "OpenStreetMap", "CartoDB Positron", "Topográfico"],
+            index=0
+        )
+    else:
+        base_map_option = "ESRI Satélite"
 
     st.subheader("🛰️ Fuente de Datos Satelitales")
     fuente_satelital = st.selectbox(
@@ -716,10 +712,10 @@ def procesar_y_unir_poligonos(gdf, unir=True):
     return gdf_unido
 
 # -----------------------
-# FUNCIONES DE MAPA MEJORADAS CON ESRI SATÉLITE
+# FUNCIONES DE MAPA MEJORADAS CON ESRI
 # -----------------------
 def crear_mapa_interactivo_esri(gdf, base_map_name="ESRI Satélite"):
-    """Crea mapa interactivo con ESRI Satélite como base y zoom automático al polígono"""
+    """Crea mapa interactivo con ESRI como base y zoom automático al polígono"""
     if not FOLIUM_AVAILABLE or gdf is None or len(gdf) == 0:
         return None
     
@@ -737,16 +733,44 @@ def crear_mapa_interactivo_esri(gdf, base_map_name="ESRI Satélite"):
             control_size=30
         )
         
-        # AGREGAR EXCLUSIVAMENTE ESRI SATELLITE COMO BASE
-        esri_imagery = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
-        folium.TileLayer(
-            esri_imagery, 
-            attr='Esri, Maxar, Earthstar Geographics, and the GIS User Community',
-            name='ESRI Satellite',
-            overlay=False,
-            max_zoom=19,
-            control=False  # No mostrar en control de capas
-        ).add_to(m)
+        # Agregar capa base según selección con mejores opciones ESRI
+        if base_map_name == "ESRI Satélite":
+            # ESRI World Imagery (mejor calidad)
+            esri_imagery = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+            folium.TileLayer(
+                esri_imagery, 
+                attr='Esri, Maxar, Earthstar Geographics, and the GIS User Community',
+                name='ESRI Satellite',
+                overlay=False,
+                max_zoom=19
+            ).add_to(m)
+            
+            # También agregar ESRI Topo como alternativa
+            esri_topo = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}'
+            folium.TileLayer(
+                esri_topo,
+                attr='Esri',
+                name='ESRI Topográfico',
+                overlay=False,
+                max_zoom=19
+            ).add_to(m)
+            
+        elif base_map_name == "OpenStreetMap":
+            folium.TileLayer('OpenStreetMap', attr='OpenStreetMap', name='OpenStreetMap').add_to(m)
+        elif base_map_name == "CartoDB Positron":
+            folium.TileLayer('CartoDB positron', attr='CartoDB', name='CartoDB Positron').add_to(m)
+        elif base_map_name == "Topográfico":
+            folium.TileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', 
+                           attr='OpenTopoMap', name='Topográfico').add_to(m)
+        else:
+            # Por defecto ESRI
+            esri_imagery = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+            folium.TileLayer(
+                esri_imagery, 
+                attr='Esri',
+                name='ESRI Satellite',
+                overlay=False
+            ).add_to(m)
         
         # Preparar datos para el tooltip
         fields = []
@@ -798,7 +822,8 @@ def crear_mapa_interactivo_esri(gdf, base_map_name="ESRI Satélite"):
         if len(gdf) > 0:
             m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]], padding=(50, 50))
         
-        # NO AGREGAR CONTROL DE CAPAS YA QUE SOLO HAY UNA CAPA BASE
+        # Agregar control de capas
+        folium.LayerControl(position='topright', collapsed=True).add_to(m)
         
         # Agregar marcador en el centroide con información
         folium.Marker(
@@ -1105,7 +1130,7 @@ PARAMETROS_FORRAJEROS_AVANZADOS = {
         'MS_POR_HA_OPTIMO': 4200, 
         'CRECIMIENTO_DIARIO': 85, 
         'CONSUMO_PORCENTAJE_PESO': 0.027,
-        'TASA_UTILIZACION_RECOMENDada': 0.58,
+        'TASA_UTILIZACION_RECOMENDADA': 0.58,
         'PROTEINA': 17.0,
         'FIBRA': 29.0,
         'REQUERIMIENTO_AGUA': 3.2
@@ -1565,19 +1590,15 @@ def crear_dashboard_resumen(gdf_analizado, datos_clima, datos_suelo, tipo_pastur
     for rec in recomendaciones:
         st.markdown(f"- {rec}")
     
-    resultado = {
+    return {
         'area_total': area_total,
         'biomasa_promedio': biomasa_promedio,
         'biomasa_total': biomasa_total,
         'ndvi_promedio': ndvi_promedio,
         'ev_total': ev_total,
         'dias_promedio': dias_promedio,
-        'estres_prom': estres_prom,
-        'recomendaciones': recomendaciones
+        'estres_prom': estres_prom
     }
-    
-    st.session_state.dashboard_metrics = resultado
-    return resultado
 
 # -----------------------
 # VISUALIZACIÓN MEJORADA
@@ -1646,7 +1667,7 @@ def crear_mapa_detallado_avanzado(gdf_analizado, tipo_pastura, datos_clima=None,
                 c = row.geometry.centroid
                 ax3.text(c.x, c.y, f"{cobertura:.2f}", fontsize=6, ha='center', va='center')
             
-            ax3.set_title("Cobertura Vegetal", fontsize=12, fontweight='bold")
+            ax3.set_title("Cobertura Vegetal", fontsize=12, fontweight='bold')
         
         # 4. Información climática y de suelo (texto)
         ax4.axis('off')
@@ -1700,302 +1721,6 @@ def crear_mapa_detallado_avanzado(gdf_analizado, tipo_pastura, datos_clima=None,
     except Exception as e:
         st.error(f"❌ Error creando mapa avanzado: {e}")
         return None
-
-# -----------------------
-# GENERACIÓN DE INFORME COMPLETO EN WORD
-# -----------------------
-def generar_informe_completo_word(gdf_analizado, datos_clima, datos_suelo, tipo_pastura, 
-                                 carga_animal, peso_promedio, fecha_imagen, 
-                                 umbral_ndvi_minimo, umbral_ndvi_optimo,
-                                 n_divisiones, mapa_bytes=None):
-    """Genera un informe completo en formato Word con todos los datos del análisis"""
-    
-    if not DOCX_AVAILABLE:
-        st.error("python-docx no está instalado. Instálalo con: pip install python-docx")
-        return None
-    
-    try:
-        # Crear documento
-        doc = Document()
-        
-        # Estilos
-        styles = doc.styles
-        
-        # Título principal
-        title = doc.add_heading('INFORME COMPLETO DE ANÁLISIS FORRAJERO', 0)
-        title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        
-        # Subtítulo
-        subtitle = doc.add_paragraph()
-        subtitle.add_run(f'Tipo de Pastura: {tipo_pastura} | Fecha de Análisis: {datetime.now().strftime("%d/%m/%Y %H:%M")}')
-        subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        
-        doc.add_paragraph()  # Espacio
-        
-        # 1. RESUMEN EJECUTIVO
-        doc.add_heading('1. RESUMEN EJECUTIVO', level=1)
-        
-        # Calcular métricas para el resumen
-        area_total = gdf_analizado['area_ha'].sum()
-        biomasa_promedio = gdf_analizado['biomasa_disponible_kg_ms_ha'].mean()
-        biomasa_total = (gdf_analizado['biomasa_disponible_kg_ms_ha'] * gdf_analizado['area_ha']).sum()
-        ndvi_promedio = gdf_analizado['ndvi'].mean()
-        ev_total = gdf_analizado['ev_soportable'].sum()
-        dias_promedio = gdf_analizado['dias_permanencia'].mean()
-        
-        resumen_text = f"""
-        Este informe presenta los resultados del análisis forrajero avanzado realizado en un área de {area_total:.1f} hectáreas.
-        
-        Principales hallazgos:
-        • Biomasa promedio disponible: {biomasa_promedio:.0f} kg MS/ha
-        • Capacidad de carga total (EV): {ev_total:.1f} cabezas
-        • NDVI promedio: {ndvi_promedio:.3f}
-        • Días de permanencia promedio: {dias_promedio:.0f} días
-        • Tipo de pastura analizada: {tipo_pastura}
-        
-        El análisis incluye datos satelitales, climáticos y de suelo para una evaluación integral.
-        """
-        
-        doc.add_paragraph(resumen_text)
-        
-        # 2. DATOS DE CONFIGURACIÓN
-        doc.add_heading('2. CONFIGURACIÓN DEL ANÁLISIS', level=1)
-        
-        config_table = doc.add_table(rows=8, cols=2)
-        config_table.style = 'Light Grid Accent 1'
-        
-        config_data = [
-            ('Tipo de Pastura', tipo_pastura),
-            ('Fecha de Imagen Satelital', fecha_imagen.strftime('%d/%m/%Y')),
-            ('Número de Sub-lotes', str(n_divisiones)),
-            ('Umbral NDVI Mínimo', str(umbral_ndvi_minimo)),
-            ('Umbral NDVI Óptimo', str(umbral_ndvi_optimo)),
-            ('Carga Animal', f"{carga_animal} cabezas"),
-            ('Peso Promedio Animal', f"{peso_promedio} kg"),
-            ('Método de Análisis', 'Avanzado con clima y suelo')
-        ]
-        
-        for i, (param, valor) in enumerate(config_data):
-            row_cells = config_table.rows[i].cells
-            row_cells[0].text = param
-            row_cells[1].text = valor
-        
-        # 3. MÉTRICAS GLOBALES
-        doc.add_heading('3. MÉTRICAS GLOBALES', level=1)
-        
-        metricas_table = doc.add_table(rows=6, cols=2)
-        metricas_table.style = 'Light Grid Accent 1'
-        
-        metricas_data = [
-            ('Área Total Analizada', f"{area_total:.1f} ha"),
-            ('Biomasa Total Disponible', f"{biomasa_total:.0f} kg MS"),
-            ('Biomasa Promedio', f"{biomasa_promedio:.0f} kg MS/ha"),
-            ('NDVI Promedio', f"{ndvi_promedio:.3f}"),
-            ('EV Total Soportable', f"{ev_total:.1f} cabezas"),
-            ('EV por Hectárea', f"{(ev_total/area_total if area_total > 0 else 0):.2f} EV/ha")
-        ]
-        
-        for i, (metrica, valor) in enumerate(metricas_data):
-            row_cells = metricas_table.rows[i].cells
-            row_cells[0].text = metrica
-            row_cells[1].text = valor
-        
-        # 4. DISTRIBUCIÓN DE SUPERFICIES
-        doc.add_heading('4. DISTRIBUCIÓN DE SUPERFICIES', level=1)
-        
-        distribucion = gdf_analizado['tipo_superficie'].value_counts()
-        dist_table = doc.add_table(rows=len(distribucion)+1, cols=3)
-        dist_table.style = 'Light Grid Accent 1'
-        
-        # Encabezados
-        header_cells = dist_table.rows[0].cells
-        header_cells[0].text = 'Tipo de Superficie'
-        header_cells[1].text = 'Número de Sub-lotes'
-        header_cells[2].text = 'Porcentaje'
-        
-        # Datos
-        for i, (tipo, count) in enumerate(distribucion.items(), 1):
-            row_cells = dist_table.rows[i].cells
-            row_cells[0].text = tipo
-            row_cells[1].text = str(count)
-            row_cells[2].text = f"{(count/len(gdf_analizado)*100):.1f}%"
-        
-        # 5. DATOS CLIMÁTICOS
-        if datos_clima:
-            doc.add_heading('5. DATOS CLIMÁTICOS (NASA POWER)', level=1)
-            
-            clima_table = doc.add_table(rows=10, cols=2)
-            clima_table.style = 'Light Grid Accent 1'
-            
-            clima_data = [
-                ('Período Analizado', datos_clima.get('periodo', 'N/A')),
-                ('Precipitación Total', f"{datos_clima.get('precipitacion_total', 0):.1f} mm"),
-                ('Precipitación Promedio', f"{datos_clima.get('precipitacion_promedio', 0):.1f} mm/día"),
-                ('Temperatura Máx. Promedio', f"{datos_clima.get('temp_max_promedio', 0):.1f} °C"),
-                ('Temperatura Mín. Promedio', f"{datos_clima.get('temp_min_promedio', 0):.1f} °C"),
-                ('Evapotranspiración (ET0)', f"{datos_clima.get('et0_promedio', 0):.1f} mm/día"),
-                ('Días con Lluvia', str(datos_clima.get('dias_lluvia', 0))),
-                ('Déficit Hídrico', f"{datos_clima.get('deficit_hidrico', 0):.1f} mm"),
-                ('Balance Hídrico', f"{datos_clima.get('balance_hidrico', 0):.1f} mm"),
-                ('Fuente de Datos', datos_clima.get('fuente', 'NASA POWER'))
-            ]
-            
-            for i, (param, valor) in enumerate(clima_data):
-                row_cells = clima_table.rows[i].cells
-                row_cells[0].text = param
-                row_cells[1].text = valor
-        
-        # 6. DATOS DE SUELO
-        if datos_suelo:
-            doc.add_heading('6. DATOS DE SUELO', level=1)
-            
-            suelo_table = doc.add_table(rows=8, cols=2)
-            suelo_table.style = 'Light Grid Accent 1'
-            
-            suelo_data = [
-                ('Textura', datos_suelo.get('textura', 'N/A')),
-                ('Materia Orgánica', f"{datos_suelo.get('materia_organica', 0):.1f} %"),
-                ('pH', f"{datos_suelo.get('ph', 0):.1f}"),
-                ('Capacidad de Campo', f"{datos_suelo.get('capacidad_campo', 0):.1f} %"),
-                ('Profundidad', f"{datos_suelo.get('profundidad', 0):.0f} cm"),
-                ('Agua Almacenable', f"{datos_suelo.get('agua_almacenable', 0):.1f} mm"),
-                ('Índice de Fertilidad', f"{datos_suelo.get('indice_fertilidad', 5):.1f}/10"),
-                ('Fuente de Datos', datos_suelo.get('fuente', 'N/A'))
-            ]
-            
-            for i, (param, valor) in enumerate(suelo_data):
-                row_cells = suelo_table.rows[i].cells
-                row_cells[0].text = param
-                row_cells[1].text = valor
-        
-        # 7. RECOMENDACIONES
-        doc.add_heading('7. RECOMENDACIONES', level=1)
-        
-        if st.session_state.dashboard_metrics and 'recomendaciones' in st.session_state.dashboard_metrics:
-            recomendaciones = st.session_state.dashboard_metrics['recomendaciones']
-            
-            for rec in recomendaciones:
-                # Limpiar emojis para Word
-                rec_text = rec.replace('🔴', '').replace('🟡', '').replace('🟢', '').replace('✅', '').replace('💧', '').replace('⚡', '').replace('🐌', '').replace('📉', '').replace('📈', '')
-                p = doc.add_paragraph()
-                p.add_run('• ').bold = True
-                p.add_run(rec_text)
-        else:
-            # Generar recomendaciones básicas
-            recomendaciones_basicas = [
-                "Monitorear regularmente la biomasa disponible",
-                "Ajustar la carga animal según la disponibilidad forrajera",
-                "Considerar suplementación en períodos de escasez",
-                "Realizar análisis de suelo periódicamente",
-                "Planificar las rotaciones según los días de permanencia calculados"
-            ]
-            
-            for rec in recomendaciones_basicas:
-                p = doc.add_paragraph()
-                p.add_run('• ').bold = True
-                p.add_run(rec)
-        
-        # 8. TABLA DE RESULTADOS DETALLADOS
-        doc.add_heading('8. RESULTADOS DETALLADOS POR SUB-LOTE', level=1)
-        
-        # Seleccionar columnas importantes para el informe
-        columnas_informe = ['id_subLote', 'area_ha', 'tipo_superficie', 'ndvi', 
-                           'biomasa_disponible_kg_ms_ha', 'estres_hidrico', 
-                           'ev_ha', 'dias_permanencia']
-        
-        # Filtrar columnas que existen
-        columnas_existentes = [col for col in columnas_informe if col in gdf_analizado.columns]
-        df_informe = gdf_analizado[columnas_existentes].copy()
-        
-        # Limitar a los primeros 20 registros para no hacer la tabla muy larga
-        df_informe_mostrar = df_informe.head(20)
-        
-        # Crear tabla de resultados
-        resultados_table = doc.add_table(rows=len(df_informe_mostrar)+1, cols=len(columnas_existentes))
-        resultados_table.style = 'Light Grid Accent 1'
-        
-        # Encabezados
-        header_cells = resultados_table.rows[0].cells
-        for i, col in enumerate(columnas_existentes):
-            header_cells[i].text = col.replace('_', ' ').title()
-        
-        # Datos
-        for i, row in df_informe_mostrar.iterrows():
-            row_cells = resultados_table.rows[i+1].cells
-            for j, col in enumerate(columnas_existentes):
-                valor = row[col]
-                if isinstance(valor, (int, float)):
-                    if 'area' in col:
-                        row_cells[j].text = f"{valor:.2f}"
-                    elif 'ndvi' in col or 'estres' in col:
-                        row_cells[j].text = f"{valor:.3f}"
-                    elif 'biomasa' in col:
-                        row_cells[j].text = f"{valor:.0f}"
-                    elif 'ev' in col:
-                        row_cells[j].text = f"{valor:.2f}"
-                    elif 'dias' in col:
-                        row_cells[j].text = f"{valor:.1f}"
-                    else:
-                        row_cells[j].text = str(valor)
-                else:
-                    row_cells[j].text = str(valor)
-        
-        if len(df_informe) > 20:
-            doc.add_paragraph(f"... y {len(df_informe) - 20} sub-lotes más. Ver archivo CSV adjunto para todos los datos.")
-        
-        # 9. IMAGEN DEL MAPA (si está disponible)
-        if mapa_bytes:
-            doc.add_heading('9. MAPA DE ANÁLISIS', level=1)
-            
-            # Guardar imagen temporalmente
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_file:
-                tmp_file.write(mapa_bytes.getvalue())
-                tmp_path = tmp_file.name
-            
-            # Agregar imagen al documento
-            try:
-                doc.add_picture(tmp_path, width=Inches(6))
-                os.unlink(tmp_path)
-            except:
-                doc.add_paragraph("(Mapa no disponible para incluir en el informe)")
-        
-        # 10. INFORMACIÓN ADICIONAL
-        doc.add_heading('10. INFORMACIÓN ADICIONAL', level=1)
-        
-        info_adicional = """
-        Métodos y Fuentes de Datos:
-        • Índices espectrales: NDVI, EVI, SAVI, GNDVI, NDMI
-        • Datos climáticos: NASA POWER API
-        • Datos de suelo: INTA (o simulados basados en ubicación)
-        • Análisis forrajero: Modelo avanzado con ajustes por clima y suelo
-        
-        Consideraciones:
-        • Los datos son estimaciones basadas en modelos
-        • Se recomienda validar con observaciones de campo
-        • Las recomendaciones son sugerencias basadas en el análisis
-        • Consultar con un profesional para decisiones críticas
-        """
-        
-        doc.add_paragraph(info_adicional)
-        
-        # Pie de página
-        section = doc.sections[0]
-        footer = section.footer
-        footer_para = footer.paragraphs[0]
-        footer_para.text = f"Generado por PRV - Predicción y Recomendación de Variables | {datetime.now().strftime('%d/%m/%Y %H:%M')}"
-        footer_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        
-        # Guardar documento en BytesIO
-        buffer = io.BytesIO()
-        doc.save(buffer)
-        buffer.seek(0)
-        
-        return buffer
-        
-    except Exception as e:
-        st.error(f"Error generando informe Word: {e}")
-        return None
-
 # -----------------------
 # FUNCIÓN PRINCIPAL DE ANÁLISIS
 # -----------------------
@@ -2170,9 +1895,9 @@ if uploaded_file is not None:
                     
                     if FOLIUM_AVAILABLE:
                         st.markdown("---")
-                        st.markdown("### 🗺️ Visualización del potrero (ESRI Satélite)")
+                        st.markdown("### 🗺️ Visualización del potrero")
                         
-                        # Crear mapa interactivo con ESRI Satélite
+                        # Crear mapa interactivo con ESRI
                         mapa_interactivo = crear_mapa_interactivo_esri(gdf_procesado, base_map_option)
                         
                         if mapa_interactivo:
@@ -2320,7 +2045,7 @@ if st.session_state.gdf_cargado is not None:
                         st.markdown("---")
                         st.markdown("### 💾 EXPORTAR DATOS")
                         
-                        col_export1, col_export2, col_export3, col_export4 = st.columns(4)
+                        col_export1, col_export2, col_export3 = st.columns(3)
                         
                         with col_export1:
                             # Exportar GeoJSON
@@ -2382,34 +2107,6 @@ if st.session_state.gdf_cargado is not None:
                                 use_container_width=True
                             )
                         
-                        with col_export4:
-                            # Generar y exportar informe Word COMPLETO
-                            if DOCX_AVAILABLE:
-                                if st.button("📋 Generar Informe Completo (Word)", use_container_width=True):
-                                    with st.spinner("Generando informe completo..."):
-                                        informe_buffer = generar_informe_completo_word(
-                                            gdf_sub, datos_clima, datos_suelo, tipo_pastura,
-                                            carga_animal, peso_promedio, fecha_imagen,
-                                            umbral_ndvi_minimo, umbral_ndvi_optimo,
-                                            n_divisiones, st.session_state.mapa_detallado_bytes
-                                        )
-                                        
-                                        if informe_buffer:
-                                            st.session_state.docx_buffer = informe_buffer
-                                            st.success("✅ Informe generado correctamente!")
-                                        
-                                # Botón para descargar informe si ya está generado
-                                if st.session_state.docx_buffer:
-                                    st.download_button(
-                                        "📥 Descargar Informe Completo (DOCX)",
-                                        st.session_state.docx_buffer.getvalue(),
-                                        f"informe_completo_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.docx",
-                                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                        use_container_width=True
-                                    )
-                            else:
-                                st.info("Instalá python-docx para generar informes: pip install python-docx")
-                        
                         # Mostrar tabla de resultados
                         st.markdown("---")
                         st.markdown("### 📋 TABLA DE RESULTADOS DETALLADOS")
@@ -2423,6 +2120,13 @@ if st.session_state.gdf_cargado is not None:
                         df_show.columns = [c.replace('_', ' ').title() for c in df_show.columns]
                         
                         st.dataframe(df_show, use_container_width=True, height=400)
+                        
+                        # Nota sobre la generación del informe DOCX
+                        if DOCX_AVAILABLE:
+                            st.info("📄 Para generar el informe DOCX avanzado, necesitamos implementar la función específica.")
+                            st.info("La función de generación de informe está disponible en el código completo.")
+                        else:
+                            st.warning("python-docx no está instalado. Ejecutá: pip install python-docx")
                         
                         st.session_state.analisis_completado = True
                         
