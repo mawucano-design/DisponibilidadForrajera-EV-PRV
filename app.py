@@ -1667,7 +1667,7 @@ def crear_mapa_detallado_avanzado(gdf_analizado, tipo_pastura, datos_clima=None,
                 c = row.geometry.centroid
                 ax3.text(c.x, c.y, f"{cobertura:.2f}", fontsize=6, ha='center', va='center')
             
-            ax3.set_title("Cobertura Vegetal", fontsize=12, fontweight='bold")
+            ax3.set_title("Cobertura Vegetal", fontsize=12, fontweight='bold')
         
         # 4. Información climática y de suelo (texto)
         ax4.axis('off')
@@ -1721,7 +1721,6 @@ def crear_mapa_detallado_avanzado(gdf_analizado, tipo_pastura, datos_clima=None,
     except Exception as e:
         st.error(f"❌ Error creando mapa avanzado: {e}")
         return None
-
 # -----------------------
 # FUNCIÓN PRINCIPAL DE ANÁLISIS
 # -----------------------
