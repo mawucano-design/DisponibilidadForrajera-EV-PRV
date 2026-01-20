@@ -12,3 +12,5 @@ pyproj>=3.6.0
 rtree>=1.0.0
 python-docx
 fpdf2
+python-docx
+contextily
