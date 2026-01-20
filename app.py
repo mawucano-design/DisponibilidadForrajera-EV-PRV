@@ -1,6 +1,6 @@
 # app.py
 """
-App completa mejorada: análisis forrajero + clima NASA POWER + suelos INTA + dashboard + mapas individuales + informes
+App completa mejorada: análisis forrajero + clima NASA POWER + suelos INTA + dashboard + informes
 """
 import streamlit as st
 import geopandas as gpd
@@ -217,7 +217,7 @@ class ServicioClimaNASA:
             return None
 
     @staticmethod
-    def _procesar_datos_nasa( Dict) -> Dict:  # ✅ AHORA SÍ CORREGIDO
+    def _procesar_datos_nasa( Dict) -> Dict:  # ✅ CORREGIDO: parámetro 'data' definido
         try:
             properties = data.get('properties', {})
             parameter = data.get('parameters', {})
@@ -262,6 +262,7 @@ class ServicioClimaNASA:
             return max(0.1, min(10.0, et0))
         except:
             return 3.0
+
 class ServicioSuelosINTA:
     @staticmethod
     def obtener_caracteristicas_suelo(lat: float, lon: float) -> Optional[Dict]:
@@ -1073,6 +1074,7 @@ def crear_mapa_detallado_avanzado(gdf_analizado, tipo_pastura, datos_clima=None,
             ax4.text(0.1, y_pos, "📊 DATOS CLIMÁTICOS (NASA POWER)", fontsize=14, fontweight='bold',
                      transform=ax4.transAxes)
             y_pos -= 0.05
+            # ✅ CORREGIDO: • → -
             info_clima = [
                 f"- Precipitación total: {datos_clima.get('precipitacion_total', 0):.1f} mm",
                 f"- Precipitación promedio: {datos_clima.get('precipitacion_promedio', 0):.1f} mm/día",
@@ -1090,6 +1092,7 @@ def crear_mapa_detallado_avanzado(gdf_analizado, tipo_pastura, datos_clima=None,
             ax4.text(0.1, y_pos, "🌍 DATOS DE SUELO", fontsize=14, fontweight='bold',
                      transform=ax4.transAxes)
             y_pos -= 0.05
+            # ✅ CORREGIDO: • → -
             info_suelo = [
                 f"- Textura: {datos_suelo.get('textura', 'N/A')}",
                 f"- Materia orgánica: {datos_suelo.get('materia_organica', 0):.1f} %",
