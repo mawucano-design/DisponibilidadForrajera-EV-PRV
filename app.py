@@ -2634,3 +2634,4 @@ with st.expander("🎯 Recomendaciones de uso"):
     #### PARA ANÁLISIS PRECISOS:
     1. **Cargar polígonos precisos** del potrero
     2. **Seleccionar el tipo de pastura**
+    """)  # <-- ¡AGREGAR ESTAS COMILLAS!
