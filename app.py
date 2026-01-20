@@ -1721,7 +1721,7 @@ def crear_mapa_detallado_avanzado(gdf_analizado, tipo_pastura, datos_clima=None,
                     c = row.geometry.centroid
                     ax3.text(c.x, c.y, f"{estres:.2f}", fontsize=6, ha='center', va='center')
                 
-                ax3.set_title("Índice de Estrés Hídrico", fontsize=12, fontweight='bold")
+                ax3.set_title("Índice de Estrés Hídrico", fontsize=12, fontweight='bold')
             else:
                 # Cobertura vegetal como alternativa
                 for idx, row in gdf_analizado.iterrows():
@@ -2530,7 +2530,7 @@ if st.session_state.gdf_cargado is not None:
                                 st.error(f"Error exportando CSV: {e}")
                         
                         with col_export3:
-                            # Exportar resumen PDF (simulado)
+                            # Exportar resumen TXT
                             resumen_text = f"""
                             RESUMEN DE ANÁLISIS FORRAJERO
                             Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M')}
@@ -2633,22 +2633,4 @@ with st.expander("🎯 Recomendaciones de uso"):
     st.markdown("""
     #### PARA ANÁLISIS PRECISOS:
     1. **Cargar polígonos precisos** del potrero
-    2. **Seleccionar el tipo de pastura** correcto
-    3. **Ajustar parámetros** según conocimiento local
-    4. **Usar datos climáticos** para períodos relevantes
-    5. **Verificar datos de suelo** con observaciones de campo
-    
-    #### INTERPRETACIÓN DE RESULTADOS:
-    - **Biomasa < 600 kg/ha**: Condiciones críticas
-    - **Biomasa 600-1200 kg/ha**: Necesita mejora
-    - **Biomasa 1200-1800 kg/ha**: Condiciones aceptables
-    - **Biomasa > 1800 kg/ha**: Condiciones buenas a excelentes
-    
-    - **Estrés hídrico > 0.5**: Considerar riego o reducción de carga
-    - **EV/ha < 0.5**: Carga animal excesiva
-    - **Días permanencia < 15**: Rotación muy rápida
-    """)
-
-st.markdown("---")
-st.markdown("**Desarrollado por** 🚀 **PRV - Predicción y Recomendación de Variables**")
-st.markdown("*Sistema integrado de análisis forrajero con datos climáticos y de suelo*")
+    2. **Seleccionar el tipo de pastura**
