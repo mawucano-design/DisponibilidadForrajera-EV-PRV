@@ -2853,7 +2853,7 @@ with st.expander("ℹ️ Acerca de los datos utilizados"):
     - **Fuente**: NASA Langley Research Center
     - **Datos**: Precipitación, temperatura, humedad, radiación solar, evapotranspiración
     - **Resolución temporal**: Diaria
-    - **Resolución espacial**: 0.5° × 0.5° (aproximadamente 55 km)
+    - **Resolución espacial**: 0.5\u00B0 × 0.5\u00B0 (aproximadamente 55 km)
     - **Período**: Desde 1981 hasta presente
     
     #### 🌍 MAPA DE SUELOS INTA
