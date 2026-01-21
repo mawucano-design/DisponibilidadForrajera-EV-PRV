@@ -1509,15 +1509,15 @@ def crear_dashboard_resumen(gdf_analizado, datos_clima, datos_suelo, tipo_pastur
     # Generar recomendaciones basadas en el análisis
     recomendaciones = []
     
-    # Recomendación por biomasa
-    if biomasa_prom < 600:
-        recomendaciones.append("🔴 **CRÍTICO**: Biomasa muy baja (<600 kg/ha). Considerar suplementación inmediata.")
-    elif biomasa_prom < 1200:
-        recomendaciones.append("🟡 **ALERTA**: Biomasa baja (600-1200 kg/ha). Monitorear diariamente.")
-    elif biomasa_prom < 1800:
-        recomendaciones.append("🟢 **ACEPTABLE**: Biomasa moderada (1200-1800 kg/ha). Manejo normal.")
-    else:
-        recomendaciones.append("✅ **ÓPTIMO**: Biomasa adecuada (>1800 kg/ha). Buen crecimiento.")
+   # Recomendación por biomasa
+if biomasa_promedio < 600:
+    recomendaciones.append("🔴 **CRÍTICO**: Biomasa muy baja (<600 kg/ha). Considerar suplementación inmediata.")
+elif biomasa_promedio < 1200:
+    recomendaciones.append("🟡 **ALERTA**: Biomasa baja (600-1200 kg/ha). Monitorear diariamente.")
+elif biomasa_promedio < 1800:
+    recomendaciones.append("🟢 **ACEPTABLE**: Biomasa moderada (1200-1800 kg/ha). Manejo normal.")
+else:
+    recomendaciones.append("✅ **ÓPTIMO**: Biomasa adecuada (>1800 kg/ha). Buen crecimiento.")
     
     # Recomendación por estrés hídrico
     if estres_prom > 0.7:
