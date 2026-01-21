@@ -909,7 +909,7 @@ class AnalisisForrajeroAvanzado:
         except:
             return 1.0
     
-      def calcular_biomasa_avanzada(self, ndvi, evi, savi, categoria, cobertura, params, 
+    def calcular_biomasa_avanzada(self, ndvi, evi, savi, categoria, cobertura, params, 
                                   datos_clima=None, datos_suelo=None):
         """Cálculo mejorado de biomasa considerando clima y suelo"""
         
@@ -926,7 +926,7 @@ class AnalisisForrajeroAvanzado:
             calidad_base = 0.3
         elif categoria == "VEGETACION_ESCASA":
             biomasa_base = min(base * 0.3, 1200)
-            crecimiento_base = params['CRECIMIENTO_DIARIO'] * 0.4  # ¡CORREGIDO!
+            crecimiento_base = params['CRECIMIENTO_DIARIO'] * 0.4
             calidad_base = 0.5
         elif categoria == "VEGETACION_MODERADA":
             biomasa_base = min(base * 0.6, 3000)
@@ -2713,16 +2713,7 @@ if st.session_state.gdf_analizado is not None:
         resumen_text = f"""
         RESUMEN DE ANÁLISIS FORRAJERO
         Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M')}
-        Tipo de Pastura: {tipo_pastura}
-        Área Total: {dashboard_metrics['area_total']:.1f} ha
-        Biomasa Promedio: {dashboard_metrics['biomasa_promedio']:.0f} kg MS/ha
-        EV Total Soportable: {dashboard_metrics['ev_total']:.1f}
-        NDVI Promedio: {dashboard_metrics['ndvi_promedio']:.3f}
-        """
-        st.download_button(
-            "📄 Exportar Resumen (TXT)",
-            resumen_text,
-            f"resumen_analisis_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+        Tipo de Pastura: {tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
             "text/plain",
             use_container_width=True
         )
