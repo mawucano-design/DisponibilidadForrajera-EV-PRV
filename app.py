@@ -8,7 +8,7 @@ import zipfile
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.colors import LinearSegmentedColormap, Normalize
 import io
 from shapely.geometry import Polygon, MultiPolygon, Point
 from shapely.ops import unary_union
@@ -32,6 +32,7 @@ except Exception:
 # Folium (opcional)
 try:
     import folium
+    from folium.plugins import HeatMap
     from streamlit_folium import st_folium, folium_static
     FOLIUM_AVAILABLE = True
 except Exception:
@@ -64,7 +65,8 @@ FORCED_BASE_MAP = "ESRI Satélite"
 for key in [
     'gdf_cargado', 'gdf_analizado', 'mapa_detallado_bytes',
     'docx_buffer', 'analisis_completado', 'html_download_injected',
-    'datos_clima', 'datos_suelo', 'indices_avanzados', 'informe_generado'
+    'datos_clima', 'datos_suelo', 'indices_avanzados', 'informe_generado',
+    'heatmap_data', 'heatmap_variable'
 ]:
     if key not in st.session_state:
         st.session_state[key] = None
@@ -924,7 +926,7 @@ class AnalisisForrajeroAvanzado:
             calidad_base = 0.3
         elif categoria == "VEGETACION_ESCASA":
             biomasa_base = min(base * 0.3, 1200)
-            crecimiento_base = params['CRECIMIENTO_DIARIO'] * 0.4
+            crecimiento_base = params['CRECIMIENTO_DIARio'] * 0.4
             calidad_base = 0.5
         elif categoria == "VEGETACION_MODERADA":
             biomasa_base = min(base * 0.6, 3000)
@@ -1512,11 +1514,11 @@ def crear_dashboard_resumen(gdf_analizado, datos_clima, datos_suelo, tipo_pastur
     recomendaciones = []
     
     # Recomendación por biomasa
-    if biomasa_promedio < 600:
+    if biomasa_prom < 600:
         recomendaciones.append("🔴 **CRÍTICO**: Biomasa muy baja (<600 kg/ha). Considerar suplementación inmediata.")
-    elif biomasa_promedio < 1200:
+    elif biomasa_prom < 1200:
         recomendaciones.append("🟡 **ALERTA**: Biomasa baja (600-1200 kg/ha). Monitorear diariamente.")
-    elif biomasa_promedio < 1800:
+    elif biomasa_prom < 1800:
         recomendaciones.append("🟢 **ACEPTABLE**: Biomasa moderada (1200-1800 kg/ha). Manejo normal.")
     else:
         recomendaciones.append("✅ **ÓPTIMO**: Biomasa adecuada (>1800 kg/ha). Buen crecimiento.")
@@ -1528,9 +1530,9 @@ def crear_dashboard_resumen(gdf_analizado, datos_clima, datos_suelo, tipo_pastur
         recomendaciones.append("💧 **ESTRÉS HÍDRICO MODERADO**: Monitorear humedad del suelo.")
     
     # Recomendación por días de permanencia
-    if dias_promedio < 15:
+    if dias_prom < 15:
         recomendaciones.append("⚡ **ROTACIÓN MUY RÁPIDA**: Considerar aumentar área o reducir carga.")
-    elif dias_promedio > 60:
+    elif dias_prom > 60:
         recomendaciones.append("🐌 **ROTACIÓN LENTA**: Podría aumentar carga animal.")
     
     # Recomendación por balance forrajero
@@ -1553,233 +1555,454 @@ def crear_dashboard_resumen(gdf_analizado, datos_clima, datos_suelo, tipo_pastur
         'dias_promedio': dias_promedio,
         'estres_prom': estres_prom
     }
+
 # -----------------------
-# VISUALIZACIÓN MEJORADA CON ESRI FORZADO
+# FUNCIONES PARA MAPAS DE CALOR (HEATMAPS)
+# -----------------------
+def preparar_datos_heatmap(gdf, variable, puntos_por_ha=10):
+    """Prepara datos para mapa de calor muestreando puntos dentro de los polígonos"""
+    heatmap_data = []
+    
+    for idx, row in gdf.iterrows():
+        if pd.isna(row[variable]):
+            continue
+            
+        geom = row.geometry
+        area_ha = row.get('area_ha', 0)
+        
+        # Calcular número de puntos basado en área
+        n_puntos = max(1, int(area_ha * puntos_por_ha))
+        
+        # Generar puntos aleatorios dentro del polígono
+        minx, miny, maxx, maxy = geom.bounds
+        
+        puntos_generados = 0
+        intentos = 0
+        max_intentos = n_puntos * 10
+        
+        while puntos_generados < n_puntos and intentos < max_intentos:
+            intentos += 1
+            # Generar punto aleatorio
+            x = np.random.uniform(minx, maxx)
+            y = np.random.uniform(miny, maxy)
+            punto = Point(x, y)
+            
+            # Verificar si el punto está dentro del polígono
+            if geom.contains(punto):
+                heatmap_data.append([y, x, row[variable]])  # [lat, lon, valor]
+                puntos_generados += 1
+    
+    return heatmap_data
+
+def crear_mapa_calor_folium(gdf, variable, titulo, colormap='YlOrRd'):
+    """Crea un mapa de calor (heatmap) con folium"""
+    if not FOLIUM_AVAILABLE or gdf is None or len(gdf) == 0:
+        return None
+    
+    try:
+        # Preparar datos para el heatmap
+        heatmap_data = preparar_datos_heatmap(gdf, variable)
+        
+        if not heatmap_data:
+            st.warning(f"No hay datos suficientes para crear el mapa de calor de {variable}")
+            return None
+        
+        # Calcular centroide del área
+        bounds = gdf.total_bounds
+        centroid = gdf.geometry.unary_union.centroid
+        
+        # Crear mapa base con ESRI Satellite
+        m = folium.Map(
+            location=[centroid.y, centroid.x], 
+            zoom_start=14,
+            tiles=None, 
+            control_scale=True
+        )
+        
+        # AGREGAR SOLO ESRI SATELLITE
+        esri_imagery = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+        folium.TileLayer(
+            esri_imagery, 
+            attr='Esri, Maxar, Earthstar Geographics, and the GIS User Community',
+            name='ESRI Satellite',
+            overlay=False,
+            max_zoom=19
+        ).add_to(m)
+        
+        # Agregar mapa de calor
+        HeatMap(
+            heatmap_data,
+            name=titulo,
+            min_opacity=0.3,
+            max_opacity=0.7,
+            radius=20,
+            blur=15,
+            gradient={0.2: 'blue', 0.4: 'lime', 0.6: 'yellow', 0.8: 'orange', 1.0: 'red'}
+        ).add_to(m)
+        
+        # Ajustar zoom
+        if len(gdf) > 0:
+            m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]], padding=(50, 50))
+        
+        # Agregar control de capas
+        folium.LayerControl().add_to(m)
+        
+        return m
+        
+    except Exception as e:
+        st.error(f"❌ Error creando mapa de calor: {e}")
+        return None
+
+def crear_mapa_calor_matplotlib(gdf, variable, titulo, colormap='hot'):
+    """Crea un mapa de calor estático con matplotlib"""
+    try:
+        fig, ax = plt.subplots(figsize=(12, 8))
+        
+        # Obtener límites del área
+        bounds = gdf.total_bounds
+        
+        # Crear grid para el heatmap
+        x_res = 100
+        y_res = 100
+        
+        x = np.linspace(bounds[0], bounds[2], x_res)
+        y = np.linspace(bounds[1], bounds[3], y_res)
+        X, Y = np.meshgrid(x, y)
+        
+        # Interpolar valores
+        valores = np.zeros_like(X)
+        
+        for idx, row in gdf.iterrows():
+            if pd.isna(row[variable]):
+                continue
+                
+            geom = row.geometry
+            valor = row[variable]
+            
+            # Verificar qué puntos del grid están dentro del polígono
+            for i in range(x_res):
+                for j in range(y_res):
+                    punto = Point(X[j, i], Y[j, i])
+                    if geom.contains(punto):
+                        valores[j, i] = valor
+        
+        # Crear heatmap
+        heatmap = ax.pcolormesh(X, Y, valores, cmap=colormap, shading='auto', alpha=0.7)
+        
+        # Agregar barra de color
+        cbar = plt.colorbar(heatmap, ax=ax)
+        cbar.set_label(variable.replace('_', ' ').title())
+        
+        # Agregar polígonos para referencia
+        gdf.boundary.plot(ax=ax, color='black', linewidth=1, alpha=0.5)
+        
+        # Configurar título y etiquetas
+        ax.set_title(titulo, fontsize=14, fontweight='bold')
+        ax.set_xlabel('Longitud')
+        ax.set_ylabel('Latitud')
+        ax.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        
+        # Convertir a imagen
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+        buf.seek(0)
+        plt.close(fig)
+        
+        return buf
+        
+    except Exception as e:
+        st.error(f"❌ Error creando mapa de calor estático: {e}")
+        return None
+
+def crear_panel_mapas_calor(gdf_analizado, tipo_pastura):
+    """Crea un panel con múltiples mapas de calor para diferentes variables"""
+    
+    # Variables para mapas de calor
+    variables_heatmap = {
+        'biomasa_disponible_kg_ms_ha': {
+            'titulo': f'🌱 Mapa de Calor - BIOMASA DISPONIBLE ({tipo_pastura})',
+            'descripcion': 'Biomasa disponible (kg MS/ha)',
+            'colormap': 'YlGn'
+        },
+        'ndvi': {
+            'titulo': f'🟢 Mapa de Calor - NDVI ({tipo_pastura})',
+            'descripcion': 'Índice de Vegetación de Diferencia Normalizada',
+            'colormap': 'RdYlGn'
+        },
+        'ev_ha': {
+            'titulo': f'🐮 Mapa de Calor - EQUIVALENTE VACA (EV/ha) ({tipo_pastura})',
+            'descripcion': 'Equivalente vaca por hectárea',
+            'colormap': 'OrRd'
+        },
+        'dias_permanencia': {
+            'titulo': f'📅 Mapa de Calor - DÍAS DE PERMANENCIA ({tipo_pastura})',
+            'descripcion': 'Días de permanencia estimados',
+            'colormap': 'viridis'
+        }
+    }
+    
+    # Filtrar variables que existen en el dataframe
+    variables_existentes = {k: v for k, v in variables_heatmap.items() if k in gdf_analizado.columns}
+    
+    if not variables_existentes:
+        st.warning("No hay variables disponibles para crear mapas de calor")
+        return None
+    
+    # Crear pestañas para cada variable
+    tabs = st.tabs([f"🔥 {v['titulo'].split(' - ')[1].split(' (')[0]}" for v in variables_existentes.values()])
+    
+    mapas_generados = {}
+    
+    for idx, (var_name, var_info) in enumerate(variables_existentes.items()):
+        with tabs[idx]:
+            st.subheader(var_info['titulo'])
+            st.caption(var_info['descripcion'])
+            
+            # Mostrar estadísticas
+            if var_name in gdf_analizado.columns:
+                valores = gdf_analizado[var_name].dropna()
+                if len(valores) > 0:
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Promedio", f"{valores.mean():.2f}")
+                    with col2:
+                        st.metric("Mínimo", f"{valores.min():.2f}")
+                    with col3:
+                        st.metric("Máximo", f"{valores.max():.2f}")
+                    with col4:
+                        st.metric("Variación", f"{valores.std():.2f}")
+            
+            # Crear mapa de calor
+            if FOLIUM_AVAILABLE:
+                mapa_calor = crear_mapa_calor_folium(
+                    gdf_analizado, 
+                    var_name, 
+                    var_info['titulo'],
+                    var_info['colormap']
+                )
+                
+                if mapa_calor:
+                    folium_static(mapa_calor, width=800, height=500)
+                    mapas_generados[var_name] = mapa_calor
+                else:
+                    # Fallback a matplotlib
+                    st.info("Creando mapa de calor estático...")
+                    img_buffer = crear_mapa_calor_matplotlib(
+                        gdf_analizado,
+                        var_name,
+                        var_info['titulo'],
+                        var_info['colormap']
+                    )
+                    
+                    if img_buffer:
+                        st.image(img_buffer, use_column_width=True)
+                        mapas_generados[var_name] = img_buffer
+            else:
+                # Usar matplotlib si folium no está disponible
+                st.info("Creando mapa de calor estático...")
+                img_buffer = crear_mapa_calor_matplotlib(
+                    gdf_analizado,
+                    var_name,
+                    var_info['titulo'],
+                    var_info['colormap']
+                )
+                
+                if img_buffer:
+                    st.image(img_buffer, use_column_width=True)
+                    mapas_generados[var_name] = img_buffer
+    
+    return mapas_generados
+
+# -----------------------
+# VISUALIZACIÓN MEJORADA CON ESRI FORZADO Y MAPAS DE CALOR
 # -----------------------
 def crear_mapa_detallado_avanzado(gdf_analizado, tipo_pastura, datos_clima=None, datos_suelo=None):
-    """Crea mapa detallado con ESRI Satellite como base"""
+    """Crea mapa detallado con ESRI Satellite como base y mapas de calor"""
     try:
-        # Si hay folium disponible, crear mapa interactivo
-        if FOLIUM_AVAILABLE and len(gdf_analizado) > 0:
-            # Crear mapa base con ESRI Satellite
-            centroid = gdf_analizado.geometry.unary_union.centroid
-            
-            m = folium.Map(
-                location=[centroid.y, centroid.x],
-                zoom_start=14,
-                tiles=None,
-                control_scale=True
-            )
-            
-            # Agregar ESRI Satellite
-            esri_imagery = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
-            folium.TileLayer(
-                esri_imagery,
-                attr='Esri, Maxar, Earthstar Geographics',
-                name='ESRI Satellite',
-                overlay=False,
-                max_zoom=19
-            ).add_to(m)
-            
-            # Agregar polígonos con colores según tipo de superficie
-            colores_superficie = {
-                'SUELO_DESNUDO': '#d73027',
-                'SUELO_PARCIAL': '#fdae61',
-                'VEGETACION_ESCASA': '#fee08b',
-                'VEGETACION_MODERADA': '#a6d96a',
-                'VEGETACION_DENSA': '#1a9850'
-            }
+        # Mostrar panel de mapas de calor
+        st.markdown("## 🔥 MAPAS DE CALOR - VISUALIZACIÓN AVANZADA")
+        
+        # Crear panel de mapas de calor
+        mapas_calor = crear_panel_mapas_calor(gdf_analizado, tipo_pastura)
+        
+        if mapas_calor:
+            st.session_state.heatmap_data = mapas_calor
+        
+        # También crear una visualización adicional con matplotlib
+        st.markdown("---")
+        st.markdown("## 📊 VISUALIZACIÓN DETALLADA POR SUB-LOTES")
+        
+        # Crear figura con múltiples subplots
+        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+        ax1, ax2, ax3, ax4 = axes.flatten()
+        
+        # 1. Mapa de calor de biomasa (si está disponible)
+        if 'biomasa_disponible_kg_ms_ha' in gdf_analizado.columns:
+            # Preparar datos para heatmap simple
+            x_coords = []
+            y_coords = []
+            valores = []
             
             for idx, row in gdf_analizado.iterrows():
-                tipo = row.get('tipo_superficie', 'VEGETACION_ESCASA')
-                color = colores_superficie.get(tipo, '#cccccc')
+                centroid = row.geometry.centroid
+                x_coords.append(centroid.x)
+                y_coords.append(centroid.y)
+                valores.append(row['biomasa_disponible_kg_ms_ha'])
+            
+            if valores:
+                # Crear scatter plot con colores según biomasa
+                scatter = ax1.scatter(x_coords, y_coords, c=valores, cmap='YlGn', 
+                                     s=100, alpha=0.7, edgecolors='black')
                 
-                # Crear popup con información
-                popup_content = f"""
-                <div style="font-family: Arial; font-size: 12px;">
-                <b>Sub-lote {row['id_subLote']}</b><br>
-                Tipo: {tipo.replace('_', ' ')}<br>
-                Área: {row.get('area_ha', 0):.2f} ha<br>
-                NDVI: {row.get('ndvi', 0):.3f}<br>
-                Biomasa: {row.get('biomasa_disponible_kg_ms_ha', 0):.0f} kg/ha<br>
-                Cobertura: {row.get('cobertura_vegetal', 0)*100:.0f}%<br>
-                EV/ha: {row.get('ev_ha', 0):.3f}<br>
-                Días: {row.get('dias_permanencia', 0):.1f}
-                </div>
-                """
+                # Agregar barra de color
+                cbar1 = plt.colorbar(scatter, ax=ax1)
+                cbar1.set_label('Biomasa Disponible (kg MS/ha)')
                 
-                # Agregar polígono al mapa
-                folium.GeoJson(
-                    row.geometry.__geo_interface__,
-                    style_function=lambda feat, color=color: {
-                        'fillColor': color,
-                        'color': color,
-                        'weight': 2,
-                        'fillOpacity': 0.6
-                    },
-                    popup=folium.Popup(popup_content, max_width=300)
-                ).add_to(m)
-            
-            # Agregar leyenda
-            legend_html = '''
-            <div style="position: fixed; 
-                        bottom: 50px; left: 50px; width: 180px; 
-                        background-color: white; padding: 10px;
-                        border: 2px solid grey; z-index: 9999; font-size: 12px;
-                        border-radius: 5px;">
-            <b>Tipo de Superficie</b><br>
-            <i style="background: #1a9850; width: 20px; height: 15px; display: inline-block;"></i> Vegetación densa<br>
-            <i style="background: #a6d96a; width: 20px; height: 15px; display: inline-block;"></i> Vegetación moderada<br>
-            <i style="background: #fee08b; width: 20px; height: 15px; display: inline-block;"></i> Vegetación escasa<br>
-            <i style="background: #fdae61; width: 20px; height: 15px; display: inline-block;"></i> Suelo parcial<br>
-            <i style="background: #d73027; width: 20px; height: 15px; display: inline-block;"></i> Suelo desnudo<br>
-            </div>
-            '''
-            
-            m.get_root().html.add_child(folium.Element(legend_html))
-            
-            # Para mostrar en Streamlit
-            folium_static(m, width=1200, height=600)
-            
-            # También crear una imagen estática como fallback
-            fig, ax = plt.subplots(figsize=(12, 8))
-            
-            # Plot simple de los polígonos
-            for idx, row in gdf_analizado.iterrows():
-                tipo = row.get('tipo_superficie', 'VEGETACION_ESCASA')
-                color = colores_superficie.get(tipo, '#cccccc')
-                gdf_analizado.iloc[[idx]].plot(ax=ax, color=color, edgecolor='black', linewidth=0.5)
+                # Agregar etiquetas
+                for i, txt in enumerate(gdf_analizado['id_subLote']):
+                    ax1.annotate(str(txt), (x_coords[i], y_coords[i]), 
+                                fontsize=8, ha='center', va='center')
                 
-                # Agregar número de sub-lote
-                c = row.geometry.centroid
-                ax.text(c.x, c.y, f"S{row['id_subLote']}", fontsize=8, ha='center', va='center',
-                       bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.7))
-            
-            ax.set_title(f"Mapa de Análisis - {tipo_pastura}", fontsize=14, fontweight='bold')
-            ax.axis('off')
-            
-            buf = io.BytesIO()
-            plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
-            buf.seek(0)
-            plt.close(fig)
-            return buf
-            
-        else:
-            # Fallback a matplotlib si folium no está disponible
-            fig, axes = plt.subplots(2, 2, figsize=(20, 16))
-            ax1, ax2, ax3, ax4 = axes.flatten()
-            
-            # 1. Tipos de superficie
-            colores_superficie = {
-                'SUELO_DESNUDO': '#d73027',
-                'SUELO_PARCIAL': '#fdae61',
-                'VEGETACION_ESCASA': '#fee08b',
-                'VEGETACION_MODERADA': '#a6d96a',
-                'VEGETACION_DENSA': '#1a9850'
-            }
+                ax1.set_title("Biomasa Disponible por Sub-lote", fontsize=12, fontweight='bold')
+                ax1.set_xlabel("Longitud")
+                ax1.set_ylabel("Latitud")
+                ax1.grid(True, alpha=0.3)
+        
+        # 2. Mapa de calor de NDVI
+        if 'ndvi' in gdf_analizado.columns:
+            # Preparar datos para heatmap simple
+            x_coords = []
+            y_coords = []
+            valores_ndvi = []
             
             for idx, row in gdf_analizado.iterrows():
-                tipo = row.get('tipo_superficie', 'VEGETACION_ESCASA')
-                color = colores_superficie.get(tipo, '#cccccc')
-                gdf_analizado.iloc[[idx]].plot(ax=ax1, color=color, edgecolor='black', linewidth=0.5)
-                c = row.geometry.centroid
-                ax1.text(c.x, c.y, f"S{row['id_subLote']}", fontsize=6, ha='center', va='center')
+                centroid = row.geometry.centroid
+                x_coords.append(centroid.x)
+                y_coords.append(centroid.y)
+                valores_ndvi.append(row['ndvi'])
             
-            ax1.set_title(f"Tipos de Superficie - {tipo_pastura}", fontsize=12, fontweight='bold')
-            
-            # Leyenda
-            patches = [mpatches.Patch(color=color, label=label) 
-                      for label, color in colores_superficie.items()]
-            ax1.legend(handles=patches, loc='upper right', fontsize=8)
-            
-            # 2. Biomasa disponible
-            cmap = LinearSegmentedColormap.from_list('biomasa', ['#d73027','#fee08b','#a6d96a','#1a9850'])
+            if valores_ndvi:
+                # Crear scatter plot con colores según NDVI
+                scatter2 = ax2.scatter(x_coords, y_coords, c=valores_ndvi, cmap='RdYlGn', 
+                                      s=100, alpha=0.7, edgecolors='black', vmin=0, vmax=1)
+                
+                # Agregar barra de color
+                cbar2 = plt.colorbar(scatter2, ax=ax2)
+                cbar2.set_label('NDVI')
+                
+                # Agregar etiquetas
+                for i, txt in enumerate(gdf_analizado['id_subLote']):
+                    ax2.annotate(str(txt), (x_coords[i], y_coords[i]), 
+                                fontsize=8, ha='center', va='center')
+                
+                ax2.set_title("NDVI por Sub-lote", fontsize=12, fontweight='bold')
+                ax2.set_xlabel("Longitud")
+                ax2.set_ylabel("Latitud")
+                ax2.grid(True, alpha=0.3)
+        
+        # 3. Mapa de calor de EV/ha
+        if 'ev_ha' in gdf_analizado.columns:
+            # Preparar datos para heatmap simple
+            x_coords = []
+            y_coords = []
+            valores_ev = []
             
             for idx, row in gdf_analizado.iterrows():
-                biom = row.get('biomasa_disponible_kg_ms_ha', 0)
-                val = max(0, min(1, biom/4000))
-                color = cmap(val)
-                gdf_analizado.iloc[[idx]].plot(ax=ax2, color=color, edgecolor='black', linewidth=0.5)
-                c = row.geometry.centroid
-                ax2.text(c.x, c.y, f"{biom:.0f}", fontsize=6, ha='center', va='center')
+                centroid = row.geometry.centroid
+                x_coords.append(centroid.x)
+                y_coords.append(centroid.y)
+                valores_ev.append(row['ev_ha'])
             
-            ax2.set_title("Biomasa Disponible (kg MS/ha)", fontsize=12, fontweight='bold')
-            
-            # 3. Estrés hídrico
-            if 'estres_hidrico' in gdf_analizado.columns:
-                cmap_estres = LinearSegmentedColormap.from_list('estres', ['#1a9850','#fee08b','#d73027'])
+            if valores_ev:
+                # Crear scatter plot con colores según EV/ha
+                scatter3 = ax3.scatter(x_coords, y_coords, c=valores_ev, cmap='OrRd', 
+                                      s=100, alpha=0.7, edgecolors='black')
                 
-                for idx, row in gdf_analizado.iterrows():
-                    estres = row.get('estres_hidrico', 0)
-                    val = max(0, min(1, estres))
-                    color = cmap_estres(val)
-                    gdf_analizado.iloc[[idx]].plot(ax=ax3, color=color, edgecolor='black', linewidth=0.5)
-                    c = row.geometry.centroid
-                    ax3.text(c.x, c.y, f"{estres:.2f}", fontsize=6, ha='center', va='center')
+                # Agregar barra de color
+                cbar3 = plt.colorbar(scatter3, ax=ax3)
+                cbar3.set_label('EV/ha')
                 
-                ax3.set_title("Índice de Estrés Hídrico", fontsize=12, fontweight='bold')
-            else:
-                # Cobertura vegetal como alternativa
-                for idx, row in gdf_analizado.iterrows():
-                    cobertura = row.get('cobertura_vegetal', 0)
-                    color = plt.cm.Greens(cobertura)
-                    gdf_analizado.iloc[[idx]].plot(ax=ax3, color=color, edgecolor='black', linewidth=0.5)
-                    c = row.geometry.centroid
-                    ax3.text(c.x, c.y, f"{cobertura:.2f}", fontsize=6, ha='center', va='center')
+                # Agregar etiquetas
+                for i, txt in enumerate(gdf_analizado['id_subLote']):
+                    ax3.annotate(str(txt), (x_coords[i], y_coords[i]), 
+                                fontsize=8, ha='center', va='center')
                 
-                ax3.set_title("Cobertura Vegetal", fontsize=12, fontweight='bold')
+                ax3.set_title("Equivalente Vaca por Hectárea", fontsize=12, fontweight='bold')
+                ax3.set_xlabel("Longitud")
+                ax3.set_ylabel("Latitud")
+                ax3.grid(True, alpha=0.3)
+        
+        # 4. Información climática y de suelo (texto)
+        ax4.axis('off')
+        
+        y_pos = 0.9
+        
+        # Información general
+        ax4.text(0.1, y_pos, "📊 INFORMACIÓN GENERAL", fontsize=14, fontweight='bold', 
+                transform=ax4.transAxes)
+        y_pos -= 0.05
+        
+        info_general = [
+            f"Tipo de Pastura: {tipo_pastura}",
+            f"Sub-lotes analizados: {len(gdf_analizado)}",
+            f"Área total: {gdf_analizado['area_ha'].sum():.2f} ha"
+        ]
+        
+        for info in info_general:
+            ax4.text(0.1, y_pos, info, fontsize=10, transform=ax4.transAxes)
+            y_pos -= 0.04
+        
+        y_pos -= 0.02
+        
+        # Datos climáticos
+        if datos_clima:
+            ax4.text(0.1, y_pos, "🌤️ DATOS CLIMÁTICOS", fontsize=12, fontweight='bold', 
+                    transform=ax4.transAxes)
+            y_pos -= 0.05
             
-            # 4. Información climática y de suelo (texto)
-            ax4.axis('off')
+            info_clima = [
+                f"Precipitación: {datos_clima.get('precipitacion_total', 0):.1f} mm",
+                f"Temperatura: {datos_clima.get('temp_promedio', 0):.1f} °C",
+                f"ET0: {datos_clima.get('et0_promedio', 0):.1f} mm/día"
+            ]
             
-            y_pos = 0.9
+            for info in info_clima:
+                ax4.text(0.1, y_pos, info, fontsize=9, transform=ax4.transAxes)
+                y_pos -= 0.04
+        
+        # Datos de suelo
+        if datos_suelo:
+            y_pos -= 0.02
+            ax4.text(0.1, y_pos, "🌍 DATOS DE SUELO", fontsize=12, fontweight='bold', 
+                    transform=ax4.transAxes)
+            y_pos -= 0.05
             
-            if datos_clima:
-                ax4.text(0.1, y_pos, "📊 DATOS CLIMÁTICOS (NASA POWER)", fontsize=14, fontweight='bold', 
-                        transform=ax4.transAxes)
-                y_pos -= 0.05
-                
-                info_clima = [
-                    f"• Precipitación total: {datos_clima.get('precipitacion_total', 0):.1f} mm",
-                    f"• Precipitación promedio: {datos_clima.get('precipitacion_promedio', 0):.1f} mm/día",
-                    f"• Temperatura máxima: {datos_clima.get('temp_max_promedio', 0):.1f} °C",
-                    f"• Temperatura mínima: {datos_clima.get('temp_min_promedio', 0):.1f} °C",
-                    f"• Evapotranspiración (ET0): {datos_clima.get('et0_promedio', 0):.1f} mm/día",
-                    f"• Días con lluvia: {datos_clima.get('dias_lluvia', 0)}",
-                    f"• Balance hídrico: {datos_clima.get('balance_hidrico', 0):.1f} mm"
-                ]
-                
-                for info in info_clima:
-                    ax4.text(0.1, y_pos, info, fontsize=10, transform=ax4.transAxes)
-                    y_pos -= 0.04
+            info_suelo = [
+                f"Textura: {datos_suelo.get('textura', 'N/A')}",
+                f"Materia orgánica: {datos_suelo.get('materia_organica', 0):.1f} %",
+                f"pH: {datos_suelo.get('ph', 0):.1f}"
+            ]
             
-            if datos_suelo:
-                ax4.text(0.1, y_pos, "🌍 DATOS DE SUELO", fontsize=14, fontweight='bold', 
-                        transform=ax4.transAxes)
-                y_pos -= 0.05
-                
-                info_suelo = [
-                    f"• Textura: {datos_suelo.get('textura', 'N/A')}",
-                    f"• Materia orgánica: {datos_suelo.get('materia_organica', 0):.1f} %",
-                    f"• pH: {datos_suelo.get('ph', 0):.1f}",
-                    f"• Capacidad de campo: {datos_suelo.get('capacidad_campo', 0):.1f} %",
-                    f"• Profundidad: {datos_suelo.get('profundidad', 0):.0f} cm",
-                    f"• Fuente: {datos_suelo.get('fuente', 'N/A')}"
-                ]
-                
-                for info in info_suelo:
-                    ax4.text(0.1, y_pos, info, fontsize=10, transform=ax4.transAxes)
-                    y_pos -= 0.04
-            
-            plt.tight_layout()
-            buf = io.BytesIO()
-            plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
-            buf.seek(0)
-            plt.close(fig)
-            return buf
-            
+            for info in info_suelo:
+                ax4.text(0.1, y_pos, info, fontsize=9, transform=ax4.transAxes)
+                y_pos -= 0.04
+        
+        plt.tight_layout()
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+        buf.seek(0)
+        plt.close(fig)
+        
+        st.image(buf, use_column_width=True, caption="Resumen visual de análisis")
+        
+        return buf
+        
     except Exception as e:
         st.error(f"❌ Error creando mapa avanzado: {e}")
+        import traceback
+        st.error(traceback.format_exc())
         return None
 
 # -----------------------
@@ -2360,14 +2583,17 @@ if st.session_state.gdf_analizado is not None:
     carga_animal = st.session_state.get('carga_animal_guardada', carga_animal)
     peso_promedio = st.session_state.get('peso_promedio_guardado', peso_promedio)
     
-    # Crear y mostrar mapa avanzado con ESRI Satellite
-    mapa_buf = crear_mapa_detallado_avanzado(gdf_sub, tipo_pastura, datos_clima, datos_suelo)
+    # Crear y mostrar mapa avanzado con mapas de calor
+    st.markdown("## 🔥 MAPAS DE CALOR - VISUALIZACIÓN AVANZADA")
     
-    if mapa_buf is not None:
-        st.image(mapa_buf, use_column_width=True, caption="Mapa de análisis avanzado (ESRI Satellite)")
-        st.session_state.mapa_detallado_bytes = mapa_buf
+    # Crear panel de mapas de calor
+    mapas_calor = crear_panel_mapas_calor(gdf_sub, tipo_pastura)
+    
+    if mapas_calor:
+        st.session_state.heatmap_data = mapas_calor
     
     # Crear y mostrar dashboard resumen
+    st.markdown("---")
     params = obtener_parametros_forrajeros_avanzados(tipo_pastura)
     dashboard_metrics = crear_dashboard_resumen(
         gdf_sub, datos_clima, datos_suelo, tipo_pastura, carga_animal, peso_promedio
