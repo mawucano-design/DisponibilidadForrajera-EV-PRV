@@ -2479,6 +2479,7 @@ if st.session_state.gdf_cargado is not None:
                                     st.dataframe(quimicas_data, use_container_width=True, hide_index=True)
                         
                         # Exportar datos
+                                               # Exportar datos
                         st.markdown("---")
                         st.markdown("### 💾 EXPORTAR DATOS")
                         
@@ -2547,8 +2548,15 @@ if st.session_state.gdf_cargado is not None:
                         with col_export4:
                             # NUEVO: Generar y exportar informe DOCX completo
                             if DOCX_AVAILABLE:
-                                if st.button("📑 Generar Informe Completo (DOCX)", use_container_width=True, key="generar_informe"):
-                                    with st.spinner("Generando informe completo..."):
+                                # Usamos un botón que activa la generación del informe
+                                generar_informe = st.button(
+                                    "📑 Generar Informe Completo (DOCX)", 
+                                    use_container_width=True,
+                                    key="generar_informe_btn"
+                                )
+                                
+                                if generar_informe:
+                                    with st.spinner("Generando informe completo (esto puede tomar unos segundos)..."):
                                         informe_buffer = generar_informe_completo(
                                             gdf_sub, datos_clima, datos_suelo, tipo_pastura,
                                             carga_animal, peso_promedio, dashboard_metrics,
@@ -2557,9 +2565,9 @@ if st.session_state.gdf_cargado is not None:
                                         
                                         if informe_buffer:
                                             st.session_state.informe_generado = informe_buffer
-                                            st.success("✅ Informe generado correctamente")
-                                            st.rerun()  # Esto fuerza la actualización para mostrar el botón de descarga
-                            
+                                            st.success("✅ Informe generado correctamente. Ahora puedes descargarlo.")
+                                            # No usamos st.rerun() para evitar recarga completa
+                                
                                 # Botón para descargar informe si ya fue generado
                                 if st.session_state.informe_generado is not None:
                                     st.download_button(
@@ -2570,6 +2578,8 @@ if st.session_state.gdf_cargado is not None:
                                         use_container_width=True,
                                         key="descargar_informe"
                                     )
+                                else:
+                                    st.info("Presiona 'Generar Informe' para crear el documento")
                             else:
                                 st.warning("python-docx no disponible. Instale con: pip install python-docx")
                         
@@ -2595,7 +2605,7 @@ if st.session_state.gdf_cargado is not None:
                 st.error(f"❌ Error ejecutando análisis: {e}")
                 import traceback
                 st.error(traceback.format_exc())
-else:
+            else:
     st.info("Carga un archivo (ZIP con shapefile, KML o KMZ) en la barra lateral para comenzar.")
 
 # -----------------------
