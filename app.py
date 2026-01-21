@@ -2849,12 +2849,10 @@ st.markdown("### 📚 INFORMACIÓN ADICIONAL")
 
 with st.expander("ℹ️ Acerca de los datos utilizados"):
     st.markdown("""
-#### 🌤️ NASA POWER (Prediction Of Worldwide Energy Resource)
 - **Fuente**: NASA Langley Research Center  
-- **Datos**: Precipitación, temperatura, humedad, radiación solar, evapotranspiración  
-- **Resolución temporal**: Diaria  
 - **Resolución espacial**: 0.5 grados x 0.5 grados (aproximadamente 55 km)  
-- **Período**: Desde 1981 hasta presente  
+- **Periodo disponible**: 1981 - presente  
+- **Variables**: Radiación solar, temperatura, precipitación, humedad relativa, etc.
 
 #### 🌍 MAPA DE SUELOS INTA
 - **Fuente**: Instituto Nacional de Tecnología Agropecuaria (INTA)  
@@ -2869,19 +2867,20 @@ with st.expander("ℹ️ Acerca de los datos utilizados"):
 - **Parámetros ajustables**: Umbrales, factores de seguridad  
 - **Salidas**: Biomasa, EV soportable, días de permanencia, estrés hídrico  
 """)
+
 with st.expander("🎯 Recomendaciones de uso"):
     st.markdown("""
-    #### PARA ANÁLISIS PRECISOS:
-    1. **Cargar polígonos precisos** del potrero
-    2. **Seleccionar el tipo de pastura** correctamente
-    3. **Ajustar parámetros** según la realidad del lote
-    4. **Validar resultados** con observaciones de campo
-    5. **Usar datos climáticos** para análisis más realistas
-    6. **Considerar datos de suelo** para ajustar recomendaciones
-    
-    #### MEJORES PRÁCTICAS:
-    - Realizar análisis periódicos (cada 30-60 días)
-    - Comparar resultados entre fechas
-    - Exportar y guardar informes para seguimiento
-    - Validar con mediciones de campo cuando sea posible
-    """)
+#### PARA ANÁLISIS PRECISOS:
+1. **Cargar polígonos precisos** del potrero  
+2. **Seleccionar el tipo de pastura** correctamente  
+3. **Ajustar parámetros** según la realidad del lote  
+4. **Validar resultados** con observaciones de campo  
+5. **Usar datos climáticos** para análisis más realistas  
+6. **Considerar datos de suelo** para ajustar recomendaciones  
+
+#### MEJORES PRÁCTICAS:
+- Realizar análisis periódicos (cada 30-60 días)  
+- Comparar resultados entre fechas  
+- Exportar y guardar informes para seguimiento  
+- Validar con mediciones de campo cuando sea posible  
+""")
