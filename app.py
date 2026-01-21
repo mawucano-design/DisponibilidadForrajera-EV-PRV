@@ -1,9 +1,3 @@
-[file name]: forrajerocorreccion.py
-[file content begin]
-"""
-APP COMPLETA DE ANÁLISIS FORRAJERO AVANZADO
-Con ESRI Satellite forzado y generación de informe completo
-"""
 
 import streamlit as st
 import geopandas as gpd
