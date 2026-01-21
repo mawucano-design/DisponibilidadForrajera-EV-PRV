@@ -2849,26 +2849,26 @@ st.markdown("### 📚 INFORMACIÓN ADICIONAL")
 
 with st.expander("ℹ️ Acerca de los datos utilizados"):
     st.markdown("""
+#### 🌤️ NASA POWER (Prediction Of Worldwide Energy Resource)
 - **Fuente**: NASA Langley Research Center  
-- **Resolución espacial**: 0.5 grados × 0.5 grados (aproximadamente 55 km)  
-- **Periodo disponible**: 1981 – presente  
-- **Variables**: Radiación solar, temperatura, precipitación, humedad relativa, etc.
-""")
-    
-    #### 🌍 MAPA DE SUELOS INTA
-    - **Fuente**: Instituto Nacional de Tecnología Agropecuaria (INTA)
-    - **Datos**: Textura, materia orgánica, pH, capacidad de campo
-    - **Escala**: 1:250,000 a 1:50,000 según región
-    - **Cobertura**: Todo el territorio argentino
-    - **Nota**: Si el servicio no está disponible, se usan datos simulados basados en ubicación
-    
-    #### 📊 ANÁLISIS FORRAJERO AVANZADO
-    - **Índices espectrales**: NDVI, EVI, SAVI, GNDVI, NDMI
-    - **Factores considerados**: Clima, suelo, tipo de pastura
-    - **Parámetros ajustables**: Umbrales, factores de seguridad
-    - **Salidas**: Biomasa, EV soportable, días de permanencia, estrés hídrico
-    """)
+- **Datos**: Precipitación, temperatura, humedad, radiación solar, evapotranspiración  
+- **Resolución temporal**: Diaria  
+- **Resolución espacial**: 0.5 grados x 0.5 grados (aproximadamente 55 km)  
+- **Período**: Desde 1981 hasta presente  
 
+#### 🌍 MAPA DE SUELOS INTA
+- **Fuente**: Instituto Nacional de Tecnología Agropecuaria (INTA)  
+- **Datos**: Textura, materia orgánica, pH, capacidad de campo  
+- **Escala**: 1:250,000 a 1:50,000 según región  
+- **Cobertura**: Todo el territorio argentino  
+- **Nota**: Si el servicio no está disponible, se usan datos simulados basados en ubicación  
+
+#### 📊 ANÁLISIS FORRAJERO AVANZADO
+- **Índices espectrales**: NDVI, EVI, SAVI, GNDVI, NDMI  
+- **Factores considerados**: Clima, suelo, tipo de pastura  
+- **Parámetros ajustables**: Umbrales, factores de seguridad  
+- **Salidas**: Biomasa, EV soportable, días de permanencia, estrés hídrico  
+""")
 with st.expander("🎯 Recomendaciones de uso"):
     st.markdown("""
     #### PARA ANÁLISIS PRECISOS:
