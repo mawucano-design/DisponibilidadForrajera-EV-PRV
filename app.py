@@ -1511,15 +1511,15 @@ def crear_dashboard_resumen(gdf_analizado, datos_clima, datos_suelo, tipo_pastur
     # Sección 5: Recomendaciones
     st.markdown("### 💡 RECOMENDACIONES")
     
-    # Generar recomendaciones basadas en el análisis
+    # Generar recomendaciones basadas en los resultados
     recomendaciones = []
     
     # Recomendación por biomasa
-    if biomasa_prom < 600:
+    if biomasa_promedio < 600:
         recomendaciones.append("🔴 **CRÍTICO**: Biomasa muy baja (<600 kg/ha). Considerar suplementación inmediata.")
-    elif biomasa_prom < 1200:
+    elif biomasa_promedio < 1200:
         recomendaciones.append("🟡 **ALERTA**: Biomasa baja (600-1200 kg/ha). Monitorear diariamente.")
-    elif biomasa_prom < 1800:
+    elif biomasa_promedio < 1800:
         recomendaciones.append("🟢 **ACEPTABLE**: Biomasa moderada (1200-1800 kg/ha). Manejo normal.")
     else:
         recomendaciones.append("✅ **ÓPTIMO**: Biomasa adecuada (>1800 kg/ha). Buen crecimiento.")
@@ -1531,9 +1531,9 @@ def crear_dashboard_resumen(gdf_analizado, datos_clima, datos_suelo, tipo_pastur
         recomendaciones.append("💧 **ESTRÉS HÍDRICO MODERADO**: Monitorear humedad del suelo.")
     
     # Recomendación por días de permanencia
-    if dias_prom < 15:
+    if dias_promedio < 15:
         recomendaciones.append("⚡ **ROTACIÓN MUY RÁPIDA**: Considerar aumentar área o reducir carga.")
-    elif dias_prom > 60:
+    elif dias_promedio > 60:
         recomendaciones.append("🐌 **ROTACIÓN LENTA**: Podría aumentar carga animal.")
     
     # Recomendación por balance forrajero
@@ -1556,7 +1556,6 @@ def crear_dashboard_resumen(gdf_analizado, datos_clima, datos_suelo, tipo_pastur
         'dias_promedio': dias_promedio,
         'estres_prom': estres_prom
     }
-
 # -----------------------
 # VISUALIZACIÓN MEJORADA CON ESRI FORZADO
 # -----------------------
