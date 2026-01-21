@@ -1320,12 +1320,8 @@ def calcular_metricas_avanzadas(gdf_analizado, tipo_pastura, peso_promedio, carg
     
     return metricas
 
-# -----------------------
-# DASHBOARD RESUMEN AVANZADO - VERSIÓN CORREGIDA
-# -----------------------
 def crear_dashboard_resumen(gdf_analizado, datos_clima, datos_suelo, tipo_pastura, carga_animal, peso_promedio):
     """Crea un dashboard resumen completo del análisis"""
-    
     # Calcular métricas globales
     area_total = gdf_analizado['area_ha'].sum()
     biomasa_promedio = gdf_analizado['biomasa_disponible_kg_ms_ha'].mean()
@@ -1333,119 +1329,86 @@ def crear_dashboard_resumen(gdf_analizado, datos_clima, datos_suelo, tipo_pastur
     ndvi_promedio = gdf_analizado['ndvi'].mean()
     ev_total = gdf_analizado['ev_soportable'].sum()
     dias_promedio = gdf_analizado['dias_permanencia'].mean()
-    
     # Calcular distribución de tipos de superficie
     distribucion = gdf_analizado['tipo_superficie'].value_counts()
-    
     # Calcular estrés hídrico promedio
     estres_prom = gdf_analizado['estres_hidrico'].mean() if 'estres_hidrico' in gdf_analizado.columns else 0
-    
+
     # Crear dashboard
     st.markdown("---")
     st.markdown("## 📊 DASHBOARD RESUMEN DEL ANÁLISIS")
-    
+
     # Sección 1: Métricas clave
     st.markdown("### 📈 MÉTRICAS CLAVE")
     col1, col2, col3, col4 = st.columns(4)
-    
     with col1:
-        st.metric(
-            "Área Total", 
-            f"{area_total:.1f} ha",
-            delta=None
-        )
+        st.metric("Área Total", f"{area_total:.1f} ha")
         st.caption("Superficie analizada")
-    
     with col2:
         st.metric(
-            "Biomasa Promedio", 
+            "Biomasa Promedio",
             f"{biomasa_promedio:.0f} kg MS/ha",
             delta=f"{(biomasa_promedio/4000*100):.0f}% del óptimo" if biomasa_promedio > 0 else "0%"
         )
         st.caption("Productividad forrajera")
-    
     with col3:
         st.metric(
-            "EV Soportable", 
+            "EV Soportable",
             f"{ev_total:.1f}",
             delta=f"{ev_total/carga_animal:.1f} EV/cabeza" if carga_animal > 0 else "N/A"
         )
         st.caption("Capacidad de carga total")
-    
     with col4:
         st.metric(
-            "NDVI Promedio", 
+            "NDVI Promedio",
             f"{ndvi_promedio:.3f}",
-            delta="Excelente" if ndvi_promedio > 0.6 else 
-                  "Bueno" if ndvi_promedio > 0.4 else 
+            delta="Excelente" if ndvi_promedio > 0.6 else
+                  "Bueno" if ndvi_promedio > 0.4 else
                   "Regular" if ndvi_promedio > 0.2 else "Crítico"
         )
         st.caption("Estado vegetativo")
-    
+
     # Sección 2: Balance forrajero
     st.markdown("### 🌿 BALANCE FORRAJERO")
     col5, col6, col7, col8 = st.columns(4)
-    
     with col5:
         biomasa_ha_dia = gdf_analizado['crecimiento_diario'].mean()
-        st.metric(
-            "Crecimiento Diario", 
-            f"{biomasa_ha_dia:.0f} kg/ha/día",
-            delta=f"{biomasa_ha_dia/80*100:.0f}% del esperado"
-        )
+        st.metric("Crecimiento Diario", f"{biomasa_ha_dia:.0f} kg/ha/día")
         st.caption("Producción diaria")
-    
     with col6:
-        consumo_total = carga_animal * peso_promedio * 0.025  # Consumo estimado
-        st.metric(
-            "Consumo Diario", 
-            f"{consumo_total:.0f} kg MS/día",
-            delta=f"{carga_animal} cabezas"
-        )
+        consumo_total = carga_animal * peso_promedio * 0.025
+        st.metric("Consumo Diario", f"{consumo_total:.0f} kg MS/día", delta=f"{carga_animal} cabezas")
         st.caption("Demanda ganadera")
-    
     with col7:
         balance_diario = biomasa_ha_dia * area_total - consumo_total
         st.metric(
-            "Balance Diario", 
+            "Balance Diario",
             f"{balance_diario:.0f} kg MS/día",
             delta="Positivo" if balance_diario > 0 else "Negativo",
             delta_color="normal" if balance_diario > 0 else "inverse"
         )
         st.caption("Saldo producción-consumo")
-    
     with col8:
         st.metric(
-            "Días Disponibilidad", 
+            "Días Disponibilidad",
             f"{dias_promedio:.0f} días",
-            delta="Rotación óptima" if 20 <= dias_promedio <= 40 else 
+            delta="Rotación óptima" if 20 <= dias_promedio <= 40 else
                   "Rotación rápida" if dias_promedio < 20 else "Rotación lenta"
         )
         st.caption("Período de permanencia")
-    
+
     # Sección 3: Distribución de superficies
     st.markdown("### 🗺️ DISTRIBUCIÓN DE SUPERFICIES")
-    
     if len(distribucion) > 0:
         col9, col10 = st.columns(2)
-        
         with col9:
-            # Gráfico de torta
             fig1, ax1 = plt.subplots(figsize=(8, 6))
             colors = ['#d73027', '#fdae61', '#fee08b', '#a6d96a', '#1a9850']
-            patches, texts, autotexts = ax1.pie(
-                distribucion.values, 
-                labels=distribucion.index,
-                autopct='%1.1f%%',
-                colors=colors[:len(distribucion)],
-                startangle=90
-            )
+            ax1.pie(distribucion.values, labels=distribucion.index, autopct='%1.1f%%', colors=colors[:len(distribucion)], startangle=90)
             ax1.set_title('Distribución de Tipos de Superficie')
             st.pyplot(fig1)
             plt.close(fig1)
-        
         with col10:
-            # Tabla de distribución
             st.dataframe(
                 pd.DataFrame({
                     'Tipo de Superficie': distribucion.index,
@@ -1455,13 +1418,11 @@ def crear_dashboard_resumen(gdf_analizado, datos_clima, datos_suelo, tipo_pastur
                 use_container_width=True,
                 hide_index=True
             )
-    
-    # Sección 4: Datos climáticos y de suelo
+
+    # Sección 4: Datos ambientales
     st.markdown("### 🌤️ DATOS AMBIENTALES")
-    
     if datos_clima or datos_suelo:
         col11, col12 = st.columns(2)
-        
         with col11:
             if datos_clima:
                 st.markdown("**🌤️ Datos Climáticos**")
@@ -1484,7 +1445,6 @@ def crear_dashboard_resumen(gdf_analizado, datos_clima, datos_suelo, tipo_pastur
                     ]
                 })
                 st.dataframe(clima_df, use_container_width=True, hide_index=True)
-        
         with col12:
             if datos_suelo:
                 st.markdown("**🌍 Datos de Suelo**")
@@ -1507,13 +1467,11 @@ def crear_dashboard_resumen(gdf_analizado, datos_clima, datos_suelo, tipo_pastur
                     ]
                 })
                 st.dataframe(suelo_df, use_container_width=True, hide_index=True)
-    
+
     # Sección 5: Recomendaciones
     st.markdown("### 💡 RECOMENDACIONES")
-    
-    # Generar recomendaciones basadas en los resultados
     recomendaciones = []
-    
+
     # Recomendación por biomasa
     if biomasa_promedio < 600:
         recomendaciones.append("🔴 **CRÍTICO**: Biomasa muy baja (<600 kg/ha). Considerar suplementación inmediata.")
@@ -1523,30 +1481,30 @@ def crear_dashboard_resumen(gdf_analizado, datos_clima, datos_suelo, tipo_pastur
         recomendaciones.append("🟢 **ACEPTABLE**: Biomasa moderada (1200-1800 kg/ha). Manejo normal.")
     else:
         recomendaciones.append("✅ **ÓPTIMO**: Biomasa adecuada (>1800 kg/ha). Buen crecimiento.")
-    
+
     # Recomendación por estrés hídrico
     if estres_prom > 0.7:
         recomendaciones.append("💧 **ESTRÉS HÍDRICO SEVERO**: Considerar riego o reducir carga animal.")
     elif estres_prom > 0.5:
         recomendaciones.append("💧 **ESTRÉS HÍDRICO MODERADO**: Monitorear humedad del suelo.")
-    
+
     # Recomendación por días de permanencia
     if dias_promedio < 15:
         recomendaciones.append("⚡ **ROTACIÓN MUY RÁPIDA**: Considerar aumentar área o reducir carga.")
     elif dias_promedio > 60:
         recomendaciones.append("🐌 **ROTACIÓN LENTA**: Podría aumentar carga animal.")
-    
+
     # Recomendación por balance forrajero
-    balance_diario_recom = biomasa_ha_dia * area_total - consumo_total
-    if balance_diario_recom < -500:
+    balance_diario = gdf_analizado['crecimiento_diario'].mean() * area_total - (carga_animal * peso_promedio * 0.025)
+    if balance_diario < -500:
         recomendaciones.append("📉 **DÉFICIT FORRAJERO**: Producción insuficiente. Considerar suplementación.")
-    elif balance_diario_recom > 500:
+    elif balance_diario > 500:
         recomendaciones.append("📈 **EXCEDENTE FORRAJERO**: Podría aumentar carga o conservar forraje.")
-    
+
     # Mostrar recomendaciones
     for rec in recomendaciones:
         st.markdown(f"- {rec}")
-    
+
     return {
         'area_total': area_total,
         'biomasa_promedio': biomasa_promedio,
