@@ -1515,11 +1515,11 @@ def crear_dashboard_resumen(gdf_analizado, datos_clima, datos_suelo, tipo_pastur
     recomendaciones = []
     
     # Recomendación por biomasa
-    if biomasa_promedio < 600:
+    if biomasa_prom < 600:
         recomendaciones.append("🔴 **CRÍTICO**: Biomasa muy baja (<600 kg/ha). Considerar suplementación inmediata.")
-    elif biomasa_promedio < 1200:
+    elif biomasa_prom < 1200:
         recomendaciones.append("🟡 **ALERTA**: Biomasa baja (600-1200 kg/ha). Monitorear diariamente.")
-    elif biomasa_promedio < 1800:
+    elif biomasa_prom < 1800:
         recomendaciones.append("🟢 **ACEPTABLE**: Biomasa moderada (1200-1800 kg/ha). Manejo normal.")
     else:
         recomendaciones.append("✅ **ÓPTIMO**: Biomasa adecuada (>1800 kg/ha). Buen crecimiento.")
@@ -1531,13 +1531,13 @@ def crear_dashboard_resumen(gdf_analizado, datos_clima, datos_suelo, tipo_pastur
         recomendaciones.append("💧 **ESTRÉS HÍDRICO MODERADO**: Monitorear humedad del suelo.")
     
     # Recomendación por días de permanencia
-    if dias_promedio < 15:
+    if dias_prom < 15:
         recomendaciones.append("⚡ **ROTACIÓN MUY RÁPIDA**: Considerar aumentar área o reducir carga.")
-    elif dias_promedio > 60:
+    elif dias_prom > 60:
         recomendaciones.append("🐌 **ROTACIÓN LENTA**: Podría aumentar carga animal.")
     
     # Recomendación por balance forrajero
-    balance_diario = biomasa_ha_dia * area_total - (carga_animal * peso_promedio * 0.025)
+    balance_diario = biomasa_ha_dia * area_total - consumo_total
     if balance_diario < -500:
         recomendaciones.append("📉 **DÉFICIT FORRAJERO**: Producción insuficiente. Considerar suplementación.")
     elif balance_diario > 500:
@@ -1924,6 +1924,11 @@ def generar_informe_completo(gdf_analizado, datos_clima, datos_suelo, tipo_pastu
         return None
     
     try:
+        # Validar inputs
+        if gdf_analizado is None or gdf_analizado.empty:
+            st.error("❌ No hay datos analizados para generar el informe")
+            return None
+        
         # Crear documento
         doc = Document()
         
@@ -1975,7 +1980,6 @@ def generar_informe_completo(gdf_analizado, datos_clima, datos_suelo, tipo_pastu
             ('Crecimiento Diario', f"{params['CRECIMIENTO_DIARIO']} kg/ha/día", 'Crecimiento esperado'),
             ('Consumo (% peso)', f"{params['CONSUMO_PORCENTAJE_PESO']*100:.1f}%", 'Consumo individual diario'),
             ('Tasa Utilización', f"{params['TASA_UTILIZACION_RECOMENDADA']*100:.0f}%", 'Tasa recomendada de uso'),
-            ('Proteína', f"{params.get('PROTEINA', 'N/A')}%", 'Contenido proteico estimado'),
             ('Carga Animal', f"{carga_animal} cabezas", 'Número de animales considerados'),
             ('Peso Promedio', f"{peso_promedio} kg", 'Peso vivo promedio'),
             ('Sub-lotes', f"{n_divisiones}", 'Número de divisiones del potrero')
@@ -2281,7 +2285,7 @@ def generar_informe_completo(gdf_analizado, datos_clima, datos_suelo, tipo_pastu
         return buffer
         
     except Exception as e:
-        st.error(f"❌ Error generando informe: {e}")
+        st.error(f"❌ Error generando informe: {str(e)}")
         import traceback
         st.error(traceback.format_exc())
         return None
@@ -2482,98 +2486,111 @@ if st.session_state.gdf_cargado is not None:
                                     })
                                     st.dataframe(quimicas_data, use_container_width=True, hide_index=True)
                         
-                        # Exportar datos
+                        # Exportar datos CORREGIDO
                         st.markdown("---")
                         st.markdown("### 💾 EXPORTAR DATOS")
                         
-                        col_export1, col_export2, col_export3, col_export4 = st.columns(4)
-                        
-                        with col_export1:
-                            # Exportar GeoJSON
-                            try:
-                                geojson_str = gdf_sub.to_json()
-                                st.download_button(
-                                    "📤 Exportar GeoJSON",
-                                    geojson_str,
-                                    f"analisis_avanzado_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.geojson",
-                                    "application/geo+json",
-                                    use_container_width=True
-                                )
-                            except Exception as e:
-                                st.error(f"Error exportando GeoJSON: {e}")
-                        
-                        with col_export2:
-                            # Exportar CSV
-                            try:
-                                csv_data = gdf_sub.drop(columns=['geometry']).copy()
-                                
-                                # Agregar datos climáticos y de suelo al CSV
-                                if datos_clima:
-                                    for key, value in datos_clima.items():
-                                        if key != 'datos_crudos':
-                                            csv_data[f'clima_{key}'] = value
-                                
-                                if datos_suelo:
-                                    for key, value in datos_suelo.items():
-                                        if key not in ['detalles', 'fuente']:
-                                            csv_data[f'suelo_{key}'] = value
-                                
-                                csv_bytes = csv_data.to_csv(index=False).encode('utf-8')
-                                st.download_button(
-                                    "📊 Exportar CSV completo",
-                                    csv_bytes,
-                                    f"analisis_avanzado_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                                    "text/csv",
-                                    use_container_width=True
-                                )
-                            except Exception as e:
-                                st.error(f"Error exportando CSV: {e}")
-                        
-                        with col_export3:
-                            # Exportar resumen TXT
-                            resumen_text = f"""
-                            RESUMEN DE ANÁLISIS FORRAJERO
-                            Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M')}
-                            Tipo de Pastura: {tipo_pastura}
-                            Área Total: {dashboard_metrics['area_total']:.1f} ha
-                            Biomasa Promedio: {dashboard_metrics['biomasa_promedio']:.0f} kg MS/ha
-                            EV Total Soportable: {dashboard_metrics['ev_total']:.1f}
-                            NDVI Promedio: {dashboard_metrics['ndvi_promedio']:.3f}
-                            """
-                            st.download_button(
-                                "📄 Exportar Resumen (TXT)",
-                                resumen_text,
-                                f"resumen_analisis_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
-                                "text/plain",
-                                use_container_width=True
-                            )
-                        
-                        with col_export4:
-                            # NUEVO: Generar y exportar informe DOCX completo
-                            if DOCX_AVAILABLE:
-                                if st.button("📑 Generar Informe Completo (DOCX)", use_container_width=True):
-                                    with st.spinner("Generando informe completo..."):
-                                        informe_buffer = generar_informe_completo(
-                                            gdf_sub, datos_clima, datos_suelo, tipo_pastura,
-                                            carga_animal, peso_promedio, dashboard_metrics,
-                                            fecha_imagen, n_divisiones, params
-                                        )
-                                        
-                                        if informe_buffer:
-                                            st.session_state.informe_generado = informe_buffer
-                                            st.success("✅ Informe generado correctamente")
+                        # Crear un formulario para evitar el rerun automático
+                        with st.form(key="export_form"):
+                            col_export1, col_export2, col_export3, col_export4 = st.columns(4)
                             
-                                # Botón para descargar informe si ya fue generado
-                                if st.session_state.informe_generado:
+                            with col_export1:
+                                # Exportar GeoJSON
+                                try:
+                                    geojson_str = gdf_sub.to_json()
                                     st.download_button(
-                                        "📥 Descargar Informe Completo",
-                                        st.session_state.informe_generado,
-                                        f"informe_completo_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.docx",
-                                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                        "📤 Exportar GeoJSON",
+                                        geojson_str,
+                                        f"analisis_avanzado_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.geojson",
+                                        "application/geo+json",
                                         use_container_width=True
                                     )
-                            else:
-                                st.warning("python-docx no disponible")
+                                except Exception as e:
+                                    st.error(f"Error exportando GeoJSON: {e}")
+                            
+                            with col_export2:
+                                # Exportar CSV
+                                try:
+                                    csv_data = gdf_sub.drop(columns=['geometry']).copy()
+                                    
+                                    # Agregar datos climáticos y de suelo al CSV
+                                    if datos_clima:
+                                        for key, value in datos_clima.items():
+                                            if key != 'datos_crudos':
+                                                csv_data[f'clima_{key}'] = value
+                                    
+                                    if datos_suelo:
+                                        for key, value in datos_suelo.items():
+                                            if key not in ['detalles', 'fuente']:
+                                                csv_data[f'suelo_{key}'] = value
+                                    
+                                    csv_bytes = csv_data.to_csv(index=False).encode('utf-8')
+                                    st.download_button(
+                                        "📊 Exportar CSV completo",
+                                        csv_bytes,
+                                        f"analisis_avanzado_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                                        "text/csv",
+                                        use_container_width=True
+                                    )
+                                except Exception as e:
+                                    st.error(f"Error exportando CSV: {e}")
+                            
+                            with col_export3:
+                                # Exportar resumen TXT
+                                resumen_text = f"""
+                                RESUMEN DE ANÁLISIS FORRAJERO
+                                Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M')}
+                                Tipo de Pastura: {tipo_pastura}
+                                Área Total: {dashboard_metrics['area_total']:.1f} ha
+                                Biomasa Promedio: {dashboard_metrics['biomasa_promedio']:.0f} kg MS/ha
+                                EV Total Soportable: {dashboard_metrics['ev_total']:.1f}
+                                NDVI Promedio: {dashboard_metrics['ndvi_promedio']:.3f}
+                                Días de Permanencia: {dashboard_metrics['dias_promedio']:.1f} días
+                                """
+                                st.download_button(
+                                    "📄 Exportar Resumen (TXT)",
+                                    resumen_text,
+                                    f"resumen_analisis_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+                                    "text/plain",
+                                    use_container_width=True
+                                )
+                            
+                            with col_export4:
+                                # Generar informe DOCX
+                                if DOCX_AVAILABLE:
+                                    # Botón para generar informe
+                                    generar_informe = st.form_submit_button(
+                                        "📑 Generar Informe Completo (DOCX)",
+                                        use_container_width=True,
+                                        type="primary"
+                                    )
+                                    
+                                    if generar_informe:
+                                        with st.spinner("Generando informe completo..."):
+                                            informe_buffer = generar_informe_completo(
+                                                gdf_sub, datos_clima, datos_suelo, tipo_pastura,
+                                                carga_animal, peso_promedio, dashboard_metrics,
+                                                fecha_imagen, n_divisiones, params
+                                            )
+                                            
+                                            if informe_buffer:
+                                                st.session_state.informe_generado = informe_buffer
+                                                st.success("✅ Informe generado correctamente")
+                                                # Forzar un rerun para mostrar el botón de descarga
+                                                st.rerun()
+                                else:
+                                    st.warning("python-docx no disponible")
+                            
+                            # Botón para descargar informe si ya fue generado
+                            if st.session_state.get('informe_generado'):
+                                st.download_button(
+                                    "📥 Descargar Informe Completo",
+                                    st.session_state.informe_generado,
+                                    f"informe_completo_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.docx",
+                                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                    use_container_width=True,
+                                    key="download_informe"
+                                )
                         
                         # Mostrar tabla de resultados
                         st.markdown("---")
@@ -2634,4 +2651,18 @@ with st.expander("🎯 Recomendaciones de uso"):
     #### PARA ANÁLISIS PRECISOS:
     1. **Cargar polígonos precisos** del potrero
     2. **Seleccionar el tipo de pastura**
-    """)  # <-- ¡AGREGAR ESTAS COMILLAS!
+    3. **Ajustar parámetros** según condiciones locales
+    4. **Validar resultados** con observaciones de campo
+    
+    #### INTERPRETACIÓN DE RESULTADOS:
+    - **Biomasa < 600 kg/ha**: Condición crítica, requiere suplementación
+    - **Biomasa 600-1200 kg/ha**: Monitoreo frecuente necesario
+    - **Biomasa 1200-1800 kg/ha**: Condición aceptable
+    - **Biomasa > 1800 kg/ha**: Condición óptima
+    
+    #### CONSIDERACIONES:
+    - Los datos climáticos tienen resolución de 55km
+    - Los datos de suelo pueden ser estimados
+    - Validar siempre con observaciones locales
+    - El análisis es una herramienta de apoyo a la decisión
+    """)
