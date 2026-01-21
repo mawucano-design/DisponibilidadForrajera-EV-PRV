@@ -1321,7 +1321,7 @@ def calcular_metricas_avanzadas(gdf_analizado, tipo_pastura, peso_promedio, carg
     return metricas
 
 # -----------------------
-# DASHBOARD RESUMEN AVANZADO
+# DASHBOARD RESUMEN AVANZADO - VERSIÓN CORREGIDA
 # -----------------------
 def crear_dashboard_resumen(gdf_analizado, datos_clima, datos_suelo, tipo_pastura, carga_animal, peso_promedio):
     """Crea un dashboard resumen completo del análisis"""
@@ -1537,10 +1537,10 @@ def crear_dashboard_resumen(gdf_analizado, datos_clima, datos_suelo, tipo_pastur
         recomendaciones.append("🐌 **ROTACIÓN LENTA**: Podría aumentar carga animal.")
     
     # Recomendación por balance forrajero
-    balance_diario = biomasa_ha_dia * area_total - consumo_total
-    if balance_diario < -500:
+    balance_diario_recom = biomasa_ha_dia * area_total - consumo_total
+    if balance_diario_recom < -500:
         recomendaciones.append("📉 **DÉFICIT FORRAJERO**: Producción insuficiente. Considerar suplementación.")
-    elif balance_diario > 500:
+    elif balance_diario_recom > 500:
         recomendaciones.append("📈 **EXCEDENTE FORRAJERO**: Podría aumentar carga o conservar forraje.")
     
     # Mostrar recomendaciones
