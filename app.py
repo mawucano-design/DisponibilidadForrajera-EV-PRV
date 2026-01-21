@@ -59,7 +59,7 @@ umbral_ndvi_suelo = 0.15
 umbral_ndvi_pastura = 0.6
 
 # Forzar ESRI Satellite como mapa base único
-FORCED_BASE_MAP = "ESRI Satélite"
+FORCED_BASE_MAP = "ESRI Satelite"
 
 # Session state
 for key in [
@@ -246,8 +246,8 @@ class ServicioClimaNASA:
             
             # Extraer datos
             precip_data = extraer_datos('PRECTOTCORR', 0)  # Precipitación corregida
-            tmax_data = extraer_datos('T2M_MAX', 20)      # Temperatura máxima (°C)
-            tmin_data = extraer_datos('T2M_MIN', 10)      # Temperatura mínima (°C)
+            tmax_data = extraer_datos('T2M_MAX', 20)      # Temperatura máxima (C)
+            tmin_data = extraer_datos('T2M_MIN', 10)      # Temperatura mínima (C)
             rh_data = extraer_datos('RH2M', 70)           # Humedad relativa (%)
             rad_data = extraer_datos('ALLSKY_SFC_SW_DWN', 15)  # Radiación (W/m²)
             wind_data = extraer_datos('WS2M', 2)          # Velocidad del viento (m/s)
@@ -366,10 +366,10 @@ class ServicioClimaNASA:
             # Convertir radiación de W/m² a MJ/m²/día
             radiacion_mj = radiacion * 0.0864
             
-            # Pendiente de la curva de presión de vapor (kPa/°C)
+            # Pendiente de la curva de presión de vapor (kPa/C)
             delta = 4098 * es / ((tmean + 237.3) ** 2)
             
-            # Constante psicrométrica (kPa/°C)
+            # Constante psicrométrica (kPa/C)
             gamma = 0.665 * 0.001 * 101.3  # Aproximación
             
             # ET0 simplificada (mm/día)
@@ -1475,8 +1475,8 @@ def crear_dashboard_resumen(gdf_analizado, datos_clima, datos_suelo, tipo_pastur
                     ],
                     'Valor': [
                         f"{datos_clima.get('precipitacion_total', 0):.0f} mm",
-                        f"{datos_clima.get('temp_max_promedio', 0):.1f} °C",
-                        f"{datos_clima.get('temp_min_promedio', 0):.1f} °C",
+                        f"{datos_clima.get('temp_max_promedio', 0):.1f} C",
+                        f"{datos_clima.get('temp_min_promedio', 0):.1f} C",
                         f"{datos_clima.get('et0_promedio', 0):.1f} mm/día",
                         f"{datos_clima.get('dias_lluvia', 0)} días",
                         f"{datos_clima.get('deficit_hidrico', 0):.0f} mm"
@@ -1964,7 +1964,7 @@ def crear_mapa_detallado_avanzado(gdf_analizado, tipo_pastura, datos_clima=None,
             
             info_clima = [
                 f"Precipitación: {datos_clima.get('precipitacion_total', 0):.1f} mm",
-                f"Temperatura: {datos_clima.get('temp_promedio', 0):.1f} °C",
+                f"Temperatura: {datos_clima.get('temp_promedio', 0):.1f} C",
                 f"ET0: {datos_clima.get('et0_promedio', 0):.1f} mm/día"
             ]
             
@@ -2224,8 +2224,8 @@ def generar_informe_completo(gdf_analizado, datos_clima, datos_suelo, tipo_pastu
                 ('Período analizado', datos_clima.get('periodo', 'N/A')),
                 ('Precipitación total', f"{datos_clima.get('precipitacion_total', 0):.1f} mm"),
                 ('Precipitación promedio', f"{datos_clima.get('precipitacion_promedio', 0):.1f} mm/día"),
-                ('Temperatura máxima promedio', f"{datos_clima.get('temp_max_promedio', 0):.1f} °C"),
-                ('Temperatura mínima promedio', f"{datos_clima.get('temp_min_promedio', 0):.1f} °C"),
+                ('Temperatura máxima promedio', f"{datos_clima.get('temp_max_promedio', 0):.1f} C"),
+                ('Temperatura mínima promedio', f"{datos_clima.get('temp_min_promedio', 0):.1f} C"),
                 ('Evapotranspiración (ET0)', f"{datos_clima.get('et0_promedio', 0):.1f} mm/día"),
                 ('Días con lluvia', f"{datos_clima.get('dias_lluvia', 0)} días"),
                 ('Déficit hídrico', f"{datos_clima.get('deficit_hidrico', 0):.1f} mm"),
@@ -2608,7 +2608,7 @@ if st.session_state.gdf_analizado is not None:
                 st.markdown("**🌡️ Temperaturas**")
                 temp_data = pd.DataFrame({
                     'Métrica': ['Máxima Promedio', 'Mínima Promedio', 'Máxima Absoluta', 'Mínima Absoluta'],
-                    'Valor (°C)': [
+                    'Valor (C)': [
                         datos_clima.get('temp_max_promedio', 0),
                         datos_clima.get('temp_min_promedio', 0),
                         datos_clima.get('temp_max_absoluta', 0),
@@ -2713,7 +2713,19 @@ if st.session_state.gdf_analizado is not None:
         resumen_text = f"""
         RESUMEN DE ANÁLISIS FORRAJERO
         Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M')}
-        Tipo de Pastura: {tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+        Tipo de Pastura: {tipo_pastura}
+        Área Total: {dashboard_metrics['area_total']:.1f} ha
+        Biomasa Promedio: {dashboard_metrics['biomasa_promedio']:.0f} kg MS/ha
+        EV Total Soportable: {dashboard_metrics['ev_total']:.1f}
+        NDVI Promedio: {dashboard_metrics['ndvi_promedio']:.3f}
+        Días de Permanencia Promedio: {dashboard_metrics['dias_promedio']:.1f} días
+        Sub-lotes Analizados: {len(gdf_sub)}
+        """
+        
+        st.download_button(
+            "📝 Exportar Resumen (TXT)",
+            resumen_text.encode('utf-8'),
+            f"resumen_analisis_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
             "text/plain",
             use_container_width=True
         )
@@ -2849,40 +2861,40 @@ st.markdown("### 📚 INFORMACIÓN ADICIONAL")
 
 with st.expander("ℹ️ Acerca de los datos utilizados"):
     st.markdown("""
-#### 🌤️ NASA POWER (Prediction Of Worldwide Energy Resource)
-- **Fuente**: NASA Langley Research Center  
-- **Datos**: Precipitación, temperatura, humedad, radiación solar, evapotranspiración  
-- **Resolución temporal**: Diaria  
-- **Resolución espacial**: 0.5 grados x 0.5 grados (aproximadamente 55 km)  
-- **Período**: Desde 1981 hasta presente  
-
-#### 🌍 MAPA DE SUELOS INTA
-- **Fuente**: Instituto Nacional de Tecnología Agropecuaria (INTA)  
-- **Datos**: Textura, materia orgánica, pH, capacidad de campo  
-- **Escala**: 1:250,000 a 1:50,000 según región  
-- **Cobertura**: Todo el territorio argentino  
-- **Nota**: Si el servicio no está disponible, se usan datos simulados basados en ubicación  
-
-#### 📊 ANÁLISIS FORRAJERO AVANZADO
-- **Índices espectrales**: NDVI, EVI, SAVI, GNDVI, NDMI  
-- **Factores considerados**: Clima, suelo, tipo de pastura  
-- **Parámetros ajustables**: Umbrales, factores de seguridad  
-- **Salidas**: Biomasa, EV soportable, días de permanencia, estrés hídrico  
-""")
+    #### 🌤️ NASA POWER (Prediction Of Worldwide Energy Resource)
+    - **Fuente**: NASA Langley Research Center
+    - **Datos**: Precipitación, temperatura, humedad, radiación solar, evapotranspiración
+    - **Resolución temporal**: Diaria
+    - **Resolución espacial**: 0.5 grados × 0.5 grados (aproximadamente 55 km)
+    - **Período**: Desde 1981 hasta presente
+    
+    #### 🌍 MAPA DE SUELOS INTA
+    - **Fuente**: Instituto Nacional de Tecnología Agropecuaria (INTA)
+    - **Datos**: Textura, materia orgánica, pH, capacidad de campo
+    - **Escala**: 1:250,000 a 1:50,000 según región
+    - **Cobertura**: Todo el territorio argentino
+    - **Nota**: Si el servicio no está disponible, se usan datos simulados basados en ubicación
+    
+    #### 📊 ANÁLISIS FORRAJERO AVANZADO
+    - **Índices espectrales**: NDVI, EVI, SAVI, GNDVI, NDMI
+    - **Factores considerados**: Clima, suelo, tipo de pastura
+    - **Parámetros ajustables**: Umbrales, factores de seguridad
+    - **Salidas**: Biomasa, EV soportable, días de permanencia, estrés hídrico
+    """)
 
 with st.expander("🎯 Recomendaciones de uso"):
     st.markdown("""
-#### PARA ANÁLISIS PRECISOS:
-1. **Cargar polígonos precisos** del potrero  
-2. **Seleccionar el tipo de pastura** correctamente  
-3. **Ajustar parámetros** según la realidad del lote  
-4. **Validar resultados** con observaciones de campo  
-5. **Usar datos climáticos** para análisis más realistas  
-6. **Considerar datos de suelo** para ajustar recomendaciones  
-
-#### MEJORES PRÁCTICAS:
-- Realizar análisis periódicos (cada 30-60 días)  
-- Comparar resultados entre fechas  
-- Exportar y guardar informes para seguimiento  
-- Validar con mediciones de campo cuando sea posible  
-""")
+    #### PARA ANÁLISIS PRECISOS:
+    1. **Cargar polígonos precisos** del potrero
+    2. **Seleccionar el tipo de pastura** correctamente
+    3. **Ajustar parámetros** según la realidad del lote
+    4. **Validar resultados** con observaciones de campo
+    5. **Usar datos climáticos** para análisis más realistas
+    6. **Considerar datos de suelo** para ajustar recomendaciones
+    
+    #### MEJORES PRÁCTICAS:
+    - Realizar análisis periódicos (cada 30-60 días)
+    - Comparar resultados entre fechas
+    - Exportar y guardar informes para seguimiento
+    - Validar con mediciones de campo cuando sea posible
+    """)
