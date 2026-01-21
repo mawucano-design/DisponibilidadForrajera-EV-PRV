@@ -2849,10 +2849,12 @@ st.markdown("### 📚 INFORMACIÓN ADICIONAL")
 
 with st.expander("ℹ️ Acerca de los datos utilizados"):
     st.markdown("""
+#### 🌤️ NASA POWER (Prediction Of Worldwide Energy Resource)
 - **Fuente**: NASA Langley Research Center  
+- **Datos**: Precipitación, temperatura, humedad, radiación solar, evapotranspiración  
+- **Resolución temporal**: Diaria  
 - **Resolución espacial**: 0.5 grados x 0.5 grados (aproximadamente 55 km)  
-- **Periodo disponible**: 1981 - presente  
-- **Variables**: Radiación solar, temperatura, precipitación, humedad relativa, etc.
+- **Período**: Desde 1981 hasta presente  
 
 #### 🌍 MAPA DE SUELOS INTA
 - **Fuente**: Instituto Nacional de Tecnología Agropecuaria (INTA)  
