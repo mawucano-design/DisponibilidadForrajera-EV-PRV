@@ -2605,8 +2605,8 @@ if st.session_state.gdf_cargado is not None:
                 st.error(f"❌ Error ejecutando análisis: {e}")
                 import traceback
                 st.error(traceback.format_exc())
-            else:
-    st.info("Carga un archivo (ZIP con shapefile, KML o KMZ) en la barra lateral para comenzar.")
+                            else:
+                        st.info("Carga un archivo (ZIP con shapefile, KML o KMZ) en la barra lateral para comenzar.")
 
 # -----------------------
 # INFORMACIÓN ADICIONAL
