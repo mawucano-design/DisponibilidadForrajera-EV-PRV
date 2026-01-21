@@ -1,4 +1,3 @@
-
 import streamlit as st
 import geopandas as gpd
 import pandas as pd
@@ -995,7 +994,7 @@ class AnalisisForrajeroAvanzado:
         
         # Efecto de evapotranspiración
         et0 = datos_clima.get('et0_promedio', 3.0)
-        balance = datos_clima.get('balance_hidrico', 0)
+        balance = datos_clima.get('balance_hídrico', 0)
         
         if balance > 0:  # Exceso de agua
             factor *= min(1.2, 1 + balance/100)
@@ -1081,7 +1080,7 @@ PARAMETROS_FORRAJEROS_AVANZADOS = {
     },
     'MEZCLA_LEGUMINOSAS': {
         'MS_POR_HA_OPTIMO': 4200, 
-        'CRECIMIENTO_DIARio': 85, 
+        'CRECIMIENTO_DIARIO': 85, 
         'CONSUMO_PORCENTAJE_PESO': 0.027,
         'TASA_UTILIZACION_RECOMENDADA': 0.58,
         'PROTEINA': 17.0,
@@ -1511,11 +1510,11 @@ def crear_dashboard_resumen(gdf_analizado, datos_clima, datos_suelo, tipo_pastur
     recomendaciones = []
     
     # Recomendación por biomasa
-    if biomasa_promedio < 600:
+    if biomasa_prom < 600:
         recomendaciones.append("🔴 **CRÍTICO**: Biomasa muy baja (<600 kg/ha). Considerar suplementación inmediata.")
-    elif biomasa_promedio < 1200:
+    elif biomasa_prom < 1200:
         recomendaciones.append("🟡 **ALERTA**: Biomasa baja (600-1200 kg/ha). Monitorear diariamente.")
-    elif biomasa_promedio < 1800:
+    elif biomasa_prom < 1800:
         recomendaciones.append("🟢 **ACEPTABLE**: Biomasa moderada (1200-1800 kg/ha). Manejo normal.")
     else:
         recomendaciones.append("✅ **ÓPTIMO**: Biomasa adecuada (>1800 kg/ha). Buen crecimiento.")
@@ -1527,13 +1526,13 @@ def crear_dashboard_resumen(gdf_analizado, datos_clima, datos_suelo, tipo_pastur
         recomendaciones.append("💧 **ESTRÉS HÍDRICO MODERADO**: Monitorear humedad del suelo.")
     
     # Recomendación por días de permanencia
-    if dias_promedio < 15:
+    if dias_prom < 15:
         recomendaciones.append("⚡ **ROTACIÓN MUY RÁPIDA**: Considerar aumentar área o reducir carga.")
-    elif dias_promedio > 60:
+    elif dias_prom > 60:
         recomendaciones.append("🐌 **ROTACIÓN LENTA**: Podría aumentar carga animal.")
     
     # Recomendación por balance forrajero
-    balance_diario = biomasa_ha_dia * area_total - (carga_animal * peso_promedio * 0.025)
+    balance_diario = biomasa_ha_dia * area_total - consumo_total
     if balance_diario < -500:
         recomendaciones.append("📉 **DÉFICIT FORRAJERO**: Producción insuficiente. Considerar suplementación.")
     elif balance_diario > 500:
@@ -2350,7 +2349,212 @@ if uploaded_file is not None:
 st.markdown("---")
 st.markdown("### 🚀 Ejecutar análisis avanzado")
 
-if st.session_state.gdf_cargado is not None:
+# SI YA HAY ANÁLISIS EN SESSION_STATE, MOSTRAR LOS RESULTADOS
+if st.session_state.gdf_analizado is not None:
+    # Mostrar resultados del análisis
+    gdf_sub = st.session_state.gdf_analizado
+    datos_clima = st.session_state.datos_clima
+    datos_suelo = st.session_state.datos_suelo
+    tipo_pastura = st.session_state.get('tipo_pastura_guardado', tipo_pastura)
+    carga_animal = st.session_state.get('carga_animal_guardada', carga_animal)
+    peso_promedio = st.session_state.get('peso_promedio_guardado', peso_promedio)
+    
+    # Crear y mostrar mapa avanzado con ESRI Satellite
+    mapa_buf = crear_mapa_detallado_avanzado(gdf_sub, tipo_pastura, datos_clima, datos_suelo)
+    
+    if mapa_buf is not None:
+        st.image(mapa_buf, use_column_width=True, caption="Mapa de análisis avanzado (ESRI Satellite)")
+        st.session_state.mapa_detallado_bytes = mapa_buf
+    
+    # Crear y mostrar dashboard resumen
+    params = obtener_parametros_forrajeros_avanzados(tipo_pastura)
+    dashboard_metrics = crear_dashboard_resumen(
+        gdf_sub, datos_clima, datos_suelo, tipo_pastura, carga_animal, peso_promedio
+    )
+    
+    # Mostrar datos climáticos detallados
+    if datos_clima:
+        with st.expander("📊 DATOS CLIMÁTICOS DETALLADOS"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("**🌡️ Temperaturas**")
+                temp_data = pd.DataFrame({
+                    'Métrica': ['Máxima Promedio', 'Mínima Promedio', 'Máxima Absoluta', 'Mínima Absoluta'],
+                    'Valor (°C)': [
+                        datos_clima.get('temp_max_promedio', 0),
+                        datos_clima.get('temp_min_promedio', 0),
+                        datos_clima.get('temp_max_absoluta', 0),
+                        datos_clima.get('temp_min_absoluta', 0)
+                    ]
+                })
+                st.dataframe(temp_data, use_container_width=True, hide_index=True)
+            
+            with col2:
+                st.markdown("**💧 Balance Hídrico**")
+                agua_data = pd.DataFrame({
+                    'Métrica': ['Precipitación Total', 'ET0 Promedio', 'Déficit Hídrico', 'Exceso Hídrico'],
+                    'Valor (mm)': [
+                        datos_clima.get('precipitacion_total', 0),
+                        datos_clima.get('et0_promedio', 0),
+                        datos_clima.get('deficit_hidrico', 0),
+                        datos_clima.get('exceso_hidrico', 0)
+                    ]
+                })
+                st.dataframe(agua_data, use_container_width=True, hide_index=True)
+    
+    # Mostrar datos de suelo detallados
+    if datos_suelo:
+        with st.expander("🌍 DATOS DE SUELO DETALLADOS"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("**📊 Propiedades Físicas**")
+                fisicas_data = pd.DataFrame({
+                    'Propiedad': ['Textura', 'Profundidad', 'Densidad Aparente', 'Capacidad Campo'],
+                    'Valor': [
+                        datos_suelo.get('textura', 'N/A'),
+                        f"{datos_suelo.get('profundidad', 0)} cm",
+                        f"{datos_suelo.get('densidad_aparente', 0)} g/cm³",
+                        f"{datos_suelo.get('capacidad_campo', 0)} %"
+                    ]
+                })
+                st.dataframe(fisicas_data, use_container_width=True, hide_index=True)
+            
+            with col2:
+                st.markdown("**🌱 Propiedades Químicas**")
+                quimicas_data = pd.DataFrame({
+                    'Propiedad': ['Materia Orgánica', 'pH', 'Carbono Orgánico', 'Nitrógeno Total'],
+                    'Valor': [
+                        f"{datos_suelo.get('materia_organica', 0)} %",
+                        datos_suelo.get('ph', 0),
+                        f"{datos_suelo.get('carbon_organico', 0)} %",
+                        f"{datos_suelo.get('nitrogeno_total', 0)} %"
+                    ]
+                })
+                st.dataframe(quimicas_data, use_container_width=True, hide_index=True)
+    
+    # Exportar datos
+    st.markdown("---")
+    st.markdown("### 💾 EXPORTAR DATOS")
+    
+    col_export1, col_export2, col_export3, col_export4 = st.columns(4)
+    
+    with col_export1:
+        # Exportar GeoJSON
+        try:
+            geojson_str = gdf_sub.to_json()
+            st.download_button(
+                "📤 Exportar GeoJSON",
+                geojson_str,
+                f"analisis_avanzado_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.geojson",
+                "application/geo+json",
+                use_container_width=True
+            )
+        except Exception as e:
+            st.error(f"Error exportando GeoJSON: {e}")
+    
+    with col_export2:
+        # Exportar CSV
+        try:
+            csv_data = gdf_sub.drop(columns=['geometry']).copy()
+            
+            # Agregar datos climáticos y de suelo al CSV
+            if datos_clima:
+                for key, value in datos_clima.items():
+                    if key != 'datos_crudos':
+                        csv_data[f'clima_{key}'] = value
+            
+            if datos_suelo:
+                for key, value in datos_suelo.items():
+                    if key not in ['detalles', 'fuente']:
+                        csv_data[f'suelo_{key}'] = value
+            
+            csv_bytes = csv_data.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                "📊 Exportar CSV completo",
+                csv_bytes,
+                f"analisis_avanzado_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                "text/csv",
+                use_container_width=True
+            )
+        except Exception as e:
+            st.error(f"Error exportando CSV: {e}")
+    
+    with col_export3:
+        # Exportar resumen TXT
+        resumen_text = f"""
+        RESUMEN DE ANÁLISIS FORRAJERO
+        Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M')}
+        Tipo de Pastura: {tipo_pastura}
+        Área Total: {dashboard_metrics['area_total']:.1f} ha
+        Biomasa Promedio: {dashboard_metrics['biomasa_promedio']:.0f} kg MS/ha
+        EV Total Soportable: {dashboard_metrics['ev_total']:.1f}
+        NDVI Promedio: {dashboard_metrics['ndvi_promedio']:.3f}
+        """
+        st.download_button(
+            "📄 Exportar Resumen (TXT)",
+            resumen_text,
+            f"resumen_analisis_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+            "text/plain",
+            use_container_width=True
+        )
+    
+    with col_export4:
+        # NUEVO: Generar y exportar informe DOCX completo
+        if DOCX_AVAILABLE:
+            # Usamos un botón que activa la generación del informe
+            generar_informe = st.button(
+                "📑 Generar Informe Completo (DOCX)", 
+                use_container_width=True,
+                key="generar_informe_btn"
+            )
+            
+            if generar_informe:
+                with st.spinner("Generando informe completo (esto puede tomar unos segundos)..."):
+                    informe_buffer = generar_informe_completo(
+                        gdf_sub, datos_clima, datos_suelo, tipo_pastura,
+                        carga_animal, peso_promedio, dashboard_metrics,
+                        fecha_imagen, n_divisiones, params
+                    )
+                    
+                    if informe_buffer:
+                        st.session_state.informe_generado = informe_buffer
+                        st.success("✅ Informe generado correctamente. Ahora puedes descargarlo.")
+            
+            # Botón para descargar informe si ya fue generado
+            if st.session_state.informe_generado is not None:
+                st.download_button(
+                    "📥 Descargar Informe Completo",
+                    st.session_state.informe_generado,
+                    f"informe_completo_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.docx",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    use_container_width=True,
+                    key="descargar_informe"
+                )
+            else:
+                st.info("Presiona 'Generar Informe' para crear el documento")
+        else:
+            st.warning("python-docx no disponible. Instale con: pip install python-docx")
+    
+    # Mostrar tabla de resultados
+    st.markdown("---")
+    st.markdown("### 📋 TABLA DE RESULTADOS DETALLADOS")
+    
+    columnas_detalle = ['id_subLote', 'area_ha', 'tipo_superficie', 'ndvi', 
+                       'cobertura_vegetal', 'biomasa_disponible_kg_ms_ha',
+                       'estres_hidrico', 'ev_ha', 'dias_permanencia']
+    cols_presentes = [c for c in columnas_detalle if c in gdf_sub.columns]
+    
+    df_show = gdf_sub[cols_presentes].copy()
+    df_show.columns = [c.replace('_', ' ').title() for c in df_show.columns]
+    
+    st.dataframe(df_show, use_container_width=True, height=400)
+    
+    st.success("🎉 ¡Análisis completado exitosamente! Revisa el dashboard y los resultados.")
+
+# SI NO HAY ANÁLISIS PERO SÍ HAY ARCHIVO CARGADO, MOSTRAR BOTÓN PARA EJECUTAR ANÁLISIS
+elif st.session_state.gdf_cargado is not None:
     if st.button("🚀 Ejecutar Análisis Forrajero Avanzado", type="primary", use_container_width=True):
         with st.spinner("Ejecutando análisis avanzado con clima y suelo..."):
             try:
@@ -2402,208 +2606,20 @@ if st.session_state.gdf_cargado is not None:
                         st.session_state.gdf_analizado = gdf_sub
                         st.session_state.datos_clima = datos_clima
                         st.session_state.datos_suelo = datos_suelo
+                        # Guardar también parámetros que pueden cambiar
+                        st.session_state.tipo_pastura_guardado = tipo_pastura
+                        st.session_state.carga_animal_guardada = carga_animal
+                        st.session_state.peso_promedio_guardado = peso_promedio
                         
-                        # Crear y mostrar mapa avanzado con ESRI Satellite
-                        mapa_buf = crear_mapa_detallado_avanzado(gdf_sub, tipo_pastura, datos_clima, datos_suelo)
-                        
-                        if mapa_buf is not None:
-                            st.image(mapa_buf, use_column_width=True, caption="Mapa de análisis avanzado (ESRI Satellite)")
-                            st.session_state.mapa_detallado_bytes = mapa_buf
-                        
-                        # Crear y mostrar dashboard resumen
-                        params = obtener_parametros_forrajeros_avanzados(tipo_pastura)
-                        dashboard_metrics = crear_dashboard_resumen(
-                            gdf_sub, datos_clima, datos_suelo, tipo_pastura, carga_animal, peso_promedio
-                        )
-                        
-                        # Mostrar datos climáticos detallados
-                        if datos_clima:
-                            with st.expander("📊 DATOS CLIMÁTICOS DETALLADOS"):
-                                col1, col2 = st.columns(2)
-                                
-                                with col1:
-                                    st.markdown("**🌡️ Temperaturas**")
-                                    temp_data = pd.DataFrame({
-                                        'Métrica': ['Máxima Promedio', 'Mínima Promedio', 'Máxima Absoluta', 'Mínima Absoluta'],
-                                        'Valor (°C)': [
-                                            datos_clima.get('temp_max_promedio', 0),
-                                            datos_clima.get('temp_min_promedio', 0),
-                                            datos_clima.get('temp_max_absoluta', 0),
-                                            datos_clima.get('temp_min_absoluta', 0)
-                                        ]
-                                    })
-                                    st.dataframe(temp_data, use_container_width=True, hide_index=True)
-                                
-                                with col2:
-                                    st.markdown("**💧 Balance Hídrico**")
-                                    agua_data = pd.DataFrame({
-                                        'Métrica': ['Precipitación Total', 'ET0 Promedio', 'Déficit Hídrico', 'Exceso Hídrico'],
-                                        'Valor (mm)': [
-                                            datos_clima.get('precipitacion_total', 0),
-                                            datos_clima.get('et0_promedio', 0),
-                                            datos_clima.get('deficit_hidrico', 0),
-                                            datos_clima.get('exceso_hidrico', 0)
-                                        ]
-                                    })
-                                    st.dataframe(agua_data, use_container_width=True, hide_index=True)
-                        
-                        # Mostrar datos de suelo detallados
-                        if datos_suelo:
-                            with st.expander("🌍 DATOS DE SUELO DETALLADOS"):
-                                col1, col2 = st.columns(2)
-                                
-                                with col1:
-                                    st.markdown("**📊 Propiedades Físicas**")
-                                    fisicas_data = pd.DataFrame({
-                                        'Propiedad': ['Textura', 'Profundidad', 'Densidad Aparente', 'Capacidad Campo'],
-                                        'Valor': [
-                                            datos_suelo.get('textura', 'N/A'),
-                                            f"{datos_suelo.get('profundidad', 0)} cm",
-                                            f"{datos_suelo.get('densidad_aparente', 0)} g/cm³",
-                                            f"{datos_suelo.get('capacidad_campo', 0)} %"
-                                        ]
-                                    })
-                                    st.dataframe(fisicas_data, use_container_width=True, hide_index=True)
-                                
-                                with col2:
-                                    st.markdown("**🌱 Propiedades Químicas**")
-                                    quimicas_data = pd.DataFrame({
-                                        'Propiedad': ['Materia Orgánica', 'pH', 'Carbono Orgánico', 'Nitrógeno Total'],
-                                        'Valor': [
-                                            f"{datos_suelo.get('materia_organica', 0)} %",
-                                            datos_suelo.get('ph', 0),
-                                            f"{datos_suelo.get('carbon_organico', 0)} %",
-                                            f"{datos_suelo.get('nitrogeno_total', 0)} %"
-                                        ]
-                                    })
-                                    st.dataframe(quimicas_data, use_container_width=True, hide_index=True)
-                        
-                        # Exportar datos
-                        st.markdown("---")
-                        st.markdown("### 💾 EXPORTAR DATOS")
-                        
-                        col_export1, col_export2, col_export3, col_export4 = st.columns(4)
-                        
-                        with col_export1:
-                            # Exportar GeoJSON
-                            try:
-                                geojson_str = gdf_sub.to_json()
-                                st.download_button(
-                                    "📤 Exportar GeoJSON",
-                                    geojson_str,
-                                    f"analisis_avanzado_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.geojson",
-                                    "application/geo+json",
-                                    use_container_width=True
-                                )
-                            except Exception as e:
-                                st.error(f"Error exportando GeoJSON: {e}")
-                        
-                        with col_export2:
-                            # Exportar CSV
-                            try:
-                                csv_data = gdf_sub.drop(columns=['geometry']).copy()
-                                
-                                # Agregar datos climáticos y de suelo al CSV
-                                if datos_clima:
-                                    for key, value in datos_clima.items():
-                                        if key != 'datos_crudos':
-                                            csv_data[f'clima_{key}'] = value
-                                
-                                if datos_suelo:
-                                    for key, value in datos_suelo.items():
-                                        if key not in ['detalles', 'fuente']:
-                                            csv_data[f'suelo_{key}'] = value
-                                
-                                csv_bytes = csv_data.to_csv(index=False).encode('utf-8')
-                                st.download_button(
-                                    "📊 Exportar CSV completo",
-                                    csv_bytes,
-                                    f"analisis_avanzado_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                                    "text/csv",
-                                    use_container_width=True
-                                )
-                            except Exception as e:
-                                st.error(f"Error exportando CSV: {e}")
-                        
-                        with col_export3:
-                            # Exportar resumen TXT
-                            resumen_text = f"""
-                            RESUMEN DE ANÁLISIS FORRAJERO
-                            Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M')}
-                            Tipo de Pastura: {tipo_pastura}
-                            Área Total: {dashboard_metrics['area_total']:.1f} ha
-                            Biomasa Promedio: {dashboard_metrics['biomasa_promedio']:.0f} kg MS/ha
-                            EV Total Soportable: {dashboard_metrics['ev_total']:.1f}
-                            NDVI Promedio: {dashboard_metrics['ndvi_promedio']:.3f}
-                            """
-                            st.download_button(
-                                "📄 Exportar Resumen (TXT)",
-                                resumen_text,
-                                f"resumen_analisis_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
-                                "text/plain",
-                                use_container_width=True
-                            )
-                        
-                        with col_export4:
-                            # NUEVO: Generar y exportar informe DOCX completo
-                            if DOCX_AVAILABLE:
-                                # Usamos un botón que activa la generación del informe
-                                generar_informe = st.button(
-                                    "📑 Generar Informe Completo (DOCX)", 
-                                    use_container_width=True,
-                                    key="generar_informe_btn"
-                                )
-                                
-                                if generar_informe:
-                                    with st.spinner("Generando informe completo (esto puede tomar unos segundos)..."):
-                                        informe_buffer = generar_informe_completo(
-                                            gdf_sub, datos_clima, datos_suelo, tipo_pastura,
-                                            carga_animal, peso_promedio, dashboard_metrics,
-                                            fecha_imagen, n_divisiones, params
-                                        )
-                                        
-                                        if informe_buffer:
-                                            st.session_state.informe_generado = informe_buffer
-                                            st.success("✅ Informe generado correctamente. Ahora puedes descargarlo.")
-                                            # No usamos st.rerun() para evitar recarga completa
-                                
-                                # Botón para descargar informe si ya fue generado
-                                if st.session_state.informe_generado is not None:
-                                    st.download_button(
-                                        "📥 Descargar Informe Completo",
-                                        st.session_state.informe_generado,
-                                        f"informe_completo_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.docx",
-                                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                        use_container_width=True,
-                                        key="descargar_informe"
-                                    )
-                                else:
-                                    st.info("Presiona 'Generar Informe' para crear el documento")
-                            else:
-                                st.warning("python-docx no disponible. Instale con: pip install python-docx")
-                        
-                        # Mostrar tabla de resultados
-                        st.markdown("---")
-                        st.markdown("### 📋 TABLA DE RESULTADOS DETALLADOS")
-                        
-                        columnas_detalle = ['id_subLote', 'area_ha', 'tipo_superficie', 'ndvi', 
-                                           'cobertura_vegetal', 'biomasa_disponible_kg_ms_ha',
-                                           'estres_hidrico', 'ev_ha', 'dias_permanencia']
-                        cols_presentes = [c for c in columnas_detalle if c in gdf_sub.columns]
-                        
-                        df_show = gdf_sub[cols_presentes].copy()
-                        df_show.columns = [c.replace('_', ' ').title() for c in df_show.columns]
-                        
-                        st.dataframe(df_show, use_container_width=True, height=400)
-                        
-                        st.session_state.analisis_completado = True
-                        
-                        st.success("🎉 ¡Análisis completado exitosamente! Revisa el dashboard y los resultados.")
+                        # Forzar recarga para mostrar resultados
+                        st.rerun()
                         
             except Exception as e:
                 st.error(f"❌ Error ejecutando análisis: {e}")
                 import traceback
                 st.error(traceback.format_exc())
+
+# SI NO HAY NADA CARGADO
 else:
     st.info("Carga un archivo (ZIP con shapefile, KML o KMZ) en la barra lateral para comenzar.")
 
