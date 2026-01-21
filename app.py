@@ -2371,35 +2371,38 @@ if st.session_state.gdf_cargado is not None:
                                     })
                                     st.dataframe(quimicas_data, use_container_width=True, hide_index=True)
                         
-                      # Opción alternativa más simple
+ # -----------------------
+# EXPORTAR DATOS - Versión corregida
+# -----------------------
 st.markdown("---")
 st.markdown("### 💾 EXPORTAR DATOS")
 
-# Primero los botones de descarga directa
-st.markdown("#### 📤 Descargas Directas")
-col_direct1, col_direct2, col_direct3 = st.columns(3)
-
-with col_direct1:
-    try:
+try:
+    # Botones de descarga directa
+    col_export1, col_export2, col_export3, col_export4 = st.columns(4)
+    
+    with col_export1:
+        # Exportar GeoJSON
         geojson_str = gdf_sub.to_json()
         st.download_button(
-            "🌐 GeoJSON",
+            "📤 Exportar GeoJSON",
             geojson_str,
             f"analisis_avanzado_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.geojson",
             "application/geo+json",
             use_container_width=True,
-            key="geo_json_dl"
+            key="export_geojson"
         )
-    except Exception as e:
-        st.error(f"Error GeoJSON: {e}")
-
-with col_direct2:
-    try:
+    
+    with col_export2:
+        # Exportar CSV
         csv_data = gdf_sub.drop(columns=['geometry']).copy()
+        
+        # Agregar datos climáticos y de suelo al CSV
         if datos_clima:
             for key, value in datos_clima.items():
                 if key != 'datos_crudos':
                     csv_data[f'clima_{key}'] = value
+        
         if datos_suelo:
             for key, value in datos_suelo.items():
                 if key not in ['detalles', 'fuente']:
@@ -2407,73 +2410,79 @@ with col_direct2:
         
         csv_bytes = csv_data.to_csv(index=False).encode('utf-8')
         st.download_button(
-            "📊 CSV Completo",
+            "📊 Exportar CSV completo",
             csv_bytes,
             f"analisis_avanzado_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
             "text/csv",
             use_container_width=True,
-            key="csv_dl"
+            key="export_csv"
         )
-    except Exception as e:
-        st.error(f"Error CSV: {e}")
-
-with col_direct3:
-    resumen_text = f"RESUMEN DE ANÁLISIS FORRAJERO\nFecha: {datetime.now().strftime('%d/%m/%Y %H:%M')}\nTipo: {tipo_pastura}\nÁrea: {dashboard_metrics['area_total']:.1f} ha\nBiomasa: {dashboard_metrics['biomasa_promedio']:.0f} kg MS/ha\nEV: {dashboard_metrics['ev_total']:.1f}\nNDVI: {dashboard_metrics['ndvi_promedio']:.3f}"
-    st.download_button(
-        "📄 Resumen TXT",
-        resumen_text,
-        f"resumen_analisis_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
-        "text/plain",
-        use_container_width=True,
-        key="txt_dl"
-    )
-
-# Sección para informe DOCX
-st.markdown("---")
-st.markdown("#### 📑 Informe DOCX Completo")
-
-if DOCX_AVAILABLE:
-    # Crear dos columnas: una para generar, otra para descargar
-    col_gen, col_dl = st.columns(2)
     
-    with col_gen:
-        if st.button("🔄 Generar Informe DOCX", 
-                    use_container_width=True,
-                    type="primary",
-                    help="Genera un informe completo en formato Word (.docx)",
-                    key="gen_docx"):
-            
-            with st.spinner("Creando informe..."):
-                informe_buffer = generar_informe_completo(
-                    gdf_sub, datos_clima, datos_suelo, tipo_pastura,
-                    carga_animal, peso_promedio, dashboard_metrics,
-                    fecha_imagen, n_divisiones, params
-                )
+    with col_export3:
+        # Exportar resumen TXT
+        resumen_text = f"""
+        RESUMEN DE ANÁLISIS FORRAJERO
+        Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M')}
+        Tipo de Pastura: {tipo_pastura}
+        Área Total: {dashboard_metrics['area_total']:.1f} ha
+        Biomasa Promedio: {dashboard_metrics['biomasa_promedio']:.0f} kg MS/ha
+        EV Total Soportable: {dashboard_metrics['ev_total']:.1f}
+        NDVI Promedio: {dashboard_metrics['ndvi_promedio']:.3f}
+        Días de Permanencia: {dashboard_metrics['dias_promedio']:.1f} días
+        """
+        st.download_button(
+            "📄 Exportar Resumen (TXT)",
+            resumen_text,
+            f"resumen_analisis_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+            "text/plain",
+            use_container_width=True,
+            key="export_txt"
+        )
+    
+    with col_export4:
+        # Generar informe DOCX
+        if DOCX_AVAILABLE:
+            # Botón para generar informe
+            if st.button("📑 Generar Informe Completo (DOCX)",
+                        use_container_width=True,
+                        type="primary",
+                        key="generar_informe_btn"):
                 
-                if informe_buffer:
-                    st.session_state.informe_generado = informe_buffer
-                    st.session_state.informe_disponible = True
-                    st.success("✅ Informe listo para descargar")
-                    st.rerun()
-                else:
-                    st.error("❌ Error generando informe")
-    
-    with col_dl:
-        if st.session_state.get('informe_disponible', False):
-            st.download_button(
-                "📥 Descargar Informe DOCX",
-                st.session_state.informe_generado,
-                f"informe_completo_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.docx",
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                use_container_width=True,
-                key="dl_docx",
-                help="Descarga el informe generado en formato Word"
-            )
+                with st.spinner("Generando informe completo..."):
+                    informe_buffer = generar_informe_completo(
+                        gdf_sub, datos_clima, datos_suelo, tipo_pastura,
+                        carga_animal, peso_promedio, dashboard_metrics,
+                        fecha_imagen, n_divisiones, params
+                    )
+                    
+                    if informe_buffer:
+                        st.session_state.informe_generado = informe_buffer
+                        st.session_state.informe_disponible = True
+                        st.success("✅ Informe generado correctamente")
+                        # Forzar un rerun para actualizar la interfaz
+                        st.rerun()
+                    else:
+                        st.error("❌ No se pudo generar el informe.")
         else:
-            st.info("Primero genera el informe usando el botón de la izquierda")
-else:
-    st.warning("⚠️ Para generar informes DOCX, instala python-docx: `pip install python-docx`")
+            st.warning("python-docx no disponible")
+    
+    # Mostrar botón de descarga del informe si ya fue generado
+    if st.session_state.get('informe_disponible', False) and st.session_state.get('informe_generado'):
+        st.markdown("---")
+        st.markdown("### 📥 DESCARGA DE INFORME")
+        
+        st.download_button(
+            "📥 Descargar Informe Completo (DOCX)",
+            st.session_state.informe_generado,
+            f"informe_completo_{tipo_pastura}_{datetime.now().strftime('%Y%m%d_%H%M')}.docx",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            use_container_width=True,
+            key="download_informe_final"
+        )
 
+except Exception as e:
+    st.error(f"❌ Error en la sección de exportación: {e}")
+    st.error("Algunas funciones de exportación pueden no estar disponibles.")
 # -----------------------
 # INFORMACIÓN ADICIONAL
 # -----------------------
