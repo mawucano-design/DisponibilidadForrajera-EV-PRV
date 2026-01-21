@@ -2643,4 +2643,3 @@ with st.expander("🎯 Recomendaciones de uso"):
     - Exportar y guardar informes para seguimiento
     - Validar con mediciones de campo cuando sea posible
     """)
-[file content end]
