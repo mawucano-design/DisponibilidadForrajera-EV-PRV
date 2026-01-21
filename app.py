@@ -909,73 +909,72 @@ class AnalisisForrajeroAvanzado:
         except:
             return 1.0
     
-   def calcular_biomasa_avanzada(self, ndvi, evi, savi, categoria, cobertura, params, 
-                              datos_clima=None, datos_suelo=None):
-    """Cálculo mejorado de biomasa considerando clima y suelo"""
-    
-    base = params['MS_POR_HA_OPTIMO']
-    
-    # Base según categoría
-    if categoria == "SUELO_DESNUDO":
-        biomasa_base = 20
-        crecimiento_base = 1
-        calidad_base = 0.2
-    elif categoria == "SUELO_PARCIAL":
-        biomasa_base = min(base * 0.05, 200)
-        crecimiento_base = params['CRECIMIENTO_DIARIO'] * 0.2
-        calidad_base = 0.3
-    elif categoria == "VEGETACION_ESCASA":
-        biomasa_base = min(base * 0.3, 1200)
-        crecimiento_base = params['CRECIMIENTO_DIARIO'] * 0.4  # ¡CORREGIDO!
-        calidad_base = 0.5
-    elif categoria == "VEGETACION_MODERADA":
-        biomasa_base = min(base * 0.6, 3000)
-        crecimiento_base = params['CRECIMIENTO_DIARIO'] * 0.7
-        calidad_base = 0.7
-    else:  # VEGETACION_DENSA
-        biomasa_base = min(base * 0.9, 6000)
-        crecimiento_base = params['CRECIMIENTO_DIARIO'] * 0.9
-        calidad_base = 0.85
-    
-    # Resto del código sigue igual...
-    # Aplicar cobertura
-    biomasa_cobertura = biomasa_base * cobertura
-    crecimiento_cobertura = crecimiento_base * cobertura
-    
-    # Ajustar por clima si disponible
-    if datos_clima:
-        factor_clima = self._calcular_factor_climatico(datos_clima)
-        biomasa_clima = biomasa_cobertura * factor_clima
-        crecimiento_clima = crecimiento_cobertura * factor_clima
-    else:
-        biomasa_clima = biomasa_cobertura
-        crecimiento_clima = crecimiento_cobertura
-    
-    # Ajustar por suelo si disponible
-    if datos_suelo:
-        factor_suelo = self._calcular_factor_suelo(datos_suelo)
-        biomasa_suelo = biomasa_clima * factor_suelo
-        crecimiento_suelo = crecimiento_clima * factor_suelo
-        calidad_suelo = calidad_base * factor_suelo
-    else:
-        biomasa_suelo = biomasa_clima
-        crecimiento_suelo = crecimiento_clima
-        calidad_suelo = calidad_base
-    
-    # Aplicar factor de seguridad
-    biomasa_final = biomasa_suelo * self.factor_seguridad
-    crecimiento_final = crecimiento_suelo * self.factor_seguridad
-    
-    # Calcular biomasa disponible (considerando estrés)
-    if categoria == "SUELO_DESNUDO":
-        biomasa_disponible = 20
-    elif categoria == "SUELO_PARCIAL":
-        biomasa_disponible = 80
-    else:
-        biomasa_disponible = max(20, min(base * 0.9, 
-            biomasa_final * calidad_suelo * cobertura))
-    
-    return biomasa_final, crecimiento_final, calidad_suelo, biomasa_disponible
+      def calcular_biomasa_avanzada(self, ndvi, evi, savi, categoria, cobertura, params, 
+                                  datos_clima=None, datos_suelo=None):
+        """Cálculo mejorado de biomasa considerando clima y suelo"""
+        
+        base = params['MS_POR_HA_OPTIMO']
+        
+        # Base según categoría
+        if categoria == "SUELO_DESNUDO":
+            biomasa_base = 20
+            crecimiento_base = 1
+            calidad_base = 0.2
+        elif categoria == "SUELO_PARCIAL":
+            biomasa_base = min(base * 0.05, 200)
+            crecimiento_base = params['CRECIMIENTO_DIARIO'] * 0.2
+            calidad_base = 0.3
+        elif categoria == "VEGETACION_ESCASA":
+            biomasa_base = min(base * 0.3, 1200)
+            crecimiento_base = params['CRECIMIENTO_DIARIO'] * 0.4  # ¡CORREGIDO!
+            calidad_base = 0.5
+        elif categoria == "VEGETACION_MODERADA":
+            biomasa_base = min(base * 0.6, 3000)
+            crecimiento_base = params['CRECIMIENTO_DIARIO'] * 0.7
+            calidad_base = 0.7
+        else:  # VEGETACION_DENSA
+            biomasa_base = min(base * 0.9, 6000)
+            crecimiento_base = params['CRECIMIENTO_DIARIO'] * 0.9
+            calidad_base = 0.85
+        
+        # Aplicar cobertura
+        biomasa_cobertura = biomasa_base * cobertura
+        crecimiento_cobertura = crecimiento_base * cobertura
+        
+        # Ajustar por clima si disponible
+        if datos_clima:
+            factor_clima = self._calcular_factor_climatico(datos_clima)
+            biomasa_clima = biomasa_cobertura * factor_clima
+            crecimiento_clima = crecimiento_cobertura * factor_clima
+        else:
+            biomasa_clima = biomasa_cobertura
+            crecimiento_clima = crecimiento_cobertura
+        
+        # Ajustar por suelo si disponible
+        if datos_suelo:
+            factor_suelo = self._calcular_factor_suelo(datos_suelo)
+            biomasa_suelo = biomasa_clima * factor_suelo
+            crecimiento_suelo = crecimiento_clima * factor_suelo
+            calidad_suelo = calidad_base * factor_suelo
+        else:
+            biomasa_suelo = biomasa_clima
+            crecimiento_suelo = crecimiento_clima
+            calidad_suelo = calidad_base
+        
+        # Aplicar factor de seguridad
+        biomasa_final = biomasa_suelo * self.factor_seguridad
+        crecimiento_final = crecimiento_suelo * self.factor_seguridad
+        
+        # Calcular biomasa disponible (considerando estrés)
+        if categoria == "SUELO_DESNUDO":
+            biomasa_disponible = 20
+        elif categoria == "SUELO_PARCIAL":
+            biomasa_disponible = 80
+        else:
+            biomasa_disponible = max(20, min(base * 0.9, 
+                biomasa_final * calidad_suelo * cobertura))
+        
+        return biomasa_final, crecimiento_final, calidad_suelo, biomasa_disponible
     
     def _calcular_factor_climatico(self, datos_clima):
         """Calcula factor de ajuste por clima"""
