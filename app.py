@@ -52,14 +52,7 @@ def inicializar_gee_automatico():
         st.session_state.gee_authenticated = False
         return False
     
-    try:
-        # Opción 1: Intentar inicializar directamente (ya autenticado en el entorno)
-        ee.Initialize()
-        st.session_state.gee_authenticated = True
-        st.session_state.gee_project = 'ee-prv-forrajes'
-        st.success("✅ Google Earth Engine inicializado automáticamente")
-        return True
-    except Exception as e1:
+    
         try:
             # Opción 2: Usar Service Account desde variables de entorno (Streamlit Cloud)
             service_account = os.environ.get('GEE_SERVICE_ACCOUNT', '')
