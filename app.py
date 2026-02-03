@@ -63,64 +63,51 @@ os.environ['SHAPE_RESTORE_SHX'] = 'YES'
 
 # === INICIALIZACIÓN SEGURA DE GOOGLE EARTH ENGINE (NO MODIFICAR) ===
 def inicializar_gee():
-    """Inicializa GEE con Service Account desde secrets de Streamlit Cloud"""
+    """Inicializa GEE con Service Account desde secrets de Streamlit Cloud o autenticación estándar"""
     if not GEE_AVAILABLE:
         return False
     
     try:
-        # Intentar con Service Account desde secrets (Streamlit Cloud)
-        if 'GEE_SERVICE_ACCOUNT' in st.secrets:
-            try:
-                credentials_info = st.secrets['GEE_SERVICE_ACCOUNT']
-                if isinstance(credentials_info, str):
-                    credentials_info = json.loads(credentials_info.strip())
-                
-                credentials = ee.ServiceAccountCredentials(
-                    credentials_info['client_email'],
-                    key_data=json.dumps(credentials_info)
-                )
-                ee.Initialize(credentials, project='ee-mawucano25')
-                st.session_state.gee_authenticated = True
-                st.session_state.gee_project = 'ee-mawucano25'
-                print("✅ GEE inicializado con Service Account")
-                return True
-            except Exception as e:
-                st.warning(f"⚠️ Error con Service Account: {str(e)}")
-        
-        # Fallback: autenticación local (desarrollo en tu Linux)
-        try:
-            ee.Initialize(project='ee-mawucano25')
-            st.session_state.gee_authenticated = True
-            st.session_state.gee_project = 'ee-mawucano25'
-            print("✅ GEE inicializado localmente")
-            return True
-        except ee.EEException:
-            # Si no está inicializado, intentar autenticar
-            try:
-                ee.Authenticate()
-                ee.Initialize(project='ee-mawucano25')
-                st.session_state.gee_authenticated = True
-                st.session_state.gee_project = 'ee-mawucano25'
-                print("✅ GEE autenticado e inicializado")
-                return True
-            except Exception as e:
-                print(f"⚠️ Error autenticación GEE: {str(e)}")
-        except Exception as e:
-            print(f"⚠️ Error inicialización local: {str(e)}")
-            
-        st.session_state.gee_authenticated = False
-        return False
-        
+        # Intentar inicializar sin autenticación (puede fallar)
+        ee.Initialize()
+        st.session_state.gee_authenticated = True
+        st.session_state.gee_project = 'ee-mawucano25'
+        st.success("✅ Google Earth Engine inicializado correctamente")
+        return True
     except Exception as e:
-        st.session_state.gee_authenticated = False
-        print(f"❌ Error crítico GEE: {str(e)}")
-        return False
+        # Si falla, intentar con autenticación
+        try:
+            # Para Streamlit Cloud, intentar usar secrets
+            if 'GEE_SERVICE_ACCOUNT' in st.secrets:
+                service_account = st.secrets['GEE_SERVICE_ACCOUNT']
+                credentials = ee.ServiceAccountCredentials(
+                    service_account['client_email'],
+                    key_data=json.dumps(service_account)
+                )
+                ee.Initialize(credentials)
+                st.session_state.gee_authenticated = True
+                st.session_state.gee_project = 'ee-mawucano25'
+                st.success("✅ Google Earth Engine inicializado con Service Account")
+                return True
+            else:
+                # Si no hay secrets, intentar autenticación estándar
+                ee.Authenticate()
+                ee.Initialize()
+                st.session_state.gee_authenticated = True
+                st.session_state.gee_project = 'ee-mawucano25'
+                st.success("✅ Google Earth Engine autenticado e inicializado")
+                return True
+        except Exception as e2:
+            st.error(f"❌ No se pudo inicializar Google Earth Engine: {str(e2)}")
+            st.session_state.gee_authenticated = False
+            return False
 
 # Inicializar GEE al inicio
 if GEE_AVAILABLE:
-    gee_inicializado = inicializar_gee()
-    if not gee_inicializado:
-        st.warning("⚠️ Google Earth Engine no se pudo inicializar. Los datos satelitales serán simulados.")
+    with st.spinner("Inicializando Google Earth Engine..."):
+        gee_inicializado = inicializar_gee()
+        if not gee_inicializado:
+            st.warning("⚠️ Google Earth Engine no se pudo inicializar. Los datos satelitales serán simulados.")
 else:
     st.warning("⚠️ Google Earth Engine no está disponible. Los datos satelitales serán simulados.")
 
