@@ -366,8 +366,12 @@ class AnalisisForrajero:
         else:
             return "Baja intensidad - Rotación lenta"
     
-    def crear_mapa_sublotes(self, gdf_area, sublotes_info):
+       def crear_mapa_sublotes(self, gdf_area, sublotes_info):
         """Crea mapa visual de los sublotes"""
+        # Verificar si hay datos geoespaciales válidos
+        if gdf_area is None or gdf_area.empty:
+            return None
+            
         try:
             # Calcular bounds del área
             bounds = gdf_area.total_bounds
@@ -462,7 +466,6 @@ class AnalisisForrajero:
         except Exception as e:
             st.warning(f"Error al crear mapa de sublotes: {str(e)}")
             return None
-
 # ===============================
 # 🌦️ CONECTOR CLIMÁTICO TROPICAL SIMPLIFICADO
 # ===============================
