@@ -2890,168 +2890,199 @@ def ejecutar_analisis_completo(gdf, tipo_ecosistema, num_puntos, usar_gee=False)
         return None
 
 # ===============================
-# ===============================
-# 🐮 FUNCIÓN PARA MOSTRAR ANÁLISIS FORRAJERO - CORREGIDA
+# 🐮 FUNCIÓN PARA MOSTRAR ANÁLISIS FORRAJERO - SOLUCIÓN DEFINITIVA
 # ===============================
 def mostrar_analisis_forrajero():
     """Muestra análisis completo forrajero"""
     st.header("🐮 Análisis Forrajero - Manejo Ganadero Sostenible")
     
-    if st.session_state.resultados and 'analisis_forrajero' in st.session_state.resultados:
-        res = st.session_state.resultados
-        forrajero_data = res['analisis_forrajero']
+    # Verificar si tenemos resultados
+    if 'resultados' not in st.session_state or st.session_state.resultados is None:
+        st.info("Ejecute el análisis completo primero para ver los datos forrajeros")
+        return
+    
+    res = st.session_state.resultados
+    
+    if 'analisis_forrajero' not in res:
+        st.info("No se encontraron datos de análisis forrajero en los resultados")
+        return
         
-        # Mostrar información general
-        col1, col2, col3 = st.columns(3)
+    forrajero_data = res['analisis_forrajero']
+    
+    # Mostrar información general
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric(
+            "Área Total",
+            f"{res.get('area_total_ha', 0):,.1f} ha",
+            "Superficie para pastoreo"
+        )
+    with col2:
+        st.metric(
+            "Sistema Forrajero",
+            forrajero_data.get('sistema_forrajero', 'N/A').replace('_', ' ').title(),
+            "Tipo de sistema productivo"
+        )
+    with col3:
+        st.metric(
+            "NDVI Promedio",
+            f"{res.get('ndvi_promedio', 0):.3f}",
+            "Indicador de salud vegetal"
+        )
+    
+    # Disponibilidad forrajera
+    st.subheader("🌿 Disponibilidad Forrajera")
+    
+    if 'disponibilidad_forrajera' in forrajero_data:
+        disp = forrajero_data['disponibilidad_forrajera']
+        
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric(
-                "Área Total",
-                f"{res.get('area_total_ha', 0):,.1f} ha",
-                "Superficie para pastoreo"
+                "Productividad",
+                f"{disp.get('productividad_kg_ms_ha', 0):,.0f}",
+                "kg MS/ha"
             )
         with col2:
             st.metric(
-                "Sistema Forrajero",
-                forrajero_data.get('sistema_forrajero', 'N/A').replace('_', ' ').title(),
-                "Tipo de sistema productivo"
+                "Disponible Total",
+                f"{disp.get('disponibilidad_total_kg_ms', 0)/1000:,.1f}",
+                "ton MS"
             )
         with col3:
             st.metric(
-                "NDVI Promedio",
-                f"{res.get('ndvi_promedio', 0):.3f}",
-                "Indicador de salud vegetal"
+                "Forraje Aprovechable",
+                f"{disp.get('forraje_aprovechable_kg_ms', 0)/1000:,.1f}",
+                "ton MS"
+            )
+        with col4:
+            st.metric(
+                "Categoría",
+                disp.get('categoria_productividad', 'N/A').title(),
+                "Nivel de productividad"
+            )
+    else:
+        st.info("No hay datos de disponibilidad forrajera")
+    
+    # Equivalentes Vaca
+    st.subheader("🐄 Equivalentes Vaca (EV)")
+    
+    if 'equivalentes_vaca' in forrajero_data:
+        ev_data = forrajero_data['equivalentes_vaca']
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric(
+                "EV por día",
+                f"{ev_data.get('ev_por_dia', 0):.1f}",
+                "Capacidad de carga diaria"
+            )
+        with col2:
+            st.metric(
+                "EV para 30 días",
+                f"{ev_data.get('ev_para_periodo', 0):.1f}",
+                f"Días: {ev_data.get('dias_permanencia', 0)}"
+            )
+        with col3:
+            st.metric(
+                "EV Recomendado",
+                f"{ev_data.get('ev_recomendado', 0):.1f}",
+                f"Margen: {ev_data.get('margen_seguridad', 'N/A')}"
             )
         
-        # Disponibilidad forrajera
-        st.subheader("🌿 Disponibilidad Forrajera")
+        # Calculadora interactiva de EV
+        with st.expander("📊 Calculadora de Equivalentes Vaca"):
+            col_calc1, col_calc2 = st.columns(2)
+            
+            with col_calc1:
+                num_ev_input = st.number_input(
+                    "Número de EV disponibles:",
+                    min_value=1.0,
+                    max_value=1000.0,
+                    value=50.0,
+                    step=1.0
+                )
+            
+            with col_calc2:
+                dias_permanencia_input = st.number_input(
+                    "Días de permanencia deseada:",
+                    min_value=1,
+                    max_value=365,
+                    value=30,
+                    step=1
+                )
+            
+            if st.button("Calcular días de permanencia", type="secondary"):
+                if 'disponibilidad_forrajera' in forrajero_data:
+                    disp = forrajero_data['disponibilidad_forrajera']
+                    forrajero = forrajero_data.get('forrajero')
+                    if forrajero and 'forraje_aprovechable_kg_ms' in disp:
+                        dias_calculados = forrajero.calcular_dias_permanencia(
+                            disp['forraje_aprovechable_kg_ms'],
+                            num_ev_input
+                        )
+                        
+                        st.success(f"**Resultado:** {num_ev_input:.0f} EV pueden pastar {dias_calculados['dias_recomendados']} días")
+                        
+                        col_res1, col_res2, col_res3 = st.columns(3)
+                        with col_res1:
+                            st.metric("Días básicos", f"{dias_calculados['dias_basico']:.1f}")
+                        with col_res2:
+                            st.metric("Días ajustados", f"{dias_calculados['dias_ajustado']:.1f}")
+                        with col_res3:
+                            st.metric("Recomendados", dias_calculados['dias_recomendados'])
+    else:
+        st.info("No hay datos de equivalentes vaca")
+    
+    # Sublotes
+    st.subheader("🗺️ División en Sublotes")
+    
+    if 'sublotes' in forrajero_data and forrajero_data['sublotes']:
+        sublotes = forrajero_data['sublotes']
         
-        if 'disponibilidad_forrajera' in forrajero_data:
-            disp = forrajero_data['disponibilidad_forrajera']
+        # Mostrar tabla de sublotes
+        sublotes_data = []
+        for sublote in sublotes:
+            # Calcular EV por sublote
+            ev_sublote = sublote['forraje_aprovechable_kg_ms'] / 12  # 12 kg MS/día por EV
+            dias_sublote = int(ev_sublote / 50) * 30 if ev_sublote > 0 else 0  # Estimación simplificada
             
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric(
-                    "Productividad",
-                    f"{disp.get('productividad_kg_ms_ha', 0):,.0f}",
-                    "kg MS/ha"
-                )
-            with col2:
-                st.metric(
-                    "Disponible Total",
-                    f"{disp.get('disponibilidad_total_kg_ms', 0)/1000:,.1f}",
-                    "ton MS"
-                )
-            with col3:
-                st.metric(
-                    "Forraje Aprovechable",
-                    f"{disp.get('forraje_aprovechable_kg_ms', 0)/1000:,.1f}",
-                    "ton MS"
-                )
-            with col4:
-                st.metric(
-                    "Categoría",
-                    disp.get('categoria_productividad', 'N/A').title(),
-                    "Nivel de productividad"
-                )
+            sublotes_data.append({
+                'Sublote': sublote['sublote_id'],
+                'Área (ha)': sublote['area_ha'],
+                'Productividad (kg MS/ha)': sublote['disponibilidad_kg_ms_ha'],
+                'Forraje Aprovechable (ton MS)': round(sublote['forraje_aprovechable_kg_ms']/1000, 1),
+                'EV estimados': round(ev_sublote, 1),
+                'Días aprox.': dias_sublote
+            })
         
-        # Equivalentes Vaca
-        st.subheader("🐄 Equivalentes Vaca (EV)")
+        df_sublotes = pd.DataFrame(sublotes_data)
+        st.dataframe(df_sublotes, use_container_width=True, hide_index=True)
         
-        if 'equivalentes_vaca' in forrajero_data:
-            ev_data = forrajero_data['equivalentes_vaca']
-            
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric(
-                    "EV por día",
-                    f"{ev_data.get('ev_por_dia', 0):.1f}",
-                    "Capacidad de carga diaria"
-                )
-            with col2:
-                st.metric(
-                    "EV para 30 días",
-                    f"{ev_data.get('ev_para_periodo', 0):.1f}",
-                    f"Días: {ev_data.get('dias_permanencia', 0)}"
-                )
-            with col3:
-                st.metric(
-                    "EV Recomendado",
-                    f"{ev_data.get('ev_recomendado', 0):.1f}",
-                    f"Margen: {ev_data.get('margen_seguridad', 'N/A')}"
-                )
-            
-            # Calculadora interactiva de EV
-            with st.expander("📊 Calculadora de Equivalentes Vaca"):
-                col_calc1, col_calc2 = st.columns(2)
-                
-                with col_calc1:
-                    num_ev_input = st.number_input(
-                        "Número de EV disponibles:",
-                        min_value=1.0,
-                        max_value=1000.0,
-                        value=50.0,
-                        step=1.0
-                    )
-                
-                with col_calc2:
-                    dias_permanencia_input = st.number_input(
-                        "Días de permanencia deseada:",
-                        min_value=1,
-                        max_value=365,
-                        value=30,
-                        step=1
-                    )
-                
-                if st.button("Calcular días de permanencia", type="secondary"):
-                    if 'forraje_aprovechable_kg_ms' in disp:
-                        forrajero = forrajero_data.get('forrajero')
-                        if forrajero:
-                            dias_calculados = forrajero.calcular_dias_permanencia(
-                                disp['forraje_aprovechable_kg_ms'],
-                                num_ev_input
-                            )
-                            
-                            st.success(f"**Resultado:** {num_ev_input:.0f} EV pueden pastar {dias_calculados['dias_recomendados']} días")
-                            
-                            col_res1, col_res2, col_res3 = st.columns(3)
-                            with col_res1:
-                                st.metric("Días básicos", f"{dias_calculados['dias_basico']:.1f}")
-                            with col_res2:
-                                st.metric("Días ajustados", f"{dias_calculados['dias_ajustado']:.1f}")
-                            with col_res3:
-                                st.metric("Recomendados", dias_calculados['dias_recomendados'])
+        # Mapa de sublotes - SOLUCIÓN: Verificar de manera segura
+        st.subheader("🗺️ Mapa de Sublotes")
         
-        # Sublotes
-        st.subheader("🗺️ División en Sublotes")
+        forrajero = forrajero_data.get('forrajero')
         
-        if 'sublotes' in forrajero_data and forrajero_data['sublotes']:
-            sublotes = forrajero_data['sublotes']
-            
-            # Mostrar tabla de sublotes
-            sublotes_data = []
-            for sublote in sublotes:
-                # Calcular EV por sublote
-                ev_sublote = sublote['forraje_aprovechable_kg_ms'] / 12  # 12 kg MS/día por EV
-                dias_sublote = int(ev_sublote / 50) * 30 if ev_sublote > 0 else 0  # Estimación simplificada
-                
-                sublotes_data.append({
-                    'Sublote': sublote['sublote_id'],
-                    'Área (ha)': sublote['area_ha'],
-                    'Productividad (kg MS/ha)': sublote['disponibilidad_kg_ms_ha'],
-                    'Forraje Aprovechable (ton MS)': round(sublote['forraje_aprovechable_kg_ms']/1000, 1),
-                    'EV estimados': round(ev_sublote, 1),
-                    'Días aprox.': dias_sublote
-                })
-            
-            df_sublotes = pd.DataFrame(sublotes_data)
-            st.dataframe(df_sublotes, use_container_width=True, hide_index=True)
-            
-            # Mapa de sublotes - CORRECCIÓN: Verificar explícitamente
-            st.subheader("🗺️ Mapa de Sublotes")
-            
-            forrajero = forrajero_data.get('forrajero')
-            # Verificar explícitamente si poligono_data existe y no está vacío
-            if forrajero and st.session_state.poligono_data is not None and not st.session_state.poligono_data.empty:
+       # Verificar de manera segura si tenemos datos geoespaciales
+                poligono_disponible = False
+           if 'poligono_data' in st.session_state:
+               poligono_data = st.session_state.poligono_data
+    # Verificar si no es None y no está vacío usando métodos seguros
+           if poligono_data is not None:
+             try:
+            # Verificar si tiene la propiedad empty (GeoDataFrame/DataFrame)
+                if hasattr(poligono_data, 'empty'):
+                if not poligono_data.empty:
+                    poligono_disponible = True
+            else:
+                # Si no tiene empty, asumimos que tiene datos
+                poligono_disponible = True
+        except:
+            pass
+        
+        if forrajero and poligono_disponible:
+            try:
                 mapa_sublotes = forrajero.crear_mapa_sublotes(
                     st.session_state.poligono_data,
                     sublotes
@@ -3061,80 +3092,91 @@ def mostrar_analisis_forrajero():
                     folium_static(mapa_sublotes, width=1000, height=600)
                 else:
                     st.info("No se pudo generar el mapa de sublotes")
+            except Exception as e:
+                st.warning(f"Error al generar mapa: {str(e)}")
+                st.info("Muestra de sublotes (sin mapa):")
+                # Mostrar información adicional si no se puede generar el mapa
+                for sublote in sublotes[:3]:  # Mostrar solo los primeros 3
+                    st.write(f"**Sublote {sublote['sublote_id']}**: {sublote['area_ha']} ha, Productividad: {sublote['disponibilidad_kg_ms_ha']} kg MS/ha")
+        else:
+            st.info("No hay datos geoespaciales disponibles para generar el mapa")
+    else:
+        st.info("No hay datos de sublotes disponibles")
+    
+    # Recomendaciones de rotación
+    st.subheader("🔄 Sistema de Rotación Recomendado")
+    
+    with st.expander("📋 Plan de Rotación Detallado"):
+        # Input para número de EV
+        num_ev_rotacion = st.number_input(
+            "Número de EV para plan de rotación:",
+            min_value=1.0,
+            max_value=500.0,
+            value=min(100.0, forrajero_data.get('equivalentes_vaca', {}).get('ev_recomendado', 50.0)),
+            step=1.0,
+            key="ev_rotacion"
+        )
+        
+        if st.button("Generar Plan de Rotación", type="primary"):
+            forrajero = forrajero_data.get('forrajero')
+            if forrajero and 'sublotes' in forrajero_data and forrajero_data['sublotes']:
+                plan_rotacion = forrajero.generar_recomendaciones_rotacion(
+                    forrajero_data['sublotes'],
+                    num_ev_rotacion
+                )
+                
+                # Mostrar resumen
+                st.success(f"**Plan de rotación generado para {num_ev_rotacion:.0f} EV**")
+                
+                col_sum1, col_sum2, col_sum3 = st.columns(3)
+                with col_sum1:
+                    st.metric("Forraje total", f"{plan_rotacion['forraje_total_aprovechable_kg']/1000:,.1f} ton")
+                with col_sum2:
+                    st.metric("Consumo diario", f"{plan_rotacion['consumo_diario_total_kg']:,.0f} kg")
+                with col_sum3:
+                    st.metric("Rotación total", f"{plan_rotacion['dias_rotacion_total']:.0f} días")
+                
+                # Mostrar tabla de rotación
+                st.subheader("📅 Plan de Rotación por Sublote")
+                
+                rotacion_data = []
+                for plan in plan_rotacion['plan_rotacion']:
+                    rotacion_data.append({
+                        'Sublote': plan['sublote'],
+                        'Área (ha)': plan['area_ha'],
+                        'Días Uso': plan['dias_uso'],
+                        'Días Descanso': plan['dias_descanso'],
+                        'Ciclo Total': plan['dias_uso'] + plan['dias_descanso'],
+                        'Recomendación': plan['recomendacion']
+                    })
+                
+                df_rotacion = pd.DataFrame(rotacion_data)
+                st.dataframe(df_rotacion, use_container_width=True, hide_index=True)
+                
+                # Recomendaciones generales
+                st.subheader("💡 Recomendaciones de Manejo")
+                
+                recomendaciones = [
+                    f"**Intensidad de rotación:** {plan_rotacion['intensidad_rotacion']}",
+                    f"**Ciclo promedio:** {plan_rotacion['dias_ciclo_promedio']:.0f} días",
+                    "**Pautas generales:**",
+                    "1. Respete los períodos de descanso para regeneración del pasto",
+                    "2. Monitoree la altura del pasto (ideal: 15-25 cm)",
+                    "3. Ajuste la carga animal según estación del año",
+                    "4. Implemente suplementación estratégica en épocas secas",
+                    "5. Mantenga registros de rotación y productividad"
+                ]
+                
+                for rec in recomendaciones:
+                    st.info(rec)
             else:
-                st.info("No hay datos geoespaciales disponibles para generar el mapa")
-        
-        # Recomendaciones de rotación
-        st.subheader("🔄 Sistema de Rotación Recomendado")
-        
-        with st.expander("📋 Plan de Rotación Detallado"):
-            # Input para número de EV
-            num_ev_rotacion = st.number_input(
-                "Número de EV para plan de rotación:",
-                min_value=1.0,
-                max_value=500.0,
-                value=min(100.0, forrajero_data.get('equivalentes_vaca', {}).get('ev_recomendado', 50.0)),
-                step=1.0,
-                key="ev_rotacion"
-            )
-            
-            if st.button("Generar Plan de Rotación", type="primary"):
-                forrajero = forrajero_data.get('forrajero')
-                if forrajero and 'sublotes' in forrajero_data:
-                    plan_rotacion = forrajero.generar_recomendaciones_rotacion(
-                        forrajero_data['sublotes'],
-                        num_ev_rotacion
-                    )
-                    
-                    # Mostrar resumen
-                    st.success(f"**Plan de rotación generado para {num_ev_rotacion:.0f} EV**")
-                    
-                    col_sum1, col_sum2, col_sum3 = st.columns(3)
-                    with col_sum1:
-                        st.metric("Forraje total", f"{plan_rotacion['forraje_total_aprovechable_kg']/1000:,.1f} ton")
-                    with col_sum2:
-                        st.metric("Consumo diario", f"{plan_rotacion['consumo_diario_total_kg']:,.0f} kg")
-                    with col_sum3:
-                        st.metric("Rotación total", f"{plan_rotacion['dias_rotacion_total']:.0f} días")
-                    
-                    # Mostrar tabla de rotación
-                    st.subheader("📅 Plan de Rotación por Sublote")
-                    
-                    rotacion_data = []
-                    for plan in plan_rotacion['plan_rotacion']:
-                        rotacion_data.append({
-                            'Sublote': plan['sublote'],
-                            'Área (ha)': plan['area_ha'],
-                            'Días Uso': plan['dias_uso'],
-                            'Días Descanso': plan['dias_descanso'],
-                            'Ciclo Total': plan['dias_uso'] + plan['dias_descanso'],
-                            'Recomendación': plan['recomendacion']
-                        })
-                    
-                    df_rotacion = pd.DataFrame(rotacion_data)
-                    st.dataframe(df_rotacion, use_container_width=True, hide_index=True)
-                    
-                    # Recomendaciones generales
-                    st.subheader("💡 Recomendaciones de Manejo")
-                    
-                    recomendaciones = [
-                        f"**Intensidad de rotación:** {plan_rotacion['intensidad_rotacion']}",
-                        f"**Ciclo promedio:** {plan_rotacion['dias_ciclo_promedio']:.0f} días",
-                        "**Pautas generales:**",
-                        "1. Respete los períodos de descanso para regeneración del pasto",
-                        "2. Monitoree la altura del pasto (ideal: 15-25 cm)",
-                        "3. Ajuste la carga animal según estación del año",
-                        "4. Implemente suplementación estratégica en épocas secas",
-                        "5. Mantenga registros de rotación y productividad"
-                    ]
-                    
-                    for rec in recomendaciones:
-                        st.info(rec)
-        
-        # Gráficos forrajeros
-        st.subheader("📊 Visualización de Datos Forrajeros")
-        
-        if 'disponibilidad_forrajera' in forrajero_data and 'equivalentes_vaca' in forrajero_data:
+                st.error("No se puede generar el plan de rotación. Faltan datos.")
+    
+    # Gráficos forrajeros
+    st.subheader("📊 Visualización de Datos Forrajeros")
+    
+    if 'disponibilidad_forrajera' in forrajero_data and 'equivalentes_vaca' in forrajero_data:
+        try:
             vis = Visualizaciones()
             fig_forrajero = vis.crear_grafico_forrajero(
                 forrajero_data['disponibilidad_forrajera'],
@@ -3143,56 +3185,34 @@ def mostrar_analisis_forrajero():
             
             if fig_forrajero:
                 st.plotly_chart(fig_forrajero, use_container_width=True)
-        
-        # Información adicional
-        with st.expander("📚 Información Técnica"):
-            st.markdown("""
-            **Glosario:**
-            
-            - **MS:** Materia Seca - contenido sólido del forraje después de eliminar el agua
-            - **EV:** Equivalente Vaca - unidad que representa el consumo de una vaca adulta (450 kg)
-            - **kg MS/ha:** Kilogramos de materia seca por hectárea
-            - **Rotación:** Sistema de movimiento de animales entre diferentes áreas (sublotes)
-            
-            **Factores de conversión:**
-            
-            - 1 EV consume aproximadamente 12 kg MS/día
-            - Eficiencia de aprovechamiento: 50-60% del forraje disponible
-            - Período óptimo de descanso: 3 veces el período de uso
-            - Altura óptima del pasto: 15-25 cm para máxima productividad
-            
-            **Beneficios del pastoreo rotativo:**
-            
-            1. **Mayor productividad:** Mejor aprovechamiento del forraje
-            2. **Mejor salud del suelo:** Menor compactación y erosión
-            3. **Mayor biodiversidad:** Mantenimiento de especies forrajeras
-            4. **Menor impacto ambiental:** Reducción de emisiones de metano
-            5. **Mayor rentabilidad:** Optimización de recursos
-            """)
+        except Exception as e:
+            st.warning(f"No se pudo generar el gráfico forrajero: {str(e)}")
     
-    else:
-        st.info("Ejecute el análisis completo primero para ver los datos forrajeros")
+    # Información adicional
+    with st.expander("📚 Información Técnica"):
+        st.markdown("""
+        **Glosario:**
         
-        # Mostrar ejemplo de análisis forrajero
-        with st.expander("📖 Ejemplo de Análisis Forrajero"):
-            st.markdown("""
-            **Ejemplo para un lote de 100 ha:**
-            
-            - **Productividad estimada:** 4,000 kg MS/ha
-            - **Disponibilidad total:** 400,000 kg MS (400 ton)
-            - **Forraje aprovechable:** 200,000 kg MS (200 ton, 50% eficiencia)
-            - **EV soportables por día:** 200,000 / 12 = 16,667 EV
-            - **EV para 30 días:** 200,000 / (12 * 30) = 556 EV
-            
-            **División en sublotes (ejemplo):**
-            
-            1. **Sublote 1 (25 ha):** Alta productividad - 30 días uso / 90 días descanso
-            2. **Sublote 2 (25 ha):** Media productividad - 25 días uso / 75 días descanso
-            3. **Sublote 3 (25 ha):** Media productividad - 25 días uso / 75 días descanso
-            4. **Sublote 4 (25 ha):** Baja productividad - 20 días uso / 60 días descanso
-            
-            **Carga animal recomendada:** 500 EV (con margen de seguridad)
-            """)
+        - **MS:** Materia Seca - contenido sólido del forraje después de eliminar el agua
+        - **EV:** Equivalente Vaca - unidad que representa el consumo de una vaca adulta (450 kg)
+        - **kg MS/ha:** Kilogramos de materia seca por hectárea
+        - **Rotación:** Sistema de movimiento de animales entre diferentes áreas (sublotes)
+        
+        **Factores de conversión:**
+        
+        - 1 EV consume aproximadamente 12 kg MS/día
+        - Eficiencia de aprovechamiento: 50-60% del forraje disponible
+        - Período óptimo de descanso: 3 veces el período de uso
+        - Altura óptima del pasto: 15-25 cm para máxima productividad
+        
+        **Beneficios del pastoreo rotativo:**
+        
+        1. **Mayor productividad:** Mejor aprovechamiento del forraje
+        2. **Mejor salud del suelo:** Menor compactación y erosión
+        3. **Mayor biodiversidad:** Mantenimiento de especies forrajeras
+        4. **Menor impacto ambiental:** Reducción de emisiones de metano
+        5. **Mayor rentabilidad:** Optimización de recursos
+        """)
 # ===============================
 # 🗺️ FUNCIONES DE VISUALIZACIÓN CORREGIDAS
 # ===============================
