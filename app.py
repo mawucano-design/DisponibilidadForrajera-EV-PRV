@@ -2887,7 +2887,8 @@ def ejecutar_analisis_completo(gdf, tipo_ecosistema, num_puntos, usar_gee=False)
         return None
 
 # ===============================
-# 🐮 FUNCIÓN PARA MOSTRAR ANÁLISIS FORRAJERO
+# ===============================
+# 🐮 FUNCIÓN PARA MOSTRAR ANÁLISIS FORRAJERO - CORREGIDA
 # ===============================
 def mostrar_analisis_forrajero():
     """Muestra análisis completo forrajero"""
@@ -3042,11 +3043,12 @@ def mostrar_analisis_forrajero():
             df_sublotes = pd.DataFrame(sublotes_data)
             st.dataframe(df_sublotes, use_container_width=True, hide_index=True)
             
-            # Mapa de sublotes
+            # Mapa de sublotes - CORRECCIÓN: Verificar explícitamente
             st.subheader("🗺️ Mapa de Sublotes")
             
             forrajero = forrajero_data.get('forrajero')
-            if forrajero and st.session_state.poligono_data:
+            # Verificar explícitamente si poligono_data existe y no está vacío
+            if forrajero and st.session_state.poligono_data is not None and not st.session_state.poligono_data.empty:
                 mapa_sublotes = forrajero.crear_mapa_sublotes(
                     st.session_state.poligono_data,
                     sublotes
@@ -3056,6 +3058,8 @@ def mostrar_analisis_forrajero():
                     folium_static(mapa_sublotes, width=1000, height=600)
                 else:
                     st.info("No se pudo generar el mapa de sublotes")
+            else:
+                st.info("No hay datos geoespaciales disponibles para generar el mapa")
         
         # Recomendaciones de rotación
         st.subheader("🔄 Sistema de Rotación Recomendado")
@@ -3186,7 +3190,6 @@ def mostrar_analisis_forrajero():
             
             **Carga animal recomendada:** 500 EV (con margen de seguridad)
             """)
-
 # ===============================
 # 🗺️ FUNCIONES DE VISUALIZACIÓN CORREGIDAS
 # ===============================
