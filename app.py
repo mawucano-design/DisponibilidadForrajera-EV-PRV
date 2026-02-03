@@ -366,113 +366,116 @@ class AnalisisForrajero:
         else:
             return "Baja intensidad - Rotación lenta"
     
-   def crear_mapa_sublotes(self, gdf_area, sublotes_info):
-    """Crea mapa visual de los sublotes"""
-    # Verificar si hay datos geoespaciales válidos de manera segura
-    if gdf_area is None:
-        return None
-    
-    try:
-        # Verificar si es un GeoDataFrame/DataFrame y si está vacío
-        if hasattr(gdf_area, 'empty'):
-            if gdf_area.empty:
-                return None
-            
+       def crear_mapa_sublotes(self, gdf_area, sublotes_info):
+        """Crea mapa visual de los sublotes"""
+        # Verificar si hay datos geoespaciales válidos de manera segura
+        if gdf_area is None:
+            return None
+        
         try:
-            # Calcular bounds del área
-            bounds = gdf_area.total_bounds
-            centro = [(bounds[1] + bounds[3]) / 2, (bounds[0] + bounds[2]) / 2]
+            # Verificar si es un GeoDataFrame/DataFrame y si está vacío
+            if hasattr(gdf_area, 'empty'):
+                if gdf_area.empty:
+                    return None
             
-            # Crear mapa base
-            m = folium.Map(
-                location=centro,
-                zoom_start=12,
-                tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-                attr='Esri, Maxar, Earthstar Geographics'
-            )
-            
-            # Dividir polígono en sublotes (simplificado - en realidad se usarían las geometrías reales)
-            # Por simplicidad, mostraremos el área original con divisiones simuladas
-            
-            # Colores para diferentes niveles de productividad
-            colores = ['#ff4444', '#ffa500', '#ffff00', '#00ff00', '#00cc00', '#009900']
-            
-            # Agregar área original
-            folium.GeoJson(
-                gdf_area.geometry.iloc[0],
-                style_function=lambda x: {
-                    'fillColor': '#3b82f6',
-                    'color': '#1d4ed8',
-                    'weight': 3,
-                    'fillOpacity': 0.1,
-                    'dashArray': '5, 5'
-                },
-                tooltip="Área total de pastoreo"
-            ).add_to(m)
-            
-            # Simular división en sublotes (en producción real, usar geometrías reales)
-            # Aquí solo agregamos marcadores representativos
-            
-            for i, sublote in enumerate(sublotes_info):
-                # Calcular posición aproximada para marcador
-                lat = bounds[1] + (bounds[3] - bounds[1]) * (0.2 + 0.6 * (i / len(sublotes_info)))
-                lon = bounds[0] + (bounds[2] - bounds[0]) * (0.3 + 0.4 * (i % 2))
+            try:
+                # Calcular bounds del área
+                bounds = gdf_area.total_bounds
+                centro = [(bounds[1] + bounds[3]) / 2, (bounds[0] + bounds[2]) / 2]
                 
-                # Color según productividad
-                color_idx = min(len(colores) - 1, int(sublote['productividad_relativa'] * 3))
+                # Crear mapa base
+                m = folium.Map(
+                    location=centro,
+                    zoom_start=12,
+                    tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                    attr='Esri, Maxar, Earthstar Geographics'
+                )
                 
-                # Crear marcador
-                folium.CircleMarker(
-                    location=[lat, lon],
-                    radius=15,
-                    popup=f"""
-                    <b>Sublote {sublote['sublote_id']}</b><br>
-                    Área: {sublote['area_ha']} ha<br>
-                    Productividad: {sublote['disponibilidad_kg_ms_ha']} kg MS/ha<br>
-                    Forraje aprovechable: {sublote['forraje_aprovechable_kg_ms']/1000:.1f} ton MS
-                    """,
-                    color=colores[color_idx],
-                    fill=True,
-                    fillOpacity=0.7
+                # Dividir polígono en sublotes (simplificado - en realidad se usarían las geometrías reales)
+                # Por simplicidad, mostraremos el área original con divisiones simuladas
+                
+                # Colores para diferentes niveles de productividad
+                colores = ['#ff4444', '#ffa500', '#ffff00', '#00ff00', '#00cc00', '#009900']
+                
+                # Agregar área original
+                folium.GeoJson(
+                    gdf_area.geometry.iloc[0],
+                    style_function=lambda x: {
+                        'fillColor': '#3b82f6',
+                        'color': '#1d4ed8',
+                        'weight': 3,
+                        'fillOpacity': 0.1,
+                        'dashArray': '5, 5'
+                    },
+                    tooltip="Área total de pastoreo"
                 ).add_to(m)
-            
-            # Agregar leyenda
-            leyenda_html = '''
-            <div style="position: fixed; 
-                bottom: 50px; 
-                left: 50px; 
-                width: 250px;
-                background-color: white;
-                border: 2px solid #8B4513;
-                z-index: 9999;
-                padding: 10px;
-                border-radius: 5px;
-                box-shadow: 0 0 10px rgba(0,0,0,0.2);
-                font-family: Arial;">
-                <h4 style="margin-top: 0; color: #8B4513; border-bottom: 1px solid #ddd; padding-bottom: 5px;">
-                🐮 Sublotes Forrajeros
-                </h4>
-                <div style="margin: 5px 0;">
-                    <div><span style="color: #ff4444; font-weight: bold;">●</span> Muy baja productividad</div>
-                    <div><span style="color: #ffa500; font-weight: bold;">●</span> Baja productividad</div>
-                    <div><span style="color: #ffff00; font-weight: bold;">●</span> Media productividad</div>
-                    <div><span style="color: #00ff00; font-weight: bold;">●</span> Buena productividad</div>
-                    <div><span style="color: #00cc00; font-weight: bold;">●</span> Alta productividad</div>
-                    <div><span style="color: #009900; font-weight: bold;">●</span> Muy alta productividad</div>
+                
+                # Simular división en sublotes (en producción real, usar geometrías reales)
+                # Aquí solo agregamos marcadores representativos
+                
+                for i, sublote in enumerate(sublotes_info):
+                    # Calcular posición aproximada para marcador
+                    lat = bounds[1] + (bounds[3] - bounds[1]) * (0.2 + 0.6 * (i / len(sublotes_info)))
+                    lon = bounds[0] + (bounds[2] - bounds[0]) * (0.3 + 0.4 * (i % 2))
+                    
+                    # Color según productividad
+                    color_idx = min(len(colores) - 1, int(sublote['productividad_relativa'] * 3))
+                    
+                    # Crear marcador
+                    folium.CircleMarker(
+                        location=[lat, lon],
+                        radius=15,
+                        popup=f"""
+                        <b>Sublote {sublote['sublote_id']}</b><br>
+                        Área: {sublote['area_ha']} ha<br>
+                        Productividad: {sublote['disponibilidad_kg_ms_ha']} kg MS/ha<br>
+                        Forraje aprovechable: {sublote['forraje_aprovechable_kg_ms']/1000:.1f} ton MS
+                        """,
+                        color=colores[color_idx],
+                        fill=True,
+                        fillOpacity=0.7
+                    ).add_to(m)
+                
+                # Agregar leyenda
+                leyenda_html = '''
+                <div style="position: fixed; 
+                    bottom: 50px; 
+                    left: 50px; 
+                    width: 250px;
+                    background-color: white;
+                    border: 2px solid #8B4513;
+                    z-index: 9999;
+                    padding: 10px;
+                    border-radius: 5px;
+                    box-shadow: 0 0 10px rgba(0,0,0,0.2);
+                    font-family: Arial;">
+                    <h4 style="margin-top: 0; color: #8B4513; border-bottom: 1px solid #ddd; padding-bottom: 5px;">
+                    🐮 Sublotes Forrajeros
+                    </h4>
+                    <div style="margin: 5px 0;">
+                        <div><span style="color: #ff4444; font-weight: bold;">●</span> Muy baja productividad</div>
+                        <div><span style="color: #ffa500; font-weight: bold;">●</span> Baja productividad</div>
+                        <div><span style="color: #ffff00; font-weight: bold;">●</span> Media productividad</div>
+                        <div><span style="color: #00ff00; font-weight: bold;">●</span> Buena productividad</div>
+                        <div><span style="color: #00cc00; font-weight: bold;">●</span> Alta productividad</div>
+                        <div><span style="color: #009900; font-weight: bold;">●</span> Muy alta productividad</div>
+                    </div>
+                    <div style="font-size: 12px; color: #666; margin-top: 10px;">
+                        <div>📌 Haga clic en los círculos para ver detalles</div>
+                    </div>
                 </div>
-                <div style="font-size: 12px; color: #666; margin-top: 10px;">
-                    <div>📌 Haga clic en los círculos para ver detalles</div>
-                </div>
-            </div>
-            '''
-            m.get_root().html.add_child(folium.Element(leyenda_html))
-            
-            return m
-            
+                '''
+                m.get_root().html.add_child(folium.Element(leyenda_html))
+                
+                return m
+                
+            except Exception as e:
+                # En lugar de st.warning (que depende de Streamlit), usamos print
+                # o podríamos registrar el error
+                print(f"Advertencia: Error al crear mapa de sublotes: {str(e)}")
+                return None
         except Exception as e:
-            # En lugar de st.warning (que depende de Streamlit), usamos print
-            # o podríamos registrar el error
-            print(f"Advertencia: Error al crear mapa de sublotes: {str(e)}")
+            print(f"Error general en crear_mapa_sublotes: {str(e)}")
             return None
 # ===============================
 # 🌦️ CONECTOR CLIMÁTICO TROPICAL SIMPLIFICADO
