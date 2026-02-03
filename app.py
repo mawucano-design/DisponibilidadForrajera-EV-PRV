@@ -38,58 +38,71 @@ try:
 except Exception:
     FOLIUM_AVAILABLE = False
 
-# ===== GOOGLE EARTH ENGINE CONFIGURACIÓN MEJORADA =====
+# ===== IMPORTACIONES GOOGLE EARTH ENGINE (NO MODIFICAR) =====
 try:
     import ee
-    EE_AVAILABLE = True
-except Exception:
-    EE_AVAILABLE = False
+    GEE_AVAILABLE = True
+except ImportError:
+    GEE_AVAILABLE = False
+    st.warning("⚠️ Google Earth Engine no está instalado. Para usar datos satelitales reales, instala con: pip install earthengine-api")
 
-# ===== INICIALIZACIÓN AUTOMÁTICA GEE =====
-def inicializar_gee_automatico():
-    """Inicializa GEE automáticamente sin autenticación local"""
-    if not EE_AVAILABLE:
-        st.session_state.gee_authenticated = False
+warnings.filterwarnings('ignore')
+
+# Librerías geoespaciales
+import folium
+from streamlit_folium import st_folium, folium_static
+from folium.plugins import Fullscreen, MousePosition, HeatMap
+import geopandas as gpd
+from shapely.geometry import Polygon, Point, shape, MultiPolygon
+from shapely.ops import unary_union
+import pyproj
+from branca.colormap import LinearColormap
+import matplotlib.cm as cm
+# Para simulación de datos satelitales
+import random
+
+# === INICIALIZACIÓN SEGURA DE GOOGLE EARTH ENGINE (NO MODIFICAR) ===
+def inicializar_gee():
+    """Inicializa GEE con Service Account desde secrets de Streamlit Cloud"""
+    if not GEE_AVAILABLE:
         return False
     
-    
-        try:
-            # Opción 2: Usar Service Account desde variables de entorno (Streamlit Cloud)
-            service_account = os.environ.get('GEE_SERVICE_ACCOUNT', '')
-            
-            if service_account:
-                credentials_dict = json.loads(service_account)
+    try:
+        # Intentar con Service Account desde secrets (Streamlit Cloud)
+        gee_secret = os.environ.get('GEE_SERVICE_ACCOUNT')
+        if gee_secret:
+            try:
+                credentials_info = json.loads(gee_secret.strip())
                 credentials = ee.ServiceAccountCredentials(
-                    email=credentials_dict['client_email'],
-                    key_data=json.dumps(credentials_dict)
+                    credentials_info['client_email'],
+                    key_data=json.dumps(credentials_info)
                 )
-                ee.Initialize(credentials, project='ee-prv-forrajes')
+                ee.Initialize(credentials, project='ee-mawucano25')
                 st.session_state.gee_authenticated = True
-                st.session_state.gee_project = 'ee-prv-forrajes'
-                st.success("✅ Google Earth Engine inicializado con Service Account")
+                st.session_state.gee_project = 'ee-mawucano25'
+                print("✅ GEE inicializado con Service Account")
                 return True
-            else:
-                # Opción 3: Usar autenticación pública para datos públicos
-                ee.Initialize(opt_url='https://earthengine-highvolume.googleapis.com')
-                st.session_state.gee_authenticated = True
-                st.session_state.gee_project = 'ee-prv-forrajes'
-                st.success("✅ Google Earth Engine inicializado en modo público")
-                return True
-                
-        except Exception as e2:
-            st.warning(f"⚠️ No se pudo inicializar Google Earth Engine automáticamente")
-            st.session_state.gee_authenticated = False
-            return False
+            except Exception as e:
+                print(f"⚠️ Error con Service Account: {str(e)}")
+        
+        # Fallback: autenticación local (desarrollo en tu Linux)
+        try:
+            ee.Initialize(project='ee-mawucano25')
+            st.session_state.gee_authenticated = True
+            st.session_state.gee_project = 'ee-mawucano25'
+            print("✅ GEE inicializado localmente")
+            return True
+        except Exception as e:
+            print(f"⚠️ Error inicialización local: {str(e)}")
+            
+        st.session_state.gee_authenticated = False
+        return False
+        
+    except Exception as e:
+        st.session_state.gee_authenticated = False
+        print(f"❌ Error crítico GEE: {str(e)}")
+        return False
 
-# Inicializar GEE automáticamente al cargar la app
-if EE_AVAILABLE and not st.session_state.get('gee_authenticated', False):
-    inicializar_gee_automatico()
-
-# Configuración de Streamlit
-st.set_page_config(page_title="🌱 Disponibilidad Forrajera PRV + Clima + Suelo + GEE", layout="wide")
-st.title("🌱 Sistema Avanzado de Gestión Forrajera con Satélites")
-st.markdown("---")
-os.environ['SHAPE_RESTORE_SHX'] = 'YES'
 
 # ---------- APIs Externas ----------
 NASA_POWER_BASE_URL = "https://power.larc.nasa.gov/api/temporal/daily/point"
