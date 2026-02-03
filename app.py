@@ -1,9 +1,3 @@
-# ================================================================
-# PLATAFORMA AVANZADA DE ANÁLISIS FORRAJERO CON INTEGRACIÓN GEE
-# Autor: Martin Ernesto Cano
-# Email: mawucano@gmail.com
-# Tel: +5493525 532313
-# ================================================================
 
 import streamlit as st
 import geopandas as gpd
@@ -26,108 +20,109 @@ import requests
 import json
 from typing import Dict, List, Tuple, Optional
 import warnings
-warnings.filterwarnings('ignore')
 
-# ===== IMPORTACIONES GOOGLE EARTH ENGINE =====
+# ===== IMPORTACIONES GOOGLE EARTH ENGINE (NO MODIFICAR) =====
 try:
     import ee
     GEE_AVAILABLE = True
-    print("✅ earthengine-api importado correctamente")
-except ImportError as e:
+except ImportError:
     GEE_AVAILABLE = False
     st.warning("⚠️ Google Earth Engine no está instalado. Para usar datos satelitales reales, instala con: pip install earthengine-api")
-    print(f"❌ Error importando ee: {e}")
 
 warnings.filterwarnings('ignore')
 
-# === INICIALIZACIÓN SEGURA DE GOOGLE EARTH ENGINE ===
+# Intento importar python-docx
+try:
+    from docx import Document
+    from docx.shared import Inches, Pt, RGBColor
+    DOCX_AVAILABLE = True
+except Exception:
+    DOCX_AVAILABLE = False
+
+# Folium (opcional)
+try:
+    import folium
+    from folium.plugins import HeatMap, Fullscreen, MousePosition
+    from streamlit_folium import st_folium, folium_static
+    FOLIUM_AVAILABLE = True
+except Exception:
+    FOLIUM_AVAILABLE = False
+    folium = None
+    st_folium = None
+
+# Librerías geoespaciales
+import pyproj
+from branca.colormap import LinearColormap
+import matplotlib.cm as cm
+
+# Streamlit config
+st.set_page_config(page_title="🌱 Disponibilidad Forrajera PRV + Clima + Suelo + GEE", layout="wide")
+st.title("🌱 Disponibilidad Forrajera PRV — Analizador Avanzado con Google Earth Engine")
+st.markdown("---")
+os.environ['SHAPE_RESTORE_SHX'] = 'YES'
+
+# === INICIALIZACIÓN SEGURA DE GOOGLE EARTH ENGINE (NO MODIFICAR) ===
 def inicializar_gee():
     """Inicializa GEE con Service Account desde secrets de Streamlit Cloud"""
     if not GEE_AVAILABLE:
-        st.session_state.gee_authenticated = False
-        print("❌ GEE no disponible (módulo no instalado)")
         return False
     
     try:
         # Intentar con Service Account desde secrets (Streamlit Cloud)
-        gee_secret = None
-        
-        # Método 1: secrets de Streamlit Cloud (recomendado)
-        try:
-            if hasattr(st, 'secrets') and 'google' in st.secrets and 'GEE_SERVICE_ACCOUNT' in st.secrets.google:
-                gee_secret = st.secrets.google.GEE_SERVICE_ACCOUNT
-                print("🔑 Credenciales encontradas en st.secrets.google.GEE_SERVICE_ACCOUNT")
-        except Exception as e:
-            print(f"⚠️ Error accediendo a st.secrets: {e}")
-        
-        # Método 2: variables de entorno (fallback)
-        if not gee_secret:
+        if 'GEE_SERVICE_ACCOUNT' in st.secrets:
             try:
-                gee_secret = os.environ.get('GEE_SERVICE_ACCOUNT')
-                if gee_secret:
-                    print("🔑 Credenciales encontradas en variable de entorno GEE_SERVICE_ACCOUNT")
-            except Exception as e:
-                print(f"⚠️ Error accediendo a os.environ: {e}")
-        
-        # Si tenemos credenciales, inicializar
-        if gee_secret:
-            try:
-                # Limpiar y parsear JSON
-                gee_secret_clean = gee_secret.strip()
-                if gee_secret_clean.startswith("'") and gee_secret_clean.endswith("'"):
-                    gee_secret_clean = gee_secret_clean[1:-1]
-                if gee_secret_clean.startswith('"') and gee_secret_clean.endswith('"'):
-                    gee_secret_clean = gee_secret_clean[1:-1]
-                
-                credentials_info = json.loads(gee_secret_clean)
-                project_id = credentials_info.get('project_id', 'ee-mawucano25')
+                credentials_info = st.secrets['GEE_SERVICE_ACCOUNT']
+                if isinstance(credentials_info, str):
+                    credentials_info = json.loads(credentials_info.strip())
                 
                 credentials = ee.ServiceAccountCredentials(
                     credentials_info['client_email'],
                     key_data=json.dumps(credentials_info)
                 )
-                
-                ee.Initialize(credentials, project=project_id)
+                ee.Initialize(credentials, project='ee-mawucano25')
                 st.session_state.gee_authenticated = True
-                st.session_state.gee_project = project_id
-                print(f"✅ GEE inicializado con Service Account (proyecto: {project_id})")
+                st.session_state.gee_project = 'ee-mawucano25'
+                print("✅ GEE inicializado con Service Account")
                 return True
-                
             except Exception as e:
-                print(f"⚠️ Error inicializando con Service Account: {str(e)[:200]}")
-                st.warning(f"⚠️ Error GEE Service Account: {str(e)[:100]}")
+                st.warning(f"⚠️ Error con Service Account: {str(e)}")
         
-        # Fallback: autenticación local (SOLO para desarrollo local)
+        # Fallback: autenticación local (desarrollo en tu Linux)
         try:
             ee.Initialize(project='ee-mawucano25')
             st.session_state.gee_authenticated = True
             st.session_state.gee_project = 'ee-mawucano25'
-            print("✅ GEE inicializado localmente (desarrollo)")
+            print("✅ GEE inicializado localmente")
             return True
+        except ee.EEException:
+            # Si no está inicializado, intentar autenticar
+            try:
+                ee.Authenticate()
+                ee.Initialize(project='ee-mawucano25')
+                st.session_state.gee_authenticated = True
+                st.session_state.gee_project = 'ee-mawucano25'
+                print("✅ GEE autenticado e inicializado")
+                return True
+            except Exception as e:
+                print(f"⚠️ Error autenticación GEE: {str(e)}")
         except Exception as e:
-            print(f"⚠️ Error inicialización local: {str(e)[:200]}")
+            print(f"⚠️ Error inicialización local: {str(e)}")
             
         st.session_state.gee_authenticated = False
-        print("❌ GEE no autenticado")
         return False
         
     except Exception as e:
         st.session_state.gee_authenticated = False
         print(f"❌ Error crítico GEE: {str(e)}")
-        import traceback
-        traceback.print_exc()
         return False
 
-# Inicializar GEE al inicio (ANTES de cualquier uso)
-if 'gee_authenticated' not in st.session_state:
-    st.session_state.gee_authenticated = False
-    st.session_state.gee_project = None
-    print("🔄 Inicializando GEE...")
-    inicializar_gee()
-    if st.session_state.gee_authenticated:
-        st.sidebar.success(f"✅ GEE conectado ({st.session_state.gee_project})")
-    else:
-        st.sidebar.info("ℹ️ GEE no disponible. Usando datos simulados.")
+# Inicializar GEE al inicio
+if GEE_AVAILABLE:
+    gee_inicializado = inicializar_gee()
+    if not gee_inicializado:
+        st.warning("⚠️ Google Earth Engine no se pudo inicializar. Los datos satelitales serán simulados.")
+else:
+    st.warning("⚠️ Google Earth Engine no está disponible. Los datos satelitales serán simulados.")
 
 # ---------- APIs Externas ----------
 NASA_POWER_BASE_URL = "https://power.larc.nasa.gov/api/temporal/daily/point"
@@ -149,180 +144,17 @@ for key in [
     'gdf_cargado', 'gdf_analizado', 'mapa_detallado_bytes',
     'docx_buffer', 'analisis_completado', 'html_download_injected',
     'datos_clima', 'datos_suelo', 'indices_avanzados', 'informe_generado',
-    'heatmap_data', 'heatmap_variable'
+    'heatmap_data', 'heatmap_variable', 'gee_authenticated', 'gee_project',
+    'imagen_gee', 'coleccion_gee'
 ]:
     if key not in st.session_state:
         st.session_state[key] = None
-
-# -----------------------
-# FUNCIONES DE GEE
-# -----------------------
-def obtener_indices_gee(geom, fecha_inicio, fecha_fin, satelite="SENTINEL-2", nubes_max=20):
-    """
-    Obtiene NDVI, EVI, SAVI reales desde GEE para un polígono y período.
-    Retorna dict con valores promedio o None si falla.
-    """
-    if not st.session_state.get('gee_authenticated', False):
-        return None
-    
-    try:
-        # Convertir geometría Shapely a EE Geometry
-        if isinstance(geom, Polygon):
-            coords = list(geom.exterior.coords)
-            ee_geom = ee.Geometry.Polygon([[lon, lat] for lon, lat in coords])
-        elif isinstance(geom, MultiPolygon):
-            # Tomar el polígono más grande
-            areas = [p.area for p in geom.geoms]
-            main_poly = geom.geoms[np.argmax(areas)]
-            coords = list(main_poly.exterior.coords)
-            ee_geom = ee.Geometry.Polygon([[lon, lat] for lon, lat in coords])
-        else:
-            return None
-        
-        if satelite == "SENTINEL-2":
-            # Colección Sentinel-2 con máscara de nubes
-            collection = (ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
-                .filterDate(fecha_inicio.strftime('%Y-%m-%d'), fecha_fin.strftime('%Y-%m-%d'))
-                .filterBounds(ee_geom)
-                .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', nubes_max))
-                .sort('CLOUDY_PIXEL_PERCENTAGE'))
-            
-            # Verificar si hay imágenes disponibles
-            count = collection.size().getInfo()
-            if count == 0:
-                st.warning(f"⚠️ No hay imágenes {satelite} disponibles en el período con <{nubes_max}% nubes")
-                return None
-            
-            # Función para calcular índices
-            def calcular_indices(img):
-                ndvi = img.normalizedDifference(['B8', 'B4']).rename('NDVI')
-                evi = img.expression(
-                    '2.5 * ((NIR - RED) / (NIR + 6 * RED - 7.5 * BLUE + 1))',
-                    {'NIR': img.select('B8'), 'RED': img.select('B4'), 'BLUE': img.select('B2')}
-                ).rename('EVI')
-                savi = img.expression(
-                    '((NIR - RED) / (NIR + RED + 0.5)) * 1.5',
-                    {'NIR': img.select('B8'), 'RED': img.select('B4')}
-                ).rename('SAVI')
-                return img.addBands([ndvi, evi, savi])
-            
-            collection = collection.map(calcular_indices)
-            imagen = collection.median().clip(ee_geom)
-            
-        elif satelite in ["LANDSAT-8", "LANDSAT-9"]:
-            col_name = 'LANDSAT/LC08/C02/T1_L2' if satelite == "LANDSAT-8" else 'LANDSAT/LC09/C02/T1_L2'
-            collection = (ee.ImageCollection(col_name)
-                .filterDate(fecha_inicio.strftime('%Y-%m-%d'), fecha_fin.strftime('%Y-%m-%d'))
-                .filterBounds(ee_geom)
-                .filter(ee.Filter.lt('CLOUD_COVER', nubes_max))
-                .sort('CLOUD_COVER'))
-            
-            count = collection.size().getInfo()
-            if count == 0:
-                st.warning(f"⚠️ No hay imágenes {satelite} disponibles en el período con <{nubes_max}% nubes")
-                return None
-            
-            def calcular_indices_l8(img):
-                # Ajustar por factores de escala Landsat 8/9
-                img = img.multiply(0.0000275).add(-0.2)
-                ndvi = img.normalizedDifference(['SR_B5', 'SR_B4']).rename('NDVI')
-                evi = img.expression(
-                    '2.5 * ((NIR - RED) / (NIR + 6 * RED - 7.5 * BLUE + 1))',
-                    {'NIR': img.select('SR_B5'), 'RED': img.select('SR_B4'), 'BLUE': img.select('SR_B2')}
-                ).rename('EVI')
-                savi = img.expression(
-                    '((NIR - RED) / (NIR + RED + 0.5)) * 1.5',
-                    {'NIR': img.select('SR_B5'), 'RED': img.select('SR_B4')}
-                ).rename('SAVI')
-                return img.addBands([ndvi, evi, savi])
-            
-            collection = collection.map(calcular_indices_l8)
-            imagen = collection.median().clip(ee_geom)
-        
-        else:
-            return None
-        
-        # Extraer estadísticas zonales
-        stats = imagen.reduceRegion(
-            reducer=ee.Reducer.mean(),
-            geometry=ee_geom,
-            scale=10 if satelite == "SENTINEL-2" else 30,
-            maxPixels=1e9
-        ).getInfo()
-        
-        # Obtener fecha de la imagen más reciente
-        latest_img = collection.sort('system:time_start', False).first()
-        fecha_img = ee.Date(latest_img.get('system:time_start')).format('YYYY-MM-dd').getInfo()
-        
-        return {
-            'ndvi': float(stats.get('NDVI', 0.3)),
-            'evi': float(stats.get('EVI', 0.3)),
-            'savi': float(stats.get('SAVI', 0.3)),
-            'fuente': f"{satelite} (GEE)",
-            'fecha': fecha_img,
-            'imagenes_disponibles': count
-        }
-        
-    except Exception as e:
-        st.warning(f"⚠️ Error GEE ({satelite}): {str(e)[:150]}. Usando simulación.")
-        return None
-
-def obtener_indices_inteligentes(id_subLote, geom, fecha_imagen, fuente_satelital, nubes_max, datos_clima=None):
-    """
-    Retorna índices reales (GEE) o simulados según disponibilidad.
-    Mantiene 100% de compatibilidad con el flujo actual.
-    """
-    # 1. Intentar con GEE si está autenticado y no es modo SIMULADO
-    if fuente_satelital != "SIMULADO" and st.session_state.get('gee_authenticated', False):
-        fecha_inicio = fecha_imagen - timedelta(days=15)  # Ventana de 15 días
-        resultado_gee = obtener_indices_gee(geom, fecha_inicio, fecha_imagen, fuente_satelital, nubes_max)
-        
-        if resultado_gee:
-            ndvi = resultado_gee['ndvi']
-            evi = resultado_gee['evi']
-            savi = resultado_gee['savi']
-            
-            # Calcular otros índices derivados
-            bsi = 0.0  # Placeholder
-            ndbi = 0.0
-            msavi2 = (2 * ndvi + 1 - np.sqrt((2 * ndvi + 1)**2 - 8 * (ndvi**2 - savi))) / 2 if ndvi > 0 else 0
-            gndvi = ndvi * 0.95  # Placeholder
-            ndmi = ndvi * 0.9
-            
-            return ndvi, evi, savi, bsi, ndbi, msavi2, gndvi, ndmi, resultado_gee['fuente'], resultado_gee['fecha']
-    
-    # 2. Fallback: simulación (lógica actual)
-    base = 0.2 + 0.4 * ((id_subLote % 6) / 6)
-    if datos_clima:
-        factor_clima = 1.0
-        if datos_clima.get('precipitacion_promedio', 0) < 1.0:
-            factor_clima *= 0.8
-        elif datos_clima.get('precipitacion_promedio', 0) > 3.0:
-            factor_clima *= 1.2
-        base *= factor_clima
-
-    ndvi = max(0.05, min(0.85, base + np.random.normal(0, 0.05)))
-    evi = ndvi * 1.3 if ndvi > 0.3 else ndvi * 0.8
-    savi = ndvi * 1.2 if ndvi > 0.3 else ndvi * 0.9
-    bsi = 0.1 if ndvi > 0.5 else 0.4
-    ndbi = -0.05 if ndvi > 0.5 else 0.15
-    msavi2 = ndvi * 1.0
-    gndvi = ndvi * 0.95
-    ndmi = ndvi * 0.9
-
-    return ndvi, evi, savi, bsi, ndbi, msavi2, gndvi, ndmi, "SIMULADO", fecha_imagen.strftime('%Y-%m-%d')
 
 # -----------------------
 # SIDEBAR (CONFIGURACIÓN)
 # -----------------------
 with st.sidebar:
     st.header("⚙️ Configuración Avanzada")
-    
-    # Mostrar estado de GEE
-    if st.session_state.get('gee_authenticated', False):
-        st.success(f"✅ GEE conectado ({st.session_state.gee_project})")
-    else:
-        st.info("ℹ️ GEE no disponible. Usando simulación.")
     
     # Mostrar solo ESRI Satellite como opción (forzado)
     st.subheader("🗺️ Mapa Base")
@@ -333,24 +165,16 @@ with st.sidebar:
     fuente_satelital = st.selectbox(
         "Seleccionar satélite:",
         ["SENTINEL-2", "LANDSAT-8", "LANDSAT-9", "SIMULADO"],
-        help="SIMULADO: datos generados | SENTINEL-2/LANDSAT: datos reales desde GEE"
     )
     
-    if fuente_satelital != "SIMULADO" and not st.session_state.get('gee_authenticated', False):
-        st.warning("⚠️ GEE no autenticado. Se usará modo SIMULADO.")
-    
-    # Parámetros de nubes (solo para GEE)
-    if fuente_satelital != "SIMULADO":
-        nubes_max = st.slider(
-            "Máximo % de nubes permitido",
-            min_value=5,
-            max_value=50,
-            value=20,
-            step=5,
-            help="Solo aplica para datos reales de GEE"
-        )
+    # Mostrar estado de GEE
+    if GEE_AVAILABLE:
+        if st.session_state.get('gee_authenticated'):
+            st.success("✅ Google Earth Engine: CONECTADO")
+        else:
+            st.warning("⚠️ Google Earth Engine: NO CONECTADO")
     else:
-        nubes_max = 20  # Valor por defecto para simulación
+        st.error("❌ Google Earth Engine: NO INSTALADO")
 
     tipo_pastura = st.selectbox("Tipo de Pastura:",
                                ["ALFALFA", "RAYGRASS", "FESTUCA", "AGROPIRRO", 
@@ -362,7 +186,20 @@ with st.sidebar:
         value=datetime.now() - timedelta(days=30),
         max_value=datetime.now()
     )
-
+    
+    # Período para búsqueda en GEE (ventana de tiempo)
+    col1, col2 = st.columns(2)
+    with col1:
+        fecha_inicio_gee = st.date_input(
+            "Inicio búsqueda GEE:",
+            value=fecha_imagen - timedelta(days=60)
+        )
+    with col2:
+        fecha_fin_gee = st.date_input(
+            "Fin búsqueda GEE:",
+            value=fecha_imagen + timedelta(days=10)
+        )
+    
     # Período climático
     col1, col2 = st.columns(2)
     with col1:
@@ -375,12 +212,14 @@ with st.sidebar:
             "Fin período climático:",
             value=fecha_imagen
         )
+    
+    nubes_max = st.slider("Máximo % de nubes permitido:", 0, 100, 20)
 
     st.subheader("🌿 Parámetros de Detección Avanzada")
     umbral_ndvi_minimo = st.slider("Umbral NDVI mínimo vegetación:", 0.05, 0.3, 0.15, 0.01)
     umbral_ndvi_optimo = st.slider("Umbral NDVI vegetación óptima:", 0.4, 0.8, 0.6, 0.01)
     sensibilidad_suelo = st.slider("Sensibilidad detección suelo:", 0.1, 1.0, 0.5, 0.1)
-
+    
     # Nuevos parámetros avanzados
     umbral_estres_hidrico = st.slider("Umbral estrés hídrico (ETc):", 0.3, 1.0, 0.7, 0.05)
     factor_seguridad = st.slider("Factor de seguridad biomasa:", 0.7, 1.3, 1.0, 0.05)
@@ -402,7 +241,7 @@ with st.sidebar:
     st.subheader("📊 Parámetros Ganaderos")
     peso_promedio = st.slider("Peso promedio animal (kg):", 300, 600, 450)
     carga_animal = st.slider("Carga animal (cabezas):", 1, 1000, 100)
-
+    
     st.subheader("🌤️ Datos Climáticos (NASA POWER)")
     usar_clima = st.checkbox("Usar datos climáticos NASA POWER", value=True)
     if usar_clima:
@@ -411,7 +250,7 @@ with st.sidebar:
             ["PRECIPITACION", "TEMPERATURA", "HUMEDAD", "RADIACION", "EVAPOTRANSPIRACION"],
             default=["PRECIPITACION", "TEMPERATURA", "EVAPOTRANSPIRACION"]
         )
-
+    
     st.subheader("🌍 Datos de Suelos (INTA)")
     usar_suelo = st.checkbox("Usar datos de suelos INTA", value=True)
     if usar_suelo:
@@ -419,7 +258,7 @@ with st.sidebar:
 
     st.subheader("🎯 División de Potrero")
     n_divisiones = st.slider("Número de sub-lotes:", min_value=4, max_value=64, value=24)
-
+    
     st.subheader("🔄 Opciones de Unión de Polígonos")
     unir_poligonos = st.checkbox(
         "Unir todos los polígonos en uno solo", 
@@ -441,10 +280,371 @@ with st.sidebar:
         uploaded_file = st.file_uploader("Subir archivo KMZ del potrero", type=['kmz'])
 
 # -----------------------
+# SERVICIOS DE GOOGLE EARTH ENGINE
+# -----------------------
+class ServicioGEE:
+    """Clase para obtener datos satelitales reales de Google Earth Engine"""
+    
+    @staticmethod
+    def obtener_coleccion_satelital(fuente_satelital, fecha_inicio, fecha_fin, nubes_max):
+        """Obtiene la colección de imágenes según el satélite seleccionado"""
+        if not GEE_AVAILABLE or not st.session_state.get('gee_authenticated'):
+            return None
+        
+        try:
+            # Convertir fechas a formato GEE
+            fecha_inicio_ee = ee.Date(fecha_inicio.strftime('%Y-%m-%d'))
+            fecha_fin_ee = ee.Date(fecha_fin.strftime('%Y-%m-%d'))
+            
+            if fuente_satelital == "SENTINEL-2":
+                # Colección Sentinel-2 Surface Reflectance
+                coleccion = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED') \
+                    .filterDate(fecha_inicio_ee, fecha_fin_ee) \
+                    .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', nubes_max)) \
+                    .filter(ee.Filter.lt('CLOUD_COVERAGE_ASSESSMENT', nubes_max))
+                
+                st.info(f"📡 Colección Sentinel-2 cargada: {fecha_inicio} a {fecha_fin}")
+                
+            elif fuente_satelital == "LANDSAT-8":
+                # Colección Landsat 8 Surface Reflectance
+                coleccion = ee.ImageCollection('LANDSAT/LC08/C02/T1_L2') \
+                    .filterDate(fecha_inicio_ee, fecha_fin_ee) \
+                    .filter(ee.Filter.lt('CLOUD_COVER', nubes_max))
+                
+                st.info(f"📡 Colección Landsat-8 cargada: {fecha_inicio} a {fecha_fin}")
+                
+            elif fuente_satelital == "LANDSAT-9":
+                # Colección Landsat 9 Surface Reflectance
+                coleccion = ee.ImageCollection('LANDSAT/LC09/C02/T1_L2') \
+                    .filterDate(fecha_inicio_ee, fecha_fin_ee) \
+                    .filter(ee.Filter.lt('CLOUD_COVER', nubes_max))
+                
+                st.info(f"📡 Colección Landsat-9 cargada: {fecha_inicio} a {fecha_fin}")
+                
+            else:
+                st.warning("⚠️ Fuente satelital no soportada por GEE")
+                return None
+            
+            return coleccion
+            
+        except Exception as e:
+            st.error(f"❌ Error obteniendo colección GEE: {str(e)}")
+            return None
+    
+    @staticmethod
+    def obtener_imagen_mas_reciente(coleccion, geometria):
+        """Obtiene la imagen más reciente de la colección para la geometría dada"""
+        if not coleccion:
+            return None
+        
+        try:
+            # Filtrar por geometría
+            coleccion_area = coleccion.filterBounds(geometria)
+            
+            # Obtener la imagen con menos nubes
+            imagen = coleccion_area.sort('CLOUDY_PIXEL_PERCENTAGE' if 'S2' in str(coleccion) else 'CLOUD_COVER').first()
+            
+            # Verificar si se obtuvo una imagen
+            try:
+                bandas = imagen.bandNames().getInfo()
+                if not bandas:
+                    st.warning("⚠️ No se encontraron imágenes en el área para las fechas seleccionadas")
+                    return None
+            except:
+                st.warning("⚠️ No se encontraron imágenes en el área para las fechas seleccionadas")
+                return None
+            
+            # Obtener metadatos
+            fecha = imagen.date().format('YYYY-MM-dd').getInfo()
+            nubes = imagen.get('CLOUDY_PIXEL_PERCENTAGE' if 'S2' in str(coleccion) else 'CLOUD_COVER').getInfo()
+            
+            st.success(f"✅ Imagen GEE obtenida: {fecha} (nubes: {nubes if nubes else 'N/A'}%)")
+            
+            return imagen
+            
+        except Exception as e:
+            st.error(f"❌ Error obteniendo imagen GEE: {str(e)}")
+            return None
+    
+    @staticmethod
+    def calcular_indices_sentinel2(imagen):
+        """Calcula índices espectrales para Sentinel-2"""
+        try:
+            # NDVI = (NIR - Red) / (NIR + Red)
+            ndvi = imagen.normalizedDifference(['B8', 'B4']).rename('NDVI')
+            
+            # EVI = 2.5 * (NIR - Red) / (NIR + 6*Red - 7.5*Blue + 1)
+            evi = imagen.expression(
+                '2.5 * ((NIR - RED) / (NIR + 6 * RED - 7.5 * BLUE + 1))',
+                {
+                    'NIR': imagen.select('B8'),
+                    'RED': imagen.select('B4'),
+                    'BLUE': imagen.select('B2')
+                }
+            ).rename('EVI')
+            
+            # SAVI = (NIR - Red) / (NIR + Red + L) * (1 + L)
+            savi = imagen.expression(
+                '((NIR - RED) / (NIR + RED + 0.5)) * 1.5',
+                {
+                    'NIR': imagen.select('B8'),
+                    'RED': imagen.select('B4')
+                }
+            ).rename('SAVI')
+            
+            # GNDVI = (NIR - Green) / (NIR + Green)
+            gndvi = imagen.normalizedDifference(['B8', 'B3']).rename('GNDVI')
+            
+            # NDMI = (NIR - SWIR) / (NIR + SWIR)
+            ndmi = imagen.normalizedDifference(['B8', 'B11']).rename('NDMI')
+            
+            # BSI - Bare Soil Index
+            bsi = imagen.expression(
+                '((SWIR1 + RED) - (NIR + BLUE)) / ((SWIR1 + RED) + (NIR + BLUE))',
+                {
+                    'SWIR1': imagen.select('B11'),
+                    'RED': imagen.select('B4'),
+                    'NIR': imagen.select('B8'),
+                    'BLUE': imagen.select('B2')
+                }
+            ).rename('BSI')
+            
+            # NDBI - Normalized Difference Built-up Index
+            ndbi = imagen.normalizedDifference(['B11', 'B8']).rename('NDBI')
+            
+            # MSAVI2 - Modified Soil Adjusted Vegetation Index 2
+            msavi2 = imagen.expression(
+                '(2 * NIR + 1 - sqrt(pow((2 * NIR + 1), 2) - 8 * (NIR - RED))) / 2',
+                {
+                    'NIR': imagen.select('B8'),
+                    'RED': imagen.select('B4')
+                }
+            ).rename('MSAVI2')
+            
+            # Combinar todos los índices
+            indices = ee.Image.cat([ndvi, evi, savi, gndvi, ndmi, bsi, ndbi, msavi2])
+            
+            return indices
+            
+        except Exception as e:
+            st.error(f"❌ Error calculando índices Sentinel-2: {str(e)}")
+            return None
+    
+    @staticmethod
+    def calcular_indices_landsat(imagen, landsat_version=8):
+        """Calcula índices espectrales para Landsat 8/9"""
+        try:
+            # Para Landsat 8/9, las bandas son diferentes
+            if landsat_version == 8:
+                # Landsat 8: B2=Blue, B3=Green, B4=Red, B5=NIR, B6=SWIR1, B7=SWIR2
+                blue = imagen.select('SR_B2')
+                green = imagen.select('SR_B3')
+                red = imagen.select('SR_B4')
+                nir = imagen.select('SR_B5')
+                swir1 = imagen.select('SR_B6')
+                swir2 = imagen.select('SR_B7')
+            else:  # Landsat 9
+                blue = imagen.select('SR_B2')
+                green = imagen.select('SR_B3')
+                red = imagen.select('SR_B4')
+                nir = imagen.select('SR_B5')
+                swir1 = imagen.select('SR_B6')
+                swir2 = imagen.select('SR_B7')
+            
+            # NDVI = (NIR - Red) / (NIR + Red)
+            ndvi = imagen.expression('(NIR - RED) / (NIR + RED)', {
+                'NIR': nir,
+                'RED': red
+            }).rename('NDVI')
+            
+            # EVI = 2.5 * (NIR - Red) / (NIR + 6*Red - 7.5*Blue + 1)
+            evi = imagen.expression(
+                '2.5 * ((NIR - RED) / (NIR + 6 * RED - 7.5 * BLUE + 1))',
+                {
+                    'NIR': nir,
+                    'RED': red,
+                    'BLUE': blue
+                }
+            ).rename('EVI')
+            
+            # SAVI = (NIR - Red) / (NIR + Red + L) * (1 + L)
+            savi = imagen.expression(
+                '((NIR - RED) / (NIR + RED + 0.5)) * 1.5',
+                {
+                    'NIR': nir,
+                    'RED': red
+                }
+            ).rename('SAVI')
+            
+            # GNDVI = (NIR - Green) / (NIR + Green)
+            gndvi = imagen.expression('(NIR - GREEN) / (NIR + GREEN)', {
+                'NIR': nir,
+                'GREEN': green
+            }).rename('GNDVI')
+            
+            # NDMI = (NIR - SWIR1) / (NIR + SWIR1)
+            ndmi = imagen.expression('(NIR - SWIR1) / (NIR + SWIR1)', {
+                'NIR': nir,
+                'SWIR1': swir1
+            }).rename('NDMI')
+            
+            # BSI - Bare Soil Index
+            bsi = imagen.expression(
+                '((SWIR1 + RED) - (NIR + BLUE)) / ((SWIR1 + RED) + (NIR + BLUE))',
+                {
+                    'SWIR1': swir1,
+                    'RED': red,
+                    'NIR': nir,
+                    'BLUE': blue
+                }
+            ).rename('BSI')
+            
+            # NDBI - Normalized Difference Built-up Index
+            ndbi = imagen.expression('(SWIR1 - NIR) / (SWIR1 + NIR)', {
+                'SWIR1': swir1,
+                'NIR': nir
+            }).rename('NDBI')
+            
+            # MSAVI2 - Modified Soil Adjusted Vegetation Index 2
+            msavi2 = imagen.expression(
+                '(2 * NIR + 1 - sqrt(pow((2 * NIR + 1), 2) - 8 * (NIR - RED))) / 2',
+                {
+                    'NIR': nir,
+                    'RED': red
+                }
+            ).rename('MSAVI2')
+            
+            # Combinar todos los índices
+            indices = ee.Image.cat([ndvi, evi, savi, gndvi, ndmi, bsi, ndbi, msavi2])
+            
+            return indices
+            
+        except Exception as e:
+            st.error(f"❌ Error calculando índices Landsat: {str(e)}")
+            return None
+    
+    @staticmethod
+    def extraer_valores_por_poligono(indices, geometrias_gdf):
+        """Extrae valores de índices para cada polígono en el GeoDataFrame"""
+        if not indices or geometrias_gdf.empty:
+            return []
+        
+        try:
+            resultados = []
+            
+            # Obtener nombres de bandas (índices)
+            bandas = indices.bandNames().getInfo()
+            
+            for idx, row in geometrias_gdf.iterrows():
+                # Convertir geometría de shapely a GEE
+                geometria_shapely = row.geometry
+                
+                # Convertir a GeoJSON y luego a GEE Geometry
+                geojson_dict = gpd.GeoSeries([geometria_shapely]).__geo_interface__
+                geometria_gee = ee.Geometry(geojson_dict['features'][0]['geometry'])
+                
+                try:
+                    # Extraer estadísticas para la geometría
+                    reduccion = indices.reduceRegion(
+                        reducer=ee.Reducer.mean(),
+                        geometry=geometria_gee,
+                        scale=10 if 'S2' in str(indices) else 30,
+                        maxPixels=1e9
+                    )
+                    
+                    # Obtener valores
+                    valores = reduccion.getInfo()
+                    
+                    # Si no hay valores, usar NaN
+                    if not valores:
+                        valores = {banda: np.nan for banda in bandas}
+                    
+                    resultados.append({
+                        'id_subLote': row.get('id_subLote', idx + 1),
+                        'ndvi': valores.get('NDVI', np.nan),
+                        'evi': valores.get('EVI', np.nan),
+                        'savi': valores.get('SAVI', np.nan),
+                        'gndvi': valores.get('GNDVI', np.nan),
+                        'ndmi': valores.get('NDMI', np.nan),
+                        'bsi': valores.get('BSI', np.nan),
+                        'ndbi': valores.get('NDBI', np.nan),
+                        'msavi2': valores.get('MSAVI2', np.nan),
+                        'fuente_datos': 'GEE (REAL)'
+                    })
+                    
+                except Exception as e:
+                    st.warning(f"⚠️ Error extrayendo datos para polígono {idx}: {str(e)}")
+                    # Agregar valores por defecto
+                    resultados.append({
+                        'id_subLote': row.get('id_subLote', idx + 1),
+                        'ndvi': np.nan,
+                        'evi': np.nan,
+                        'savi': np.nan,
+                        'gndvi': np.nan,
+                        'ndmi': np.nan,
+                        'bsi': np.nan,
+                        'ndbi': np.nan,
+                        'msavi2': np.nan,
+                        'fuente_datos': 'GEE (ERROR)'
+                    })
+            
+            return resultados
+            
+        except Exception as e:
+            st.error(f"❌ Error extrayendo valores de GEE: {str(e)}")
+            return []
+    
+    @staticmethod
+    def generar_imagen_color(indices, banda_visualizacion='NDVI', min_val=0, max_val=1):
+        """Genera una imagen de color para visualización"""
+        try:
+            # Seleccionar la banda para visualización
+            banda = indices.select(banda_visualizacion)
+            
+            # Aplicar paleta de colores
+            if banda_visualizacion == 'NDVI':
+                # Paleta NDVI: marrón -> amarillo -> verde
+                vis_params = {
+                    'min': min_val,
+                    'max': max_val,
+                    'palette': ['8B4513', 'D2691E', 'FFD700', 'ADFF2F', '006400']
+                }
+            elif banda_visualizacion == 'EVI':
+                vis_params = {
+                    'min': min_val,
+                    'max': max_val * 2.5,
+                    'palette': ['FF0000', 'FFFF00', '00FF00']
+                }
+            else:
+                vis_params = {
+                    'min': min_val,
+                    'max': max_val,
+                    'palette': ['blue', 'green', 'red']
+                }
+            
+            return banda, vis_params
+            
+        except Exception as e:
+            st.error(f"❌ Error generando imagen de color: {str(e)}")
+            return None, None
+    
+    @staticmethod
+    def obtener_url_mapa_tiles(imagen, vis_params, geometria):
+        """Obtiene URL de tiles para mapa interactivo"""
+        try:
+            map_id_dict = imagen.getMapId(vis_params)
+            return map_id_dict['tile_fetcher'].url_format
+            
+        except Exception as e:
+            st.error(f"❌ Error obteniendo URL de tiles: {str(e)}")
+            return None
+
+# -----------------------
 # SERVICIOS EXTERNOS - NASA POWER & INTA
 # -----------------------
 class ServicioClimaNASA:
     """Clase para obtener datos climáticos de NASA POWER API"""
+    
     @staticmethod
     def obtener_datos_climaticos(lat: float, lon: float, fecha_inicio: datetime, fecha_fin: datetime) -> Optional[Dict]:
         """Obtiene datos climáticos históricos de NASA POWER"""
@@ -477,7 +677,7 @@ class ServicioClimaNASA:
         except Exception as e:
             st.warning(f"⚠️ Error consultando NASA POWER: {str(e)}")
             return None
-
+    
     @staticmethod
     def _procesar_datos_nasa(data: Dict, lat: float, lon: float, fecha_inicio: datetime, fecha_fin: datetime) -> Optional[Dict]:
         """Procesa los datos crudos de NASA POWER"""
@@ -511,7 +711,7 @@ class ServicioClimaNASA:
             tmin_data = extraer_datos('T2M_MIN', 10)      # Temperatura mínima (C)
             rh_data = extraer_datos('RH2M', 70)           # Humedad relativa (%)
             rad_data = extraer_datos('ALLSKY_SFC_SW_DWN', 15)  # Radiación (W/m²)
-            wind_data = extraer_datos('WS2M', 2)           # Velocidad del viento (m/s)
+            wind_data = extraer_datos('WS2M', 2)          # Velocidad del viento (m/s)
             
             # Calcular estadísticas con valores reales
             resultado = {
@@ -607,7 +807,7 @@ class ServicioClimaNASA:
                 'datos_crudos': None,
                 'fuente': 'Estimado (NASA POWER no disponible)'
             }
-
+    
     @staticmethod
     def _calcular_et0(tmax: float, tmin: float, humedad: float, radiacion: float, viento: float) -> float:
         """Calcula evapotranspiración de referencia (mm/día) - método simplificado FAO Penman-Monteith"""
@@ -647,6 +847,7 @@ class ServicioClimaNASA:
 
 class ServicioSuelosINTA:
     """Clase para obtener datos de suelos del INTA con respaldo simulado"""
+    
     @staticmethod
     def obtener_caracteristicas_suelo(lat: float, lon: float) -> Optional[Dict]:
         """Obtiene características del suelo con fallback a datos simulados"""
@@ -663,7 +864,7 @@ class ServicioSuelosINTA:
         except Exception as e:
             st.warning(f"⚠️ Error consultando servicio de suelos: {str(e)}. Usando datos simulados.")
             return ServicioSuelosINTA._obtener_datos_simulados(lat, lon)
-
+    
     @staticmethod
     def _consultar_servicio_inta(lat: float, lon: float) -> Optional[Dict]:
         """Intenta consultar el servicio del INTA"""
@@ -693,7 +894,7 @@ class ServicioSuelosINTA:
                 
         except:
             return None
-
+    
     @staticmethod
     def _procesar_datos_suelo(data: Dict) -> Dict:
         """Procesa datos de suelo del INTA"""
@@ -738,7 +939,7 @@ class ServicioSuelosINTA:
         except Exception as e:
             st.warning(f"Error procesando datos suelo: {str(e)}")
             return None
-
+    
     @staticmethod
     def _obtener_datos_simulados(lat: float, lon: float) -> Dict:
         """Genera datos de suelo simulados basados en ubicación"""
@@ -787,7 +988,7 @@ class ServicioSuelosINTA:
         resultado['indice_fertilidad'] = ServicioSuelosINTA._calcular_indice_fertilidad(resultado)
         
         return resultado
-
+    
     @staticmethod
     def _clasificar_textura(textura: str) -> str:
         """Clasifica la textura del suelo"""
@@ -803,7 +1004,7 @@ class ServicioSuelosINTA:
             return 'Franco'
         else:
             return 'Mixto'
-
+    
     @staticmethod
     def _calcular_indice_fertilidad(datos_suelo: Dict) -> float:
         """Calcula un índice de fertilidad del suelo (0-10)"""
@@ -899,6 +1100,7 @@ def cargar_kmz(uploaded_kmz):
             kmz_path = os.path.join(tmp_dir, "upload.kmz")
             with open(kmz_path, "wb") as f:
                 f.write(uploaded_kmz.getvalue())
+            
             with zipfile.ZipFile(kmz_path, 'r') as zip_ref:
                 zip_ref.extractall(tmp_dir)
             
@@ -929,6 +1131,7 @@ def unir_poligonos_gdf(gdf):
     try:
         if len(gdf) <= 1:
             return gdf
+        
         geometria_unida = unary_union(gdf.geometry)
         
         if isinstance(geometria_unida, (Polygon, MultiPolygon)):
@@ -946,19 +1149,20 @@ def procesar_y_unir_poligonos(gdf, unir=True):
     """Procesa el GeoDataFrame: si unir=True, une todos los polígonos."""
     if gdf is None or gdf.empty:
         return gdf
+    
     n_poligonos_original = len(gdf)
-
+    
     if not unir:
         return gdf
-
+    
     gdf_unido = unir_poligonos_gdf(gdf)
     n_poligonos_final = len(gdf_unido)
-
+    
     if n_poligonos_final == 1:
         st.success(f"✅ {n_poligonos_original} polígonos unidos en 1 potrero")
     elif n_poligonos_final < n_poligonos_original:
         st.info(f"ℹ️ {n_poligonos_original} polígonos reducidos a {n_poligonos_final} potreros")
-
+    
     return gdf_unido
 
 # -----------------------
@@ -968,6 +1172,7 @@ def crear_mapa_interactivo_esri(gdf, base_map_name=FORCED_BASE_MAP):
     """Crea mapa interactivo solo con ESRI Satellite"""
     if not FOLIUM_AVAILABLE or gdf is None or len(gdf) == 0:
         return None
+    
     try:
         # Calcular el centroide del área
         bounds = gdf.total_bounds
@@ -1077,6 +1282,7 @@ def crear_mapa_interactivo_esri(gdf, base_map_name=FORCED_BASE_MAP):
 # -----------------------
 class AnalisisForrajeroAvanzado:
     """Clase mejorada para análisis forrajero con clima y suelo"""
+    
     def __init__(self, umbral_ndvi_minimo=0.15, umbral_ndvi_optimo=0.6, 
                  sensibilidad_suelo=0.5, umbral_estres_hidrico=0.7,
                  factor_seguridad=1.0, tasa_crecimiento_lluvia=15):
@@ -1096,7 +1302,7 @@ class AnalisisForrajeroAvanzado:
             'Franco': {'retencion': 1.1, 'infiltracion': 1.1, 'fertilidad': 1.1},
             'Mixto': {'retencion': 1.0, 'infiltracion': 1.0, 'fertilidad': 1.0}
         }
-
+    
     def clasificar_vegetacion_avanzada(self, ndvi, evi, savi, bsi, ndbi, msavi2, datos_clima=None):
         """Clasificación mejorada considerando clima"""
         
@@ -1133,7 +1339,7 @@ class AnalisisForrajeroAvanzado:
             cobertura_ajustada = cobertura_base
         
         return categoria_base, cobertura_ajustada
-
+    
     def _calcular_ajuste_climatico(self, datos_clima):
         """Calcula ajuste por condiciones climáticas"""
         try:
@@ -1163,7 +1369,7 @@ class AnalisisForrajeroAvanzado:
             
         except:
             return 1.0
-
+    
     def calcular_biomasa_avanzada(self, ndvi, evi, savi, categoria, cobertura, params, 
                                   datos_clima=None, datos_suelo=None):
         """Cálculo mejorado de biomasa considerando clima y suelo"""
@@ -1230,7 +1436,7 @@ class AnalisisForrajeroAvanzado:
                 biomasa_final * calidad_suelo * cobertura))
         
         return biomasa_final, crecimiento_final, calidad_suelo, biomasa_disponible
-
+    
     def _calcular_factor_climatico(self, datos_clima):
         """Calcula factor de ajuste por clima"""
         factor = 1.0
@@ -1259,7 +1465,7 @@ class AnalisisForrajeroAvanzado:
             factor *= max(0.6, 1 + balance/50)
         
         return max(0.4, min(1.3, factor))
-
+    
     def _calcular_factor_suelo(self, datos_suelo):
         """Calcula factor de ajuste por suelo"""
         clase = datos_suelo.get('clase_textura', 'Franco')
@@ -1291,8 +1497,8 @@ class AnalisisForrajeroAvanzado:
 # -----------------------
 PARAMETROS_FORRAJEROS_AVANZADOS = {
     'ALFALFA': {
-        'MS_POR_HA_OPTIMO': 5000,
-        'CRECIMIENTO_DIARIO': 100,
+        'MS_POR_HA_OPTIMO': 5000, 
+        'CRECIMIENTO_DIARIO': 100, 
         'CONSUMO_PORCENTAJE_PESO': 0.03,
         'TASA_UTILIZACION_RECOMENDADA': 0.65,
         'PROTEINA': 18.0,
@@ -1300,8 +1506,8 @@ PARAMETROS_FORRAJEROS_AVANZADOS = {
         'REQUERIMIENTO_AGUA': 4.0  # mm/día
     },
     'RAYGRASS': {
-        'MS_POR_HA_OPTIMO': 4500,
-        'CRECIMIENTO_DIARIO': 90,
+        'MS_POR_HA_OPTIMO': 4500, 
+        'CRECIMIENTO_DIARIO': 90, 
         'CONSUMO_PORCENTAJE_PESO': 0.028,
         'TASA_UTILIZACION_RECOMENDADA': 0.60,
         'PROTEINA': 16.0,
@@ -1309,8 +1515,8 @@ PARAMETROS_FORRAJEROS_AVANZADOS = {
         'REQUERIMIENTO_AGUA': 3.5
     },
     'FESTUCA': {
-        'MS_POR_HA_OPTIMO': 4000,
-        'CRECIMIENTO_DIARIO': 70,
+        'MS_POR_HA_OPTIMO': 4000, 
+        'CRECIMIENTO_DIARIO': 70, 
         'CONSUMO_PORCENTAJE_PESO': 0.025,
         'TASA_UTILIZACION_RECOMENDADA': 0.55,
         'PROTEINA': 14.0,
@@ -1318,8 +1524,8 @@ PARAMETROS_FORRAJEROS_AVANZADOS = {
         'REQUERIMIENTO_AGUA': 3.0
     },
     'AGROPIRRO': {
-        'MS_POR_HA_OPTIMO': 3500,
-        'CRECIMIENTO_DIARIO': 60,
+        'MS_POR_HA_OPTIMO': 3500, 
+        'CRECIMIENTO_DIARIO': 60, 
         'CONSUMO_PORCENTAJE_PESO': 0.022,
         'TASA_UTILIZACION_RECOMENDADA': 0.50,
         'PROTEINA': 12.0,
@@ -1327,8 +1533,8 @@ PARAMETROS_FORRAJEROS_AVANZADOS = {
         'REQUERIMIENTO_AGUA': 2.5
     },
     'PASTIZAL_NATURAL': {
-        'MS_POR_HA_OPTIMO': 3000,
-        'CRECIMIENTO_DIARIO': 40,
+        'MS_POR_HA_OPTIMO': 3000, 
+        'CRECIMIENTO_DIARIO': 40, 
         'CONSUMO_PORCENTAJE_PESO': 0.020,
         'TASA_UTILIZACION_RECOMENDADA': 0.45,
         'PROTEINA': 10.0,
@@ -1336,8 +1542,8 @@ PARAMETROS_FORRAJEROS_AVANZADOS = {
         'REQUERIMIENTO_AGUA': 2.0
     },
     'MEZCLA_LEGUMINOSAS': {
-        'MS_POR_HA_OPTIMO': 4200,
-        'CRECIMIENTO_DIARIO': 85,
+        'MS_POR_HA_OPTIMO': 4200, 
+        'CRECIMIENTO_DIARIO': 85, 
         'CONSUMO_PORCENTAJE_PESO': 0.027,
         'TASA_UTILIZACION_RECOMENDADA': 0.58,
         'PROTEINA': 17.0,
@@ -1359,7 +1565,7 @@ def obtener_parametros_forrajeros_avanzados(tipo_pastura):
         }
     else:
         return PARAMETROS_FORRAJEROS_AVANZADOS.get(
-            tipo_pastura,
+            tipo_pastura, 
             PARAMETROS_FORRAJEROS_AVANZADOS['PASTIZAL_NATURAL']
         )
 
@@ -1383,6 +1589,7 @@ def calcular_superficie(gdf):
 def dividir_potrero_en_subLotes(gdf, n_zonas):
     if gdf is None or len(gdf) == 0:
         return gdf
+    
     lista_potreros = []
     for idx, potrero_row in gdf.iterrows():
         potrero = potrero_row.geometry
@@ -1425,21 +1632,574 @@ def dividir_potrero_en_subLotes(gdf, n_zonas):
                     'id_subLote': len(lista_potreros) + 1,
                     'geometry': sub_poly
                 })
-
+    
     if lista_potreros:
         nuevo = gpd.GeoDataFrame(lista_potreros)
         nuevo.crs = gdf.crs
         return nuevo
     return gdf
 
+def simular_indices_avanzados(id_subLote, x_norm, y_norm, fuente_satelital, datos_clima=None):
+    """Simulación mejorada de índices considerando clima"""
+    base = 0.2 + 0.4 * ((id_subLote % 6) / 6)
+    
+    # Ajustar base por clima si disponible
+    if datos_clima:
+        factor_clima = 1.0
+        if datos_clima.get('precipitacion_promedio', 0) < 1.0:
+            factor_clima *= 0.8
+        elif datos_clima.get('precipitacion_promedio', 0) > 3.0:
+            factor_clima *= 1.2
+        base *= factor_clima
+    
+    ndvi = max(0.05, min(0.85, base + np.random.normal(0, 0.05)))
+    
+    # Calcular otros índices de manera más realista
+    if ndvi < 0.15:
+        evi = ndvi * 0.8
+        savi = ndvi * 0.9
+        bsi = 0.6
+        ndbi = 0.25
+        gndvi = ndvi * 0.7
+    elif ndvi < 0.3:
+        evi = ndvi * 1.1
+        savi = ndvi * 1.05
+        bsi = 0.4
+        ndbi = 0.15
+        gndvi = ndvi * 0.85
+    elif ndvi < 0.5:
+        evi = ndvi * 1.3
+        savi = ndvi * 1.2
+        bsi = 0.1
+        ndbi = 0.05
+        gndvi = ndvi * 0.95
+    else:
+        evi = ndvi * 1.4
+        savi = ndvi * 1.3
+        bsi = -0.1
+        ndbi = -0.05
+        gndvi = ndvi * 1.05
+    
+    msavi2 = ndvi * 1.0
+    ndmi = ndvi * 0.9  # Índice de humedad
+    
+    return ndvi, evi, savi, bsi, ndbi, msavi2, gndvi, ndmi
+
 # -----------------------
-# FUNCIÓN PRINCIPAL DE ANÁLISIS (MODIFICADA PARA GEE)
+# FUNCIONES PARA OBTENER DATOS REALES DE GEE
 # -----------------------
-def ejecutar_analisis_avanzado(gdf_sub, tipo_pastura, fuente_satelital, fecha_imagen, nubes_max,
-                               umbral_ndvi_minimo, umbral_ndvi_optimo, sensibilidad_suelo,
-                               umbral_estres_hidrico, factor_seguridad, tasa_crecimiento_lluvia,
-                               usar_clima=True, usar_suelo=True, fecha_inicio_clima=None, fecha_fin_clima=None):
-    """Ejecuta análisis forrajero avanzado con clima y suelo"""
+def obtener_indices_reales_gee(gdf_sub, fuente_satelital, fecha_inicio_gee, fecha_fin_gee, nubes_max):
+    """Obtiene índices satelitales reales de Google Earth Engine"""
+    
+    if not GEE_AVAILABLE or not st.session_state.get('gee_authenticated'):
+        st.warning("⚠️ Google Earth Engine no está disponible. Usando datos simulados.")
+        return None
+    
+    try:
+        # Convertir GeoDataFrame a geometría de GEE
+        # Tomar la unión de todas las geometrías para el área de interés
+        geometria_total = gdf_sub.geometry.unary_union
+        
+        # Convertir a GeoJSON y luego a GEE Geometry
+        geojson_dict = gpd.GeoSeries([geometria_total]).__geo_interface__
+        geometria_gee = ee.Geometry(geojson_dict['features'][0]['geometry'])
+        
+        # Obtener colección satelital
+        servicio_gee = ServicioGEE()
+        coleccion = servicio_gee.obtener_coleccion_satelital(
+            fuente_satelital, fecha_inicio_gee, fecha_fin_gee, nubes_max
+        )
+        
+        if not coleccion:
+            st.warning("⚠️ No se pudo obtener colección de GEE. Usando datos simulados.")
+            return None
+        
+        # Obtener imagen más reciente
+        imagen = servicio_gee.obtener_imagen_mas_reciente(coleccion, geometria_gee)
+        
+        if not imagen:
+            st.warning("⚠️ No se encontró imagen adecuada en GEE. Usando datos simulados.")
+            return None
+        
+        # Calcular índices según la fuente satelital
+        if fuente_satelital == "SENTINEL-2":
+            indices = servicio_gee.calcular_indices_sentinel2(imagen)
+        elif fuente_satelital in ["LANDSAT-8", "LANDSAT-9"]:
+            landsat_version = 8 if fuente_satelital == "LANDSAT-8" else 9
+            indices = servicio_gee.calcular_indices_landsat(imagen, landsat_version)
+        else:
+            st.warning(f"⚠️ Fuente {fuente_satelital} no soportada por GEE. Usando datos simulados.")
+            return None
+        
+        if not indices:
+            st.warning("⚠️ No se pudieron calcular índices. Usando datos simulados.")
+            return None
+        
+        # Extraer valores para cada polígono
+        resultados = servicio_gee.extraer_valores_por_poligono(indices, gdf_sub)
+        
+        if not resultados:
+            st.warning("⚠️ No se pudieron extraer valores de índices. Usando datos simulados.")
+            return None
+        
+        # Guardar imagen en session state para visualización
+        st.session_state.imagen_gee = imagen
+        st.session_state.indices_gee = indices
+        
+        return resultados
+        
+    except Exception as e:
+        st.error(f"❌ Error obteniendo datos de GEE: {str(e)}")
+        return None
+
+# -----------------------
+# CÁLCULO DE MÉTRICAS MEJORADO
+# -----------------------
+def calcular_metricas_avanzadas(gdf_analizado, tipo_pastura, peso_promedio, carga_animal, datos_clima=None):
+    """Cálculo mejorado de métricas ganaderas considerando clima"""
+    params = obtener_parametros_forrajeros_avanzados(tipo_pastura)
+    metricas = []
+    
+    for idx, row in gdf_analizado.iterrows():
+        biomasa_disponible = row.get('biomasa_disponible_kg_ms_ha', 0)
+        area_ha = row.get('area_ha', 0)
+        consumo_individual_kg = peso_promedio * params['CONSUMO_PORCENTAJE_PESO']
+        biomasa_total_disponible = biomasa_disponible * area_ha
+        
+        # Ajustar por clima si disponible
+        factor_ajuste_clima = 1.0
+        if datos_clima:
+            # Ajuste por estrés térmico
+            temp_max = datos_clima.get('temp_max_promedio', 25)
+            if temp_max > 32:
+                factor_ajuste_clima *= 0.9
+            
+            # Ajuste por humedad
+            humedad = datos_clima.get('humedad_promedio', 70)
+            if humedad > 85:
+                factor_ajuste_clima *= 0.95
+        
+        # Cálculo de EV soportable
+        if biomasa_total_disponible > 0 and consumo_individual_kg > 0:
+            ev_por_dia = biomasa_total_disponible * 0.001 / consumo_individual_kg
+            ev_soportable = ev_por_dia / params['TASA_UTILIZACION_RECOMENDADA']
+            ev_soportable = max(0.01, ev_soportable) * factor_ajuste_clima
+        else:
+            ev_soportable = 0.01
+        
+        if ev_soportable > 0 and area_ha > 0:
+            ev_ha = ev_soportable / area_ha
+            ev_ha_display = ev_ha
+        else:
+            ev_ha_display = 0.01
+        
+        # Días de permanencia ajustados
+        if carga_animal > 0:
+            consumo_total_diario = carga_animal * consumo_individual_kg
+            if consumo_total_diario > 0 and biomasa_total_disponible > 0:
+                dias_permanencia = biomasa_total_disponible / consumo_total_diario
+                dias_permanencia = min(max(dias_permanencia, 0.1), 365) * factor_ajuste_clima
+            else:
+                dias_permanencia = 0.1
+        else:
+            dias_permanencia = 0.1
+        
+        # Estado forrajero mejorado
+        if biomasa_disponible >= 2500:
+            estado_forrajero = 5  # Excelente
+        elif biomasa_disponible >= 1800:
+            estado_forrajero = 4  # Muy bueno
+        elif biomasa_disponible >= 1200:
+            estado_forrajero = 3  # Bueno
+        elif biomasa_disponible >= 600:
+            estado_forrajero = 2  # Regular
+        elif biomasa_disponible >= 200:
+            estado_forrajero = 1  # Crítico
+        else:
+            estado_forrajero = 0  # Muy crítico
+        
+        # Tasa de utilización ajustada
+        if biomasa_total_disponible > 0:
+            tasa_util = min(1.0, (carga_animal * consumo_individual_kg) / biomasa_total_disponible)
+        else:
+            tasa_util = 0
+        
+        # Cálculo de balance forrajero
+        produccion_diaria = row.get('crecimiento_diario', 0) * area_ha
+        consumo_diario = carga_animal * consumo_individual_kg
+        balance_diario = produccion_diaria - consumo_diario
+        
+        metricas.append({
+            'ev_soportable': round(ev_soportable, 2),
+            'dias_permanencia': round(dias_permanencia, 1),
+            'tasa_utilizacion': round(tasa_util, 3),
+            'biomasa_total_kg': round(biomasa_total_disponible, 1),
+            'consumo_individual_kg': round(consumo_individual_kg, 1),
+            'estado_forrajero': estado_forrajero,
+            'ev_ha': round(ev_ha_display, 3),
+            'produccion_diaria_kg': round(produccion_diaria, 1),
+            'consumo_diario_kg': round(consumo_diario, 1),
+            'balance_diario_kg': round(balance_diario, 1),
+            'factor_ajuste_clima': round(factor_ajuste_clima, 2)
+        })
+    
+    return metricas
+
+# -----------------------
+# DASHBOARD RESUMEN AVANZADO
+# -----------------------
+def crear_dashboard_resumen(gdf_analizado, datos_clima, datos_suelo, tipo_pastura, carga_animal, peso_promedio):
+    """Crea un dashboard resumen completo del análisis"""
+    
+    # Calcular métricas globales
+    area_total = gdf_analizado['area_ha'].sum()
+    biomasa_promedio = gdf_analizado['biomasa_disponible_kg_ms_ha'].mean()
+    biomasa_total = (gdf_analizado['biomasa_disponible_kg_ms_ha'] * gdf_analizado['area_ha']).sum()
+    ndvi_promedio = gdf_analizado['ndvi'].mean()
+    ev_total = gdf_analizado['ev_soportable'].sum()
+    dias_promedio = gdf_analizado['dias_permanencia'].mean()
+    
+    # Calcular distribución de tipos de superficie
+    distribucion = gdf_analizado['tipo_superficie'].value_counts()
+    
+    # Calcular estrés hídrico promedio
+    estres_promedio = 0.0
+    if 'estres_hidrico' in gdf_analizado.columns:
+        estres_promedio = gdf_analizado['estres_hidrico'].mean()
+    
+    # Crear dashboard
+    st.markdown("---")
+    st.markdown("## 📊 DASHBOARD RESUMEN DEL ANÁLISIS")
+    
+    # Sección 1: Métricas clave
+    st.markdown("### 📈 MÉTRICAS CLAVE")
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric(
+            "Área Total", 
+            f"{area_total:.1f} ha",
+            delta=None
+        )
+        st.caption("Superficie analizada")
+    
+    with col2:
+        st.metric(
+            "Biomasa Promedio", 
+            f"{biomasa_promedio:.0f} kg MS/ha",
+            delta=f"{(biomasa_promedio/4000*100):.0f}% del óptimo" if biomasa_promedio > 0 else "0%"
+        )
+        st.caption("Productividad forrajera")
+    
+    with col3:
+        st.metric(
+            "EV Soportable", 
+            f"{ev_total:.1f}",
+            delta=f"{ev_total/carga_animal:.1f} EV/cabeza" if carga_animal > 0 else "N/A"
+        )
+        st.caption("Capacidad de carga total")
+    
+    with col4:
+        st.metric(
+            "NDVI Promedio", 
+            f"{ndvi_promedio:.3f}",
+            delta="Excelente" if ndvi_promedio > 0.6 else 
+                  "Bueno" if ndvi_promedio > 0.4 else 
+                  "Regular" if ndvi_promedio > 0.2 else "Crítico"
+        )
+        st.caption("Estado vegetativo")
+    
+    # Sección 2: Balance forrajero
+    st.markdown("### 🌿 BALANCE FORRAJERO")
+    col5, col6, col7, col8 = st.columns(4)
+    
+    with col5:
+        biomasa_ha_dia = gdf_analizado['crecimiento_diario'].mean()
+        st.metric(
+            "Crecimiento Diario", 
+            f"{biomasa_ha_dia:.0f} kg/ha/día",
+            delta=f"{biomasa_ha_dia/80*100:.0f}% del esperado"
+        )
+        st.caption("Producción diaria")
+    
+    with col6:
+        consumo_total = carga_animal * peso_promedio * 0.025  # Consumo estimado
+        st.metric(
+            "Consumo Diario", 
+            f"{consumo_total:.0f} kg MS/día",
+            delta=f"{carga_animal} cabezas"
+        )
+        st.caption("Demanda ganadera")
+    
+    with col7:
+        balance_diario = biomasa_ha_dia * area_total - consumo_total
+        st.metric(
+            "Balance Diario", 
+            f"{balance_diario:.0f} kg MS/día",
+            delta="Positivo" if balance_diario > 0 else "Negativo",
+            delta_color="normal" if balance_diario > 0 else "inverse"
+        )
+        st.caption("Saldo producción-consumo")
+    
+    with col8:
+        st.metric(
+            "Días Disponibilidad", 
+            f"{dias_promedio:.0f} días",
+            delta="Rotación óptima" if 20 <= dias_promedio <= 40 else 
+                  "Rotación rápida" if dias_promedio < 20 else "Rotación lenta"
+        )
+        st.caption("Período de permanencia")
+    
+    # Sección 3: Distribución de superficies
+    st.markdown("### 🗺️ DISTRIBUCIÓN DE SUPERFICIES")
+    
+    if len(distribucion) > 0:
+        col9, col10 = st.columns(2)
+        
+        with col9:
+            # Gráfico de torta
+            fig1, ax1 = plt.subplots(figsize=(8, 6))
+            colors = ['#d73027', '#fdae61', '#fee08b', '#a6d96a', '#1a9850']
+            patches, texts, autotexts = ax1.pie(
+                distribucion.values, 
+                labels=distribucion.index,
+                autopct='%1.1f%%',
+                colors=colors[:len(distribucion)],
+                startangle=90
+            )
+            ax1.set_title('Distribución de Tipos de Superficie')
+            st.pyplot(fig1)
+            plt.close(fig1)
+        
+        with col10:
+            # Tabla de distribución
+            st.dataframe(
+                pd.DataFrame({
+                    'Tipo de Superficie': distribucion.index,
+                    'Sub-lotes': distribucion.values,
+                    'Porcentaje': (distribucion.values / len(gdf_analizado) * 100).round(1)
+                }),
+                use_container_width=True,
+                hide_index=True
+            )
+    
+    # Sección 4: Datos climáticos y de suelo
+    st.markdown("### 🌤️ DATOS AMBIENTALES")
+    
+    if datos_clima or datos_suelo:
+        col11, col12 = st.columns(2)
+        
+        with col11:
+            if datos_clima:
+                st.markdown("**🌤️ Datos Climáticos**")
+                clima_df = pd.DataFrame({
+                    'Métrica': [
+                        'Precipitación Total',
+                        'Temp. Máx. Promedio',
+                        'Temp. Mín. Promedio',
+                        'Evapotranspiración (ET0)',
+                        'Días con Lluvia',
+                        'Déficit Hídrico'
+                    ],
+                    'Valor': [
+                        f"{datos_clima.get('precipitacion_total', 0):.0f} mm",
+                        f"{datos_clima.get('temp_max_promedio', 0):.1f} C",
+                        f"{datos_clima.get('temp_min_promedio', 0):.1f} C",
+                        f"{datos_clima.get('et0_promedio', 0):.1f} mm/día",
+                        f"{datos_clima.get('dias_lluvia', 0)} días",
+                        f"{datos_clima.get('deficit_hidrico', 0):.0f} mm"
+                    ]
+                })
+                st.dataframe(clima_df, use_container_width=True, hide_index=True)
+        
+        with col12:
+            if datos_suelo:
+                st.markdown("**🌍 Datos de Suelo**")
+                suelo_df = pd.DataFrame({
+                    'Característica': [
+                        'Textura',
+                        'Materia Orgánica',
+                        'pH',
+                        'Capacidad Campo',
+                        'Profundidad',
+                        'Índice Fertilidad'
+                    ],
+                    'Valor': [
+                        datos_suelo.get('textura', 'N/A'),
+                        f"{datos_suelo.get('materia_organica', 0):.1f} %",
+                        f"{datos_suelo.get('ph', 0):.1f}",
+                        f"{datos_suelo.get('capacidad_campo', 0):.1f} %",
+                        f"{datos_suelo.get('profundidad', 0):.0f} cm",
+                        f"{datos_suelo.get('indice_fertilidad', 5):.1f}/10"
+                    ]
+                })
+                st.dataframe(suelo_df, use_container_width=True, hide_index=True)
+    
+    # Sección 5: Recomendaciones
+    st.markdown("### 💡 RECOMENDACIONES")
+    
+    # Generar recomendaciones basadas en el análisis
+    recomendaciones = []
+    
+    # Recomendación por biomasa - USAR biomasa_promedio en lugar de biomasa_prom
+    if biomasa_promedio < 600:
+        recomendaciones.append("🔴 **CRÍTICO**: Biomasa muy baja (<600 kg/ha). Considerar suplementación inmediata.")
+    elif biomasa_promedio < 1200:
+        recomendaciones.append("🟡 **ALERTA**: Biomasa baja (600-1200 kg/ha). Monitorear diariamente.")
+    elif biomasa_promedio < 1800:
+        recomendaciones.append("🟢 **ACEPTABLE**: Biomasa moderada (1200-1800 kg/ha). Manejo normal.")
+    else:
+        recomendaciones.append("✅ **ÓPTIMO**: Biomasa adecuada (>1800 kg/ha). Buen crecimiento.")
+    
+    # Recomendación por estrés hídrico - USAR estres_promedio en lugar de estres_prom
+    if estres_promedio > 0.7:
+        recomendaciones.append("💧 **ESTRÉS HÍDRICO SEVERO**: Considerar riego o reducir carga animal.")
+    elif estres_promedio > 0.5:
+        recomendaciones.append("💧 **ESTRÉS HÍDRICO MODERADO**: Monitorear humedad del suelo.")
+    
+    # Recomendación por días de permanencia - USAR dias_promedio en lugar de dias_prom
+    if dias_promedio < 15:
+        recomendaciones.append("⚡ **ROTACIÓN MUY RÁPIDA**: Considerar aumentar área o reducir carga.")
+    elif dias_promedio > 60:
+        recomendaciones.append("🐌 **ROTACIÓN LENTA**: Podría aumentar carga animal.")
+    
+    # Recomendación por balance forrajero
+    balance_diario = biomasa_ha_dia * area_total - consumo_total
+    if balance_diario < -500:
+        recomendaciones.append("📉 **DÉFICIT FORRAJERO**: Producción insuficiente. Considerar suplementación.")
+    elif balance_diario > 500:
+        recomendaciones.append("📈 **EXCEDENTE FORRAJERO**: Podría aumentar carga o conservar forraje.")
+    
+    # Mostrar recomendaciones
+    for rec in recomendaciones:
+        st.markdown(f"- {rec}")
+    
+    return {
+        'area_total': area_total,
+        'biomasa_promedio': biomasa_promedio,
+        'biomasa_total': biomasa_total,
+        'ndvi_promedio': ndvi_promedio,
+        'ev_total': ev_total,
+        'dias_promedio': dias_promedio,
+        'estres_promedio': estres_promedio  # Cambiado de estres_prom a estres_promedio
+    }
+
+# -----------------------
+# VISUALIZACIÓN DE DATOS GEE
+# -----------------------
+def crear_mapa_gee_interactivo(gdf_analizado, indices_gee, tipo_pastura):
+    """Crea un mapa interactivo con los datos de GEE superpuestos"""
+    if not FOLIUM_AVAILABLE or not indices_gee:
+        return None
+    
+    try:
+        # Calcular el centroide del área
+        bounds = gdf_analizado.total_bounds
+        centroid = gdf_analizado.geometry.centroid.iloc[0]
+        
+        # Crear mapa centrado en el polígono
+        m = folium.Map(
+            location=[centroid.y, centroid.x], 
+            zoom_start=14,
+            tiles=None, 
+            control_scale=True,
+            control_size=30
+        )
+        
+        # AGREGAR SOLO ESRI SATELLITE
+        esri_imagery = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+        folium.TileLayer(
+            esri_imagery, 
+            attr='Esri, Maxar, Earthstar Geographics, and the GIS User Community',
+            name='ESRI Satellite',
+            overlay=False,
+            max_zoom=19
+        ).add_to(m)
+        
+        # Intentar agregar capa de NDVI de GEE
+        try:
+            # Obtener imagen NDVI de los índices
+            ndvi_image = indices_gee.select('NDVI')
+            
+            # Parámetros de visualización para NDVI
+            vis_params = {
+                'min': 0,
+                'max': 1,
+                'palette': ['8B4513', 'D2691E', 'FFD700', 'ADFF2F', '006400']
+            }
+            
+            # Obtener URL de tiles de GEE
+            map_id_dict = ndvi_image.getMapId(vis_params)
+            tiles_url = map_id_dict['tile_fetcher'].url_format
+            
+            # Agregar capa de GEE NDVI
+            folium.TileLayer(
+                tiles=tiles_url,
+                attr='Google Earth Engine',
+                name='NDVI (GEE)',
+                overlay=True,
+                control=True,
+                opacity=0.7
+            ).add_to(m)
+            
+            st.success("✅ Capa NDVI de GEE agregada al mapa")
+            
+        except Exception as e:
+            st.warning(f"⚠️ No se pudo agregar capa GEE: {str(e)}")
+        
+        # Agregar polígonos de sub-lotes
+        folium.GeoJson(
+            gdf_analizado.__geo_interface__, 
+            name='Sub-lotes',
+            style_function=lambda feat: {
+                'fillColor': '#00a8ff',
+                'color': '#00a8ff',
+                'weight': 2,
+                'fillOpacity': 0.3,
+                'dashArray': '3, 3'
+            },
+            tooltip=folium.GeoJsonTooltip(
+                fields=['id_subLote', 'ndvi', 'biomasa_disponible_kg_ms_ha'],
+                aliases=['Sub-lote:', 'NDVI:', 'Biomasa (kg/ha):'],
+                localize=True
+            ),
+            highlight_function=lambda feat: {
+                'fillColor': '#ff9f1a',
+                'color': '#ff9f1a',
+                'weight': 3,
+                'fillOpacity': 0.5
+            }
+        ).add_to(m)
+        
+        # Ajustar el zoom para que se vea todo el polígono con margen
+        if len(gdf_analizado) > 0:
+            m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]], padding=(50, 50))
+        
+        # Agregar control de capas
+        folium.LayerControl(position='topright', collapsed=True).add_to(m)
+        
+        # Agregar botón de pantalla completa
+        m.add_child(folium.plugins.Fullscreen())
+        
+        # Agregar posición del mouse
+        folium.plugins.MousePosition().add_to(m)
+        
+        return m
+        
+    except Exception as e:
+        st.error(f"❌ Error creando mapa GEE interactivo: {e}")
+        return None
+
+# -----------------------
+# FUNCIÓN PRINCIPAL DE ANÁLISIS CON GEE
+# -----------------------
+def ejecutar_analisis_avanzado_con_gee(gdf_sub, tipo_pastura, fuente_satelital, fecha_imagen, nubes_max,
+                                      umbral_ndvi_minimo, umbral_ndvi_optimo, sensibilidad_suelo,
+                                      umbral_estres_hidrico, factor_seguridad, tasa_crecimiento_lluvia,
+                                      usar_clima=True, usar_suelo=True, fecha_inicio_clima=None, 
+                                      fecha_fin_clima=None, fecha_inicio_gee=None, fecha_fin_gee=None):
+    """Ejecuta análisis forrajero avanzado con GEE, clima y suelo"""
+    
     try:
         # Obtener datos climáticos y de suelo para el área
         datos_clima_global = None
@@ -1498,56 +2258,127 @@ def ejecutar_analisis_avanzado(gdf_sub, tipo_pastura, fuente_satelital, fecha_im
         params = obtener_parametros_forrajeros_avanzados(tipo_pastura)
         resultados = []
         
-        st.info("🔍 Aplicando análisis forrajero AVANZADO...")
+        st.info("🔍 Aplicando análisis forrajero AVANZADO con GEE...")
         
-        for idx, row in gdf_sub.iterrows():
-            id_subLote = row.get('id_subLote', idx + 1)
-            geom = row.geometry
-            
-            # Obtener índices con GEE o simulación
-            ndvi, evi, savi, bsi, ndbi, msavi2, gndvi, ndmi, fuente_datos, fecha_datos = obtener_indices_inteligentes(
-                id_subLote, geom, fecha_imagen, fuente_satelital, nubes_max, datos_clima_global
+        # OBTENER ÍNDICES REALES DE GEE O SIMULADOS
+        if fuente_satelital != "SIMULADO" and GEE_AVAILABLE and st.session_state.get('gee_authenticated'):
+            # Usar GEE para datos reales
+            st.info("📡 Obteniendo datos satelitales REALES de Google Earth Engine...")
+            indices_reales = obtener_indices_reales_gee(
+                gdf_sub, fuente_satelital, fecha_inicio_gee, fecha_fin_gee, nubes_max
             )
             
-            # Clasificar vegetación considerando clima
-            categoria, cobertura = analizador.clasificar_vegetacion_avanzada(
-                ndvi, evi, savi, bsi, ndbi, msavi2, datos_clima_global
-            )
-            
-            # Calcular biomasa considerando clima y suelo
-            biomasa_ms_ha, crecimiento_diario, calidad, biomasa_disponible = analizador.calcular_biomasa_avanzada(
-                ndvi, evi, savi, categoria, cobertura, params, datos_clima_global, datos_suelo_global
-            )
-            
-            # Calcular estrés hídrico si hay datos climáticos
-            estres_hidrico = 0.0
-            if datos_clima_global:
-                et0 = datos_clima_global.get('et0_promedio', 3.0)
-                kc = 1.0 if categoria in ["VEGETACION_MODERADA", "VEGETACION_DENSA"] else 0.5
-                etc = et0 * kc
-                precipitacion = datos_clima_global.get('precipitacion_promedio', 2.0)
-                estres_hidrico = max(0, etc - precipitacion) / max(etc, 0.1)
-            
-            resultados.append({
-                'id_subLote': id_subLote,
-                'ndvi': round(float(ndvi), 3),
-                'evi': round(float(evi), 3),
-                'savi': round(float(savi), 3),
-                'msavi2': round(float(msavi2), 3),
-                'bsi': round(float(bsi), 3),
-                'ndbi': round(float(ndbi), 3),
-                'gndvi': round(float(gndvi), 3),
-                'ndmi': round(float(ndmi), 3),
-                'cobertura_vegetal': round(cobertura, 3),
-                'tipo_superficie': categoria,
-                'biomasa_ms_ha': round(biomasa_ms_ha, 1),
-                'biomasa_disponible_kg_ms_ha': round(biomasa_disponible, 1),
-                'crecimiento_diario': round(crecimiento_diario, 1),
-                'factor_calidad': round(calidad, 3),
-                'estres_hidrico': round(estres_hidrico, 3),
-                'fuente_datos': fuente_datos,
-                'fecha_datos': fecha_datos
-            })
+            if indices_reales:
+                # Usar datos reales de GEE
+                for idx, datos_indices in enumerate(indices_reales):
+                    id_subLote = datos_indices['id_subLote']
+                    ndvi = datos_indices.get('ndvi', np.nan)
+                    evi = datos_indices.get('evi', np.nan)
+                    savi = datos_indices.get('savi', np.nan)
+                    gndvi = datos_indices.get('gndvi', np.nan)
+                    ndmi = datos_indices.get('ndmi', np.nan)
+                    bsi = datos_indices.get('bsi', np.nan)
+                    ndbi = datos_indices.get('ndbi', np.nan)
+                    msavi2 = datos_indices.get('msavi2', np.nan)
+                    
+                    # Si algún valor es NaN, usar simulación para ese índice
+                    if np.isnan(ndvi):
+                        st.warning(f"⚠️ NDVI NaN para sub-lote {id_subLote}, usando simulación")
+                        ndvi, evi, savi, bsi, ndbi, msavi2, gndvi, ndmi = simular_indices_avanzados(
+                            id_subLote, 0.5, 0.5, fuente_satelital, datos_clima_global
+                        )
+                    
+                    # Clasificar vegetación considerando clima
+                    categoria, cobertura = analizador.clasificar_vegetacion_avanzada(
+                        ndvi, evi, savi, bsi, ndbi, msavi2, datos_clima_global
+                    )
+                    
+                    # Calcular biomasa considerando clima y suelo
+                    biomasa_ms_ha, crecimiento_diario, calidad, biomasa_disponible = analizador.calcular_biomasa_avanzada(
+                        ndvi, evi, savi, categoria, cobertura, params, datos_clima_global, datos_suelo_global
+                    )
+                    
+                    # Calcular estrés hídrico si hay datos climáticos
+                    estres_hidrico = 0.0
+                    if datos_clima_global:
+                        et0 = datos_clima_global.get('et0_promedio', 3.0)
+                        kc = 1.0 if categoria in ["VEGETACION_MODERADA", "VEGETACION_DENSA"] else 0.5
+                        etc = et0 * kc
+                        precipitacion = datos_clima_global.get('precipitacion_promedio', 2.0)
+                        estres_hidrico = max(0, etc - precipitacion) / max(etc, 0.1)
+                    
+                    resultados.append({
+                        'id_subLote': id_subLote,
+                        'ndvi': round(float(ndvi), 3) if not np.isnan(ndvi) else 0.0,
+                        'evi': round(float(evi), 3) if not np.isnan(evi) else 0.0,
+                        'savi': round(float(savi), 3) if not np.isnan(savi) else 0.0,
+                        'msavi2': round(float(msavi2), 3) if not np.isnan(msavi2) else 0.0,
+                        'bsi': round(float(bsi), 3) if not np.isnan(bsi) else 0.0,
+                        'ndbi': round(float(ndbi), 3) if not np.isnan(ndbi) else 0.0,
+                        'gndvi': round(float(gndvi), 3) if not np.isnan(gndvi) else 0.0,
+                        'ndmi': round(float(ndmi), 3) if not np.isnan(ndmi) else 0.0,
+                        'cobertura_vegetal': round(cobertura, 3),
+                        'tipo_superficie': categoria,
+                        'biomasa_ms_ha': round(biomasa_ms_ha, 1),
+                        'biomasa_disponible_kg_ms_ha': round(biomasa_disponible, 1),
+                        'crecimiento_diario': round(crecimiento_diario, 1),
+                        'factor_calidad': round(calidad, 3),
+                        'estres_hidrico': round(estres_hidrico, 3),
+                        'fuente_datos': 'GEE (REAL)'
+                    })
+            else:
+                st.warning("⚠️ No se pudieron obtener datos de GEE. Usando datos simulados.")
+                fuente_satelital = "SIMULADO"
+        
+        # Si no hay GEE o se seleccionó SIMULADO
+        if fuente_satelital == "SIMULADO" or not resultados:
+            st.info("📊 Usando datos satelitales SIMULADOS...")
+            for idx, row in gdf_sub.iterrows():
+                id_subLote = row.get('id_subLote', idx + 1)
+                
+                # Simular índices con ajuste por clima
+                ndvi, evi, savi, bsi, ndbi, msavi2, gndvi, ndmi = simular_indices_avanzados(
+                    id_subLote, 0.5, 0.5, fuente_satelital, datos_clima_global
+                )
+                
+                # Clasificar vegetación considerando clima
+                categoria, cobertura = analizador.clasificar_vegetacion_avanzada(
+                    ndvi, evi, savi, bsi, ndbi, msavi2, datos_clima_global
+                )
+                
+                # Calcular biomasa considerando clima y suelo
+                biomasa_ms_ha, crecimiento_diario, calidad, biomasa_disponible = analizador.calcular_biomasa_avanzada(
+                    ndvi, evi, savi, categoria, cobertura, params, datos_clima_global, datos_suelo_global
+                )
+                
+                # Calcular estrés hídrico si hay datos climáticos
+                estres_hidrico = 0.0
+                if datos_clima_global:
+                    et0 = datos_clima_global.get('et0_promedio', 3.0)
+                    kc = 1.0 if categoria in ["VEGETACION_MODERADA", "VEGETACION_DENSA"] else 0.5
+                    etc = et0 * kc
+                    precipitacion = datos_clima_global.get('precipitacion_promedio', 2.0)
+                    estres_hidrico = max(0, etc - precipitacion) / max(etc, 0.1)
+                
+                resultados.append({
+                    'id_subLote': id_subLote,
+                    'ndvi': round(float(ndvi), 3),
+                    'evi': round(float(evi), 3),
+                    'savi': round(float(savi), 3),
+                    'msavi2': round(float(msavi2), 3),
+                    'bsi': round(float(bsi), 3),
+                    'ndbi': round(float(ndbi), 3),
+                    'gndvi': round(float(gndvi), 3),
+                    'ndmi': round(float(ndmi), 3),
+                    'cobertura_vegetal': round(cobertura, 3),
+                    'tipo_superficie': categoria,
+                    'biomasa_ms_ha': round(biomasa_ms_ha, 1),
+                    'biomasa_disponible_kg_ms_ha': round(biomasa_disponible, 1),
+                    'crecimiento_diario': round(crecimiento_diario, 1),
+                    'factor_calidad': round(calidad, 3),
+                    'estres_hidrico': round(estres_hidrico, 3),
+                    'fuente_datos': fuente_satelital
+                })
         
         st.success("✅ Análisis avanzado completado.")
         return resultados, datos_clima_global, datos_suelo_global
@@ -1558,18 +2389,12 @@ def ejecutar_analisis_avanzado(gdf_sub, tipo_pastura, fuente_satelital, fecha_im
         st.error(traceback.format_exc())
         return [], None, None
 
-# [Continúa con el resto del código original: CÁLCULO DE MÉTRICAS, DASHBOARD, FUNCIONES DE MAPAS DE CALOR, VISUALIZACIÓN, GENERADOR DE INFORME, y FLUJO PRINCIPAL]
-
-# Por razones de longitud, aquí muestro solo la parte crítica modificada.
-# El resto del código (desde "CÁLCULO DE MÉTRICAS MEJORADO" hasta el final) 
-# permanece exactamente igual al original, solo que ahora usa los índices 
-# obtenidos de GEE cuando está disponible.
-
 # -----------------------
-# FLUJO PRINCIPAL MEJORADO
+# FLUJO PRINCIPAL MEJORADO CON GEE
 # -----------------------
 st.markdown("### 📁 Cargar / visualizar lote")
 gdf_loaded = None
+
 if uploaded_file is not None:
     with st.spinner("Cargando archivo..."):
         try:
@@ -1607,7 +2432,6 @@ if uploaded_file is not None:
                     with col4: 
                         st.metric("Clima", "NASA POWER" if usar_clima else "No")
                         st.metric("Suelo", "INTA" if usar_suelo else "No")
-                        st.metric("Fuente satelital", fuente_satelital)
                     
                     if len(gdf_procesado) > 1:
                         st.warning(f"⚠️ Se analizarán {len(gdf_procesado)} potreros por separado.")
@@ -1621,6 +2445,8 @@ if uploaded_file is not None:
                         
                         if mapa_interactivo:
                             st_folium(mapa_interactivo, width=1200, height=500)
+                    else:
+                        st.info("Instalá folium para ver el mapa interactivo: pip install folium streamlit-folium")
                 else:
                     st.info("Carga completada pero no se detectaron geometrías válidas.")
             else:
@@ -1628,9 +2454,8 @@ if uploaded_file is not None:
         except Exception as e:
             st.error(f"❌ Error al cargar archivo: {e}")
 
-
 st.markdown("---")
-st.markdown("### 🚀 Ejecutar análisis avanzado")
+st.markdown("### 🚀 Ejecutar análisis avanzado con GEE")
 
 # SI YA HAY ANÁLISIS EN SESSION_STATE, MOSTRAR LOS RESULTADOS
 if st.session_state.gdf_analizado is not None:
@@ -1642,14 +2467,26 @@ if st.session_state.gdf_analizado is not None:
     carga_animal = st.session_state.get('carga_animal_guardada', carga_animal)
     peso_promedio = st.session_state.get('peso_promedio_guardado', peso_promedio)
     
-    # Crear y mostrar mapa avanzado con mapas de calor
-    st.markdown("## 🔥 MAPAS DE CALOR - VISUALIZACIÓN AVANZADA")
+    # Mostrar fuente de datos
+    fuente_datos = gdf_sub['fuente_datos'].iloc[0] if 'fuente_datos' in gdf_sub.columns else "SIMULADO"
+    if "GEE" in fuente_datos:
+        st.success(f"📡 Datos obtenidos de: {fuente_datos}")
+    else:
+        st.info(f"📊 Datos obtenidos de: {fuente_datos}")
     
-    # Crear panel de mapas de calor
-    mapas_calor = crear_panel_mapas_calor(gdf_sub, tipo_pastura)
-    
-    if mapas_calor:
-        st.session_state.heatmap_data = mapas_calor
+    # Crear mapa interactivo con datos GEE si están disponibles
+    if st.session_state.get('indices_gee') and FOLIUM_AVAILABLE:
+        st.markdown("---")
+        st.markdown("### 🗺️ Mapa Interactivo con Datos GEE")
+        
+        mapa_gee = crear_mapa_gee_interactivo(gdf_sub, st.session_state.indices_gee, tipo_pastura)
+        if mapa_gee:
+            st_folium(mapa_gee, width=1200, height=500)
+        else:
+            # Fallback a mapa normal
+            mapa_interactivo = crear_mapa_interactivo_esri(gdf_sub, FORCED_BASE_MAP)
+            if mapa_interactivo:
+                st_folium(mapa_interactivo, width=1200, height=500)
     
     # Crear y mostrar dashboard resumen
     st.markdown("---")
@@ -1779,6 +2616,7 @@ if st.session_state.gdf_analizado is not None:
         NDVI Promedio: {dashboard_metrics['ndvi_promedio']:.3f}
         Días de Permanencia Promedio: {dashboard_metrics['dias_promedio']:.1f} días
         Sub-lotes Analizados: {len(gdf_sub)}
+        Fuente de Datos Satelitales: {fuente_datos}
         """
         
         st.download_button(
@@ -1832,7 +2670,7 @@ if st.session_state.gdf_analizado is not None:
     
     columnas_detalle = ['id_subLote', 'area_ha', 'tipo_superficie', 'ndvi', 
                        'cobertura_vegetal', 'biomasa_disponible_kg_ms_ha',
-                       'estres_hidrico', 'ev_ha', 'dias_permanencia']
+                       'estres_hidrico', 'ev_ha', 'dias_permanencia', 'fuente_datos']
     cols_presentes = [c for c in columnas_detalle if c in gdf_sub.columns]
     
     df_show = gdf_sub[cols_presentes].copy()
@@ -1844,8 +2682,8 @@ if st.session_state.gdf_analizado is not None:
 
 # SI NO HAY ANÁLISIS PERO SÍ HAY ARCHIVO CARGADO, MOSTRAR BOTÓN PARA EJECUTAR ANÁLISIS
 elif st.session_state.gdf_cargado is not None:
-    if st.button("🚀 Ejecutar Análisis Forrajero Avanzado", type="primary", use_container_width=True):
-        with st.spinner("Ejecutando análisis avanzado con clima y suelo..."):
+    if st.button("🚀 Ejecutar Análisis Forrajero Avanzado con GEE", type="primary", use_container_width=True):
+        with st.spinner("Ejecutando análisis avanzado con GEE, clima y suelo..."):
             try:
                 gdf_input = st.session_state.gdf_cargado.copy()
                 
@@ -1861,12 +2699,13 @@ elif st.session_state.gdf_cargado is not None:
                     
                     st.success(f"✅ División completada: {len(gdf_sub)} sub-lotes creados")
                     
-                    # Ejecutar análisis avanzado
-                    resultados, datos_clima, datos_suelo = ejecutar_analisis_avanzado(
+                    # Ejecutar análisis avanzado con GEE
+                    resultados, datos_clima, datos_suelo = ejecutar_analisis_avanzado_con_gee(
                         gdf_sub, tipo_pastura, fuente_satelital, fecha_imagen, nubes_max,
                         umbral_ndvi_minimo, umbral_ndvi_optimo, sensibilidad_suelo,
                         umbral_estres_hidrico, factor_seguridad, tasa_crecimiento_lluvia,
-                        usar_clima, usar_suelo, fecha_inicio_clima, fecha_fin_clima
+                        usar_clima, usar_suelo, fecha_inicio_clima, fecha_fin_clima,
+                        fecha_inicio_gee, fecha_fin_gee
                     )
                     
                     if not resultados:
@@ -1920,6 +2759,15 @@ st.markdown("### 📚 INFORMACIÓN ADICIONAL")
 
 with st.expander("ℹ️ Acerca de los datos utilizados"):
     st.markdown("""
+    #### 🛰️ GOOGLE EARTH ENGINE (GEE)
+    - **Fuente**: Google Earth Engine Platform
+    - **Datos**: Imágenes satelitales de Sentinel-2, Landsat-8, Landsat-9
+    - **Índices calculados**: NDVI, EVI, SAVI, GNDVI, NDMI, BSI, NDBI, MSAVI2
+    - **Resolución espacial**: 
+        - Sentinel-2: 10-20 metros
+        - Landsat: 30 metros
+    - **Actualización**: Casi en tiempo real (días)
+    
     #### 🌤️ NASA POWER (Prediction Of Worldwide Energy Resource)
     - **Fuente**: NASA Langley Research Center
     - **Datos**: Precipitación, temperatura, humedad, radiación solar, evapotranspiración
@@ -1936,24 +2784,56 @@ with st.expander("ℹ️ Acerca de los datos utilizados"):
     
     #### 📊 ANÁLISIS FORRAJERO AVANZADO
     - **Índices espectrales**: NDVI, EVI, SAVI, GNDVI, NDMI
-    - **Factores considerados**: Clima, suelo, tipo de pastura
+    - **Factores considerados**: Clima, suelo, tipo de pastura, datos satelitales reales
     - **Parámetros ajustables**: Umbrales, factores de seguridad
     - **Salidas**: Biomasa, EV soportable, días de permanencia, estrés hídrico
     """)
 
 with st.expander("🎯 Recomendaciones de uso"):
     st.markdown("""
-    #### PARA ANÁLISIS PRECISOS:
-    1. **Cargar polígonos precisos** del potrero
-    2. **Seleccionar el tipo de pastura** correctamente
-    3. **Ajustar parámetros** según la realidad del lote
-    4. **Validar resultados** con observaciones de campo
-    5. **Usar datos climáticos** para análisis más realistas
-    6. **Considerar datos de suelo** para ajustar recomendaciones
+    #### PARA ANÁLISIS PRECISOS CON DATOS REALES:
+    1. **Asegurar conexión a Google Earth Engine** (configurar credenciales)
+    2. **Cargar polígonos precisos** del potrero
+    3. **Seleccionar fuente satelital real** (Sentinel-2, Landsat-8/9)
+    4. **Ajustar fechas de búsqueda** para encontrar imágenes sin nubes
+    5. **Seleccionar el tipo de pastura** correctamente
+    6. **Ajustar parámetros** según la realidad del lote
+    7. **Validar resultados** con observaciones de campo
     
     #### MEJORES PRÁCTICAS:
-    - Realizar análisis periódicos (cada 30-60 días)
-    - Comparar resultados entre fechas
+    - Usar Sentinel-2 para mayor resolución (10m)
+    - Ajustar el máximo de nubes permitido según la región
+    - Realizar análisis periódicos (cada 15-30 días)
+    - Comparar resultados entre fechas usando la misma fuente
     - Exportar y guardar informes para seguimiento
     - Validar con mediciones de campo cuando sea posible
+    
+    #### CONFIGURACIÓN DE GEE:
+    - Para desarrollo local: ejecutar `earthengine authenticate` en terminal
+    - Para producción (Streamlit Cloud): configurar secrets con credenciales de Service Account
+    """)
+
+with st.expander("⚠️ Solución de problemas"):
+    st.markdown("""
+    #### PROBLEMAS COMUNES Y SOLUCIONES:
+    
+    **❌ GEE no se inicializa:**
+    1. Verificar que `earthengine-api` esté instalado: `pip install earthengine-api`
+    2. Ejecutar autenticación: `earthengine authenticate` en terminal
+    3. Para Streamlit Cloud, configurar secrets con credenciales de Service Account
+    
+    **❌ No se encuentran imágenes satelitales:**
+    1. Aumentar el período de búsqueda (ej: 60 días antes/después)
+    2. Aumentar el porcentaje máximo de nubes permitido
+    3. Verificar que el área esté dentro de la cobertura del satélite
+    
+    **❌ Datos climáticos no disponibles:**
+    1. Verificar conexión a internet
+    2. Ajustar fechas (NASA POWER tiene datos desde 1981)
+    3. Usar datos simulados si el servicio no responde
+    
+    **❌ Error al cargar archivos:**
+    1. Verificar que el shapefile esté completo (.shp, .shx, .dbf, .prj)
+    2. Asegurar que el archivo ZIP contenga todos los componentes
+    3. Probar con formato KML/KMZ como alternativa
     """)
