@@ -18,3 +18,12 @@ streamlit run app.py
 - Días de permanencia
 - Tasa de utilización
 - NDVI y EVI satelital
+# Clonar el repositorio
+git clone https://github.com/tu-usuario/diagnostico-biodiversidad.git
+cd diagnostico-biodiversidad
+
+# Instalar dependencias
+pip install -r requirements.txt
+
+# Ejecutar la aplicación
+streamlit run app.py
