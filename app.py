@@ -366,19 +366,17 @@ class AnalisisForrajero:
         else:
             return "Baja intensidad - Rotación lenta"
     
-    def crear_mapa_sublotes(self, gdf_area, sublotes_info):
-        """Crea mapa visual de los sublotes"""
-        # Verificar si hay datos geoespaciales válidos de manera segura
-        if gdf_area is None:
-            return None
-        
-        try:
-            # Verificar si es un GeoDataFrame/DataFrame y si está vacío
-            if hasattr(gdf_area, 'empty'):
-                if gdf_area.empty:
-                    return None
-        except:
-            return None
+   def crear_mapa_sublotes(self, gdf_area, sublotes_info):
+    """Crea mapa visual de los sublotes"""
+    # Verificar si hay datos geoespaciales válidos de manera segura
+    if gdf_area is None:
+        return None
+    
+    try:
+        # Verificar si es un GeoDataFrame/DataFrame y si está vacío
+        if hasattr(gdf_area, 'empty'):
+            if gdf_area.empty:
+                return None
             
         try:
             # Calcular bounds del área
