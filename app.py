@@ -366,18 +366,19 @@ class AnalisisForrajero:
         else:
             return "Baja intensidad - Rotación lenta"
     
-     def crear_mapa_sublotes(self, gdf_area, sublotes_info):
-   
-"""Crea mapa visual de los sublotes"""
-    # Verificar si hay datos geoespaciales válidos de manera segura
-    if gdf_area is None:
-        return None
-    
-    try:
-        # Verificar si es un GeoDataFrame/DataFrame y si está vacío
-        if hasattr(gdf_area, 'empty'):
-            if gdf_area.empty:
-                return None
+    def crear_mapa_sublotes(self, gdf_area, sublotes_info):
+        """Crea mapa visual de los sublotes"""
+        # Verificar si hay datos geoespaciales válidos de manera segura
+        if gdf_area is None:
+            return None
+        
+        try:
+            # Verificar si es un GeoDataFrame/DataFrame y si está vacío
+            if hasattr(gdf_area, 'empty'):
+                if gdf_area.empty:
+                    return None
+        except:
+            return None
             
         try:
             # Calcular bounds del área
@@ -471,7 +472,9 @@ class AnalisisForrajero:
             return m
             
         except Exception as e:
-            st.warning(f"Error al crear mapa de sublotes: {str(e)}")
+            # En lugar de st.warning (que depende de Streamlit), usamos print
+            # o podríamos registrar el error
+            print(f"Advertencia: Error al crear mapa de sublotes: {str(e)}")
             return None
 # ===============================
 # 🌦️ CONECTOR CLIMÁTICO TROPICAL SIMPLIFICADO
