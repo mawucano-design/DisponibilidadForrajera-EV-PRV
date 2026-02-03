@@ -32,87 +32,102 @@ warnings.filterwarnings('ignore')
 try:
     import ee
     GEE_AVAILABLE = True
-except ImportError:
+    print("✅ earthengine-api importado correctamente")
+except ImportError as e:
     GEE_AVAILABLE = False
     st.warning("⚠️ Google Earth Engine no está instalado. Para usar datos satelitales reales, instala con: pip install earthengine-api")
+    print(f"❌ Error importando ee: {e}")
 
-# Intento importar python-docx
-try:
-    from docx import Document
-    from docx.shared import Inches, Pt, RGBColor
-    DOCX_AVAILABLE = True
-except Exception:
-    DOCX_AVAILABLE = False
-
-# Folium (opcional)
-try:
-    import folium
-    from folium.plugins import HeatMap
-    from streamlit_folium import st_folium, folium_static
-    FOLIUM_AVAILABLE = True
-except Exception:
-    FOLIUM_AVAILABLE = False
-    folium = None
-    st_folium = None
-
-# Streamlit config
-st.set_page_config(page_title="🌱 Disponibilidad Forrajera PRV + Clima + Suelo", layout="wide")
-st.title("🌱 Disponibilidad Forrajera PRV — Analizador Avanzado")
-st.markdown("---")
-os.environ['SHAPE_RESTORE_SHX'] = 'YES'
+warnings.filterwarnings('ignore')
 
 # === INICIALIZACIÓN SEGURA DE GOOGLE EARTH ENGINE ===
 def inicializar_gee():
     """Inicializa GEE con Service Account desde secrets de Streamlit Cloud"""
     if not GEE_AVAILABLE:
         st.session_state.gee_authenticated = False
+        print("❌ GEE no disponible (módulo no instalado)")
         return False
     
     try:
         # Intentar con Service Account desde secrets (Streamlit Cloud)
         gee_secret = None
-        try:
-            gee_secret = st.secrets.get("GEE_SERVICE_ACCOUNT")
-        except:
-            gee_secret = os.environ.get('GEE_SERVICE_ACCOUNT')
         
+        # Método 1: secrets de Streamlit Cloud (recomendado)
+        try:
+            if hasattr(st, 'secrets') and 'google' in st.secrets and 'GEE_SERVICE_ACCOUNT' in st.secrets.google:
+                gee_secret = st.secrets.google.GEE_SERVICE_ACCOUNT
+                print("🔑 Credenciales encontradas en st.secrets.google.GEE_SERVICE_ACCOUNT")
+        except Exception as e:
+            print(f"⚠️ Error accediendo a st.secrets: {e}")
+        
+        # Método 2: variables de entorno (fallback)
+        if not gee_secret:
+            try:
+                gee_secret = os.environ.get('GEE_SERVICE_ACCOUNT')
+                if gee_secret:
+                    print("🔑 Credenciales encontradas en variable de entorno GEE_SERVICE_ACCOUNT")
+            except Exception as e:
+                print(f"⚠️ Error accediendo a os.environ: {e}")
+        
+        # Si tenemos credenciales, inicializar
         if gee_secret:
             try:
-                credentials_info = json.loads(gee_secret.strip())
+                # Limpiar y parsear JSON
+                gee_secret_clean = gee_secret.strip()
+                if gee_secret_clean.startswith("'") and gee_secret_clean.endswith("'"):
+                    gee_secret_clean = gee_secret_clean[1:-1]
+                if gee_secret_clean.startswith('"') and gee_secret_clean.endswith('"'):
+                    gee_secret_clean = gee_secret_clean[1:-1]
+                
+                credentials_info = json.loads(gee_secret_clean)
+                project_id = credentials_info.get('project_id', 'ee-mawucano25')
+                
                 credentials = ee.ServiceAccountCredentials(
                     credentials_info['client_email'],
                     key_data=json.dumps(credentials_info)
                 )
-                project_id = credentials_info.get('project_id', 'ee-mawucano25')
+                
                 ee.Initialize(credentials, project=project_id)
                 st.session_state.gee_authenticated = True
                 st.session_state.gee_project = project_id
-                print("✅ GEE inicializado con Service Account")
+                print(f"✅ GEE inicializado con Service Account (proyecto: {project_id})")
                 return True
+                
             except Exception as e:
-                print(f"⚠️ Error con Service Account: {str(e)}")
+                print(f"⚠️ Error inicializando con Service Account: {str(e)[:200]}")
+                st.warning(f"⚠️ Error GEE Service Account: {str(e)[:100]}")
         
-        # Fallback: autenticación local (desarrollo en tu Linux)
+        # Fallback: autenticación local (SOLO para desarrollo local)
         try:
             ee.Initialize(project='ee-mawucano25')
             st.session_state.gee_authenticated = True
             st.session_state.gee_project = 'ee-mawucano25'
-            print("✅ GEE inicializado localmente")
+            print("✅ GEE inicializado localmente (desarrollo)")
             return True
         except Exception as e:
-            print(f"⚠️ Error inicialización local: {str(e)}")
+            print(f"⚠️ Error inicialización local: {str(e)[:200]}")
             
         st.session_state.gee_authenticated = False
+        print("❌ GEE no autenticado")
         return False
         
     except Exception as e:
         st.session_state.gee_authenticated = False
         print(f"❌ Error crítico GEE: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return False
 
-# Inicializar GEE al inicio
+# Inicializar GEE al inicio (ANTES de cualquier uso)
 if 'gee_authenticated' not in st.session_state:
+    st.session_state.gee_authenticated = False
+    st.session_state.gee_project = None
+    print("🔄 Inicializando GEE...")
     inicializar_gee()
+    if st.session_state.gee_authenticated:
+        st.sidebar.success(f"✅ GEE conectado ({st.session_state.gee_project})")
+    else:
+        st.sidebar.info("ℹ️ GEE no disponible. Usando datos simulados.")
 
 # ---------- APIs Externas ----------
 NASA_POWER_BASE_URL = "https://power.larc.nasa.gov/api/temporal/daily/point"
