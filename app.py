@@ -1,5 +1,4 @@
-[file name]: GEEforrajerocorreccion.py
-[file content begin]
+
 import streamlit as st
 import geopandas as gpd
 import pandas as pd
@@ -3025,4 +3024,4 @@ with st.expander("🎯 Comparación de fuentes de datos"):
     - **Para monitoreo diario**: Usar MODIS
     - **Sin conexión a GEE**: Usar datos simulados
     """)
-[file content end]
+
