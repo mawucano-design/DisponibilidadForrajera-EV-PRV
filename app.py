@@ -3072,22 +3072,22 @@ def mostrar_analisis_forrajero():
         
         forrajero = forrajero_data.get('forrajero')
         
-       # Verificar de manera segura si tenemos datos geoespaciales
-                poligono_disponible = False
-           if 'poligono_data' in st.session_state:
-               poligono_data = st.session_state.poligono_data
-    # Verificar si no es None y no está vacío usando métodos seguros
-           if poligono_data is not None:
-             try:
-            # Verificar si tiene la propiedad empty (GeoDataFrame/DataFrame)
-                if hasattr(poligono_data, 'empty'):
-                if not poligono_data.empty:
-                    poligono_disponible = True
-            else:
-                # Si no tiene empty, asumimos que tiene datos
-                poligono_disponible = True
-        except:
-            pass
+        # Verificar de manera segura si tenemos datos geoespaciales
+        poligono_disponible = False
+        if 'poligono_data' in st.session_state:
+            poligono_data = st.session_state.poligono_data
+            # Verificar si no es None y no está vacío usando métodos seguros
+            if poligono_data is not None:
+                try:
+                    # Verificar si tiene la propiedad empty (GeoDataFrame/DataFrame)
+                    if hasattr(poligono_data, 'empty'):
+                        if not poligono_data.empty:
+                            poligono_disponible = True
+                    else:
+                        # Si no tiene empty, asumimos que tiene datos
+                        poligono_disponible = True
+                except:
+                    pass
         
         if forrajero and poligono_disponible:
             try:
