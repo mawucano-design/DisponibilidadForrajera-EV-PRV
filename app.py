@@ -641,7 +641,82 @@ class AnalisisBiodiversidad:
         }
 
 # ===============================
-# 🗺️ SISTEMA DE MAPAS COMPLETO CON ZOOM AUTOMÁTICO (MODIFICADO PARA NUEVOS ÍNDICES)
+# FUNCIÓN AUXILIAR PARA DIVIDIR POLÍGONO EN CUADRÍCULA
+# ===============================
+def dividir_poligono_en_cuadricula(poligono, puntos_forraje, n_celdas=100):
+    """
+    Divide un polígono en una cuadrícula de celdas y asigna a cada celda
+    la productividad forrajera promedio de los puntos que contiene.
+    Retorna un GeoDataFrame con las celdas y su productividad.
+    """
+    bounds = poligono.bounds
+    minx, miny, maxx, maxy = bounds
+    
+    # Calcular número de filas y columnas para aproximadamente n_celdas
+    n_cols = int(np.sqrt(n_celdas * (maxx - minx) / (maxy - miny)))
+    n_rows = int(n_celdas / n_cols)
+    if n_rows == 0:
+        n_rows = 1
+    
+    width = (maxx - minx) / n_cols
+    height = (maxy - miny) / n_rows
+    
+    celdas = []
+    productividades = []
+    
+    for i in range(n_rows):
+        for j in range(n_cols):
+            cell_minx = minx + j * width
+            cell_maxx = minx + (j + 1) * width
+            cell_miny = miny + i * height
+            cell_maxy = miny + (i + 1) * height
+            
+            cell_poly = Polygon([
+                (cell_minx, cell_miny),
+                (cell_maxx, cell_miny),
+                (cell_maxx, cell_maxy),
+                (cell_minx, cell_maxy)
+            ])
+            
+            # Recortar celda con el polígono original
+            intersection = poligono.intersection(cell_poly)
+            if intersection.is_empty or intersection.area == 0:
+                continue
+            
+            # Encontrar puntos dentro de esta celda
+            puntos_dentro = []
+            for p in puntos_forraje:
+                point = Point(p['lon'], p['lat'])
+                if intersection.contains(point):
+                    puntos_dentro.append(p['productividad_kg_ms_ha'])
+            
+            if puntos_dentro:
+                prod_promedio = np.mean(puntos_dentro)
+            else:
+                # Si no hay puntos, interpolar con el vecino más cercano (simplificado)
+                # Buscar el punto más cercano
+                min_dist = float('inf')
+                prod_cercano = None
+                for p in puntos_forraje:
+                    point = Point(p['lon'], p['lat'])
+                    dist = intersection.distance(point)
+                    if dist < min_dist:
+                        min_dist = dist
+                        prod_cercano = p['productividad_kg_ms_ha']
+                prod_promedio = prod_cercano if prod_cercano is not None else 0
+            
+            celdas.append(intersection)
+            productividades.append(prod_promedio)
+    
+    gdf_celdas = gpd.GeoDataFrame({
+        'geometry': celdas,
+        'productividad_kg_ms_ha': productividades
+    }, crs='EPSG:4326')
+    
+    return gdf_celdas
+
+# ===============================
+# 🗺️ SISTEMA DE MAPAS COMPLETO CON ZOOM AUTOMÁTICO
 # ===============================
 class SistemaMapas:
     """Sistema de mapas completo con zoom automático a los polígonos"""
@@ -1269,6 +1344,72 @@ class SistemaMapas:
             st.warning(f"Error al crear mapa de forraje: {str(e)}")
             return None
     
+    def crear_mapa_sublotes_forrajero(self, gdf_celdas, gdf_area):
+        """Crea mapa coroplético de sublotes (celdas) con productividad forrajera"""
+        if gdf_celdas is None or gdf_celdas.empty:
+            return None
+        
+        try:
+            bounds = gdf_area.total_bounds
+            centro = [(bounds[1] + bounds[3]) / 2, (bounds[0] + bounds[2]) / 2]
+            
+            m = folium.Map(
+                location=centro,
+                zoom_start=12,
+                tiles=self.capa_base,
+                attr='Esri, Maxar, Earthstar Geographics'
+            )
+            
+            # Crear escala de colores
+            min_prod = gdf_celdas['productividad_kg_ms_ha'].min()
+            max_prod = gdf_celdas['productividad_kg_ms_ha'].max()
+            colormap = LinearColormap(
+                colors=['#8B4513', '#CD853F', '#F4A460', '#9ACD32', '#32CD32', '#006400'],
+                vmin=min_prod,
+                vmax=max_prod
+            )
+            colormap.caption = 'Productividad Forrajera (kg MS/ha)'
+            
+            # Agregar celdas
+            folium.GeoJson(
+                gdf_celdas,
+                style_function=lambda feature: {
+                    'fillColor': colormap(feature['properties']['productividad_kg_ms_ha']),
+                    'color': 'black',
+                    'weight': 0.5,
+                    'fillOpacity': 0.7
+                },
+                tooltip=folium.GeoJsonTooltip(
+                    fields=['productividad_kg_ms_ha'],
+                    aliases=['Productividad (kg MS/ha):'],
+                    localize=True,
+                    sticky=False
+                )
+            ).add_to(m)
+            
+            # Agregar contorno del área
+            folium.GeoJson(
+                gdf_area.geometry.iloc[0],
+                style_function=lambda x: {
+                    'fillColor': 'transparent',
+                    'color': '#1d4ed8',
+                    'weight': 3,
+                    'dashArray': '5, 5'
+                }
+            ).add_to(m)
+            
+            colormap.add_to(m)
+            
+            # Ajustar zoom
+            sw = [bounds[1], bounds[0]]
+            ne = [bounds[3], bounds[2]]
+            m.fit_bounds([sw, ne])
+            
+            return m
+        except Exception as e:
+            st.warning(f"Error al crear mapa de sublotes: {str(e)}")
+            return None
+    
     def crear_mapa_combinado(self, puntos_carbono, puntos_ndvi, puntos_ndwi, puntos_biodiversidad, gdf_area=None):
         """Crea mapa con todas las capas de heatmap con zoom automático"""
         if not puntos_carbono or len(puntos_carbono) == 0:
@@ -1391,9 +1532,8 @@ class SistemaMapas:
             st.warning(f"Error al crear mapa combinado: {str(e)}")
             return None
     
-    # Métodos para agregar leyendas (modificados o nuevos)
+    # Métodos para agregar leyendas
     def _agregar_leyenda_carbono(self, mapa):
-        """Agrega leyenda para el mapa de carbono"""
         try:
             leyenda_html = '''
             <div style="position: fixed; 
@@ -1419,7 +1559,7 @@ class SistemaMapas:
                     </div>
                 </div>
                 <div style="font-size: 12px; color: #666;">
-                    <div><span style="color: #065f46; font-weight: bold;">■</span> Contorno azul: Área de estudio</div>
+                    <div><span style="color: #1d4ed8; font-weight: bold;">■</span> Contorno azul: Área de estudio</div>
                     <div><span style="color: #3b82f6; font-weight: bold;">■</span> Heatmap: Intensidad de carbono</div>
                 </div>
             </div>
@@ -1429,7 +1569,6 @@ class SistemaMapas:
             pass
     
     def _agregar_leyenda_ndvi(self, mapa):
-        """Agrega leyenda para el mapa de NDVI"""
         try:
             leyenda_html = '''
             <div style="position: fixed; 
@@ -1466,7 +1605,6 @@ class SistemaMapas:
             pass
     
     def _agregar_leyenda_ndwi(self, mapa):
-        """Agrega leyenda para el mapa de NDWI"""
         try:
             leyenda_html = '''
             <div style="position: fixed; 
@@ -1502,7 +1640,6 @@ class SistemaMapas:
             pass
     
     def _agregar_leyenda_biodiversidad(self, mapa):
-        """Agrega leyenda para el mapa de biodiversidad"""
         try:
             leyenda_html = '''
             <div style="position: fixed; 
@@ -1542,7 +1679,6 @@ class SistemaMapas:
             pass
     
     def _agregar_leyenda_ndre(self, mapa):
-        """Leyenda para NDRE"""
         try:
             leyenda_html = '''
             <div style="position: fixed; 
@@ -1576,7 +1712,6 @@ class SistemaMapas:
             pass
     
     def _agregar_leyenda_msavi(self, mapa):
-        """Leyenda para MSAVI"""
         try:
             leyenda_html = '''
             <div style="position: fixed; 
@@ -1607,7 +1742,6 @@ class SistemaMapas:
             pass
     
     def _agregar_leyenda_evi(self, mapa):
-        """Leyenda para EVI"""
         try:
             leyenda_html = '''
             <div style="position: fixed; 
@@ -1641,7 +1775,6 @@ class SistemaMapas:
             pass
     
     def _agregar_leyenda_forraje(self, mapa, min_val, max_val):
-        """Leyenda para productividad forrajera"""
         try:
             leyenda_html = f'''
             <div style="position: fixed; 
@@ -1676,7 +1809,6 @@ class SistemaMapas:
             pass
     
     def _agregar_leyenda_combinada(self, mapa):
-        """Agrega leyenda combinada"""
         try:
             leyenda_html = '''
             <div style="position: fixed; 
@@ -2904,7 +3036,7 @@ def cargar_archivo_parcela(uploaded_file):
         return None
 
 # ===============================
-# 🎨 INTERFAZ PRINCIPAL CON ANÁLISIS FORRAJERO (MODIFICADA PARA NUEVOS ÍNDICES)
+# 🎨 INTERFAZ PRINCIPAL CON ANÁLISIS FORRAJERO
 # ===============================
 def main():
     """Función principal de la aplicación"""
@@ -3312,6 +3444,9 @@ def ejecutar_analisis_completo(gdf, tipo_ecosistema, num_puntos, usar_gee=False)
             heterogeneidad=0.3
         )
         
+        # Generar cuadrícula para mapa de sublotes
+        gdf_cuadricula = dividir_poligono_en_cuadricula(poligono, puntos_forraje, n_celdas=200)
+        
         # Preparar resultados
         resultados = {
             'area_total_ha': area_total,
@@ -3329,6 +3464,7 @@ def ejecutar_analisis_completo(gdf, tipo_ecosistema, num_puntos, usar_gee=False)
             'puntos_msavi': puntos_msavi,
             'puntos_evi': puntos_evi,
             'puntos_forraje': puntos_forraje,
+            'gdf_cuadricula': gdf_cuadricula,
             'tipo_ecosistema': tipo_ecosistema,
             'num_puntos': puntos_generados,
             'desglose_promedio': carbono_promedio['desglose'] if carbono_promedio else {},
@@ -3351,7 +3487,7 @@ def ejecutar_analisis_completo(gdf, tipo_ecosistema, num_puntos, usar_gee=False)
         return None
 
 # ===============================
-# 🐮 FUNCIÓN PARA MOSTRAR ANÁLISIS FORRAJERO - SOLUCIÓN DEFINITIVA
+# 🐮 FUNCIÓN PARA MOSTRAR ANÁLISIS FORRAJERO - MEJORADA CON MAPA COROPLÉTICO
 # ===============================
 def mostrar_analisis_forrajero():
     """Muestra análisis completo forrajero"""
@@ -3495,74 +3631,39 @@ def mostrar_analisis_forrajero():
     else:
         st.info("No hay datos de equivalentes vaca")
     
-    # Sublotes
-    st.subheader("🗺️ División en Sublotes")
+    # Sublotes y mapa coroplético
+    st.subheader("🗺️ Mapa de Productividad por Sublotes")
     
+    if 'gdf_cuadricula' in res:
+        sistema_mapas = SistemaMapas()
+        mapa_sublotes = sistema_mapas.crear_mapa_sublotes_forrajero(
+            res['gdf_cuadricula'],
+            st.session_state.poligono_data
+        )
+        if mapa_sublotes:
+            folium_static(mapa_sublotes, width=1000, height=600)
+            st.info("Las celdas muestran la productividad estimada (kg MS/ha). Haga clic para ver el valor exacto.")
+        else:
+            st.warning("No se pudo generar el mapa de sublotes.")
+    else:
+        st.info("No hay datos de cuadrícula para mostrar.")
+    
+    # Tabla de sublotes (resumen)
     if 'sublotes' in forrajero_data and forrajero_data['sublotes']:
+        st.subheader("📋 Resumen de Sublotes")
         sublotes = forrajero_data['sublotes']
-        
-        # Mostrar tabla de sublotes
         sublotes_data = []
         for sublote in sublotes:
-            # Calcular EV por sublote
-            ev_sublote = sublote['forraje_aprovechable_kg_ms'] / 12  # 12 kg MS/día por EV
-            dias_sublote = int(ev_sublote / 50) * 30 if ev_sublote > 0 else 0  # Estimación simplificada
-            
+            ev_sublote = sublote['forraje_aprovechable_kg_ms'] / 12
             sublotes_data.append({
                 'Sublote': sublote['sublote_id'],
                 'Área (ha)': sublote['area_ha'],
                 'Productividad (kg MS/ha)': sublote['disponibilidad_kg_ms_ha'],
                 'Forraje Aprovechable (ton MS)': round(sublote['forraje_aprovechable_kg_ms']/1000, 1),
-                'EV estimados': round(ev_sublote, 1),
-                'Días aprox.': dias_sublote
+                'EV estimados': round(ev_sublote, 1)
             })
-        
         df_sublotes = pd.DataFrame(sublotes_data)
         st.dataframe(df_sublotes, use_container_width=True, hide_index=True)
-        
-        # Mapa de sublotes - SOLUCIÓN: Verificar de manera segura
-        st.subheader("🗺️ Mapa de Sublotes")
-        
-        forrajero = forrajero_data.get('forrajero')
-        
-        # Verificar de manera segura si tenemos datos geoespaciales
-        poligono_disponible = False
-        if 'poligono_data' in st.session_state:
-            poligono_data = st.session_state.poligono_data
-            # Verificar si no es None y no está vacío usando métodos seguros
-            if poligono_data is not None:
-                try:
-                    # Verificar si tiene la propiedad empty (GeoDataFrame/DataFrame)
-                    if hasattr(poligono_data, 'empty'):
-                        if not poligono_data.empty:
-                            poligono_disponible = True
-                    else:
-                        # Si no tiene empty, asumimos que tiene datos
-                        poligono_disponible = True
-                except:
-                    pass
-        
-        if forrajero and poligono_disponible:
-            try:
-                mapa_sublotes = forrajero.crear_mapa_sublotes(
-                    st.session_state.poligono_data,
-                    sublotes
-                )
-                
-                if mapa_sublotes:
-                    folium_static(mapa_sublotes, width=1000, height=600)
-                else:
-                    st.info("No se pudo generar el mapa de sublotes")
-            except Exception as e:
-                st.warning(f"Error al generar mapa: {str(e)}")
-                st.info("Muestra de sublotes (sin mapa):")
-                # Mostrar información adicional si no se puede generar el mapa
-                for sublote in sublotes[:3]:  # Mostrar solo los primeros 3
-                    st.write(f"**Sublote {sublote['sublote_id']}**: {sublote['area_ha']} ha, Productividad: {sublote['disponibilidad_kg_ms_ha']} kg MS/ha")
-        else:
-            st.info("No hay datos geoespaciales disponibles para generar el mapa")
-    else:
-        st.info("No hay datos de sublotes disponibles")
     
     # Recomendaciones de rotación
     st.subheader("🔄 Sistema de Rotación Recomendado")
