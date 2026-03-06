@@ -641,7 +641,7 @@ class AnalisisBiodiversidad:
         }
 
 # ===============================
-# 🗺️ SISTEMA DE MAPAS COMPLETO CON ZOOM AUTOMÁTICO
+# 🗺️ SISTEMA DE MAPAS COMPLETO CON ZOOM AUTOMÁTICO (MODIFICADO PARA NUEVOS ÍNDICES)
 # ===============================
 class SistemaMapas:
     """Sistema de mapas completo con zoom automático a los polígonos"""
@@ -999,6 +999,276 @@ class SistemaMapas:
             st.warning(f"Error al crear mapa de biodiversidad: {str(e)}")
             return None
     
+    # ========== NUEVOS MÉTODOS PARA ÍNDICES FORRAJEROS ==========
+    
+    def crear_mapa_calor_ndre(self, puntos_ndre, gdf_area=None):
+        """Crea mapa de calor para NDRE (Normalized Difference Red Edge)"""
+        if not puntos_ndre or len(puntos_ndre) == 0:
+            return None
+        
+        try:
+            if gdf_area is not None and not gdf_area.empty:
+                bounds = gdf_area.total_bounds
+                centro = [(bounds[1] + bounds[3]) / 2, (bounds[0] + bounds[2]) / 2]
+            else:
+                centro = [puntos_ndre[0]['lat'], puntos_ndre[0]['lon']]
+                bounds = None
+            
+            m = folium.Map(
+                location=centro,
+                zoom_start=12,
+                tiles=self.capa_base,
+                attr='Esri, Maxar, Earthstar Geographics'
+            )
+            
+            if gdf_area is not None and not gdf_area.empty:
+                folium.GeoJson(
+                    gdf_area.geometry.iloc[0],
+                    style_function=lambda x: {
+                        'fillColor': '#3b82f6',
+                        'color': '#1d4ed8',
+                        'weight': 3,
+                        'fillOpacity': 0.1,
+                        'dashArray': '5, 5'
+                    }
+                ).add_to(m)
+            
+            heat_data = [[p['lat'], p['lon'], p['ndre']] for p in puntos_ndre]
+            
+            # Gradiente para NDRE (similar a NDVI pero con énfasis en vegetación vigorosa)
+            gradient_ndre = {
+                0.0: '#8b0000',
+                0.2: '#ff4500',
+                0.4: '#ffd700',
+                0.6: '#7cfc00',
+                0.8: '#32cd32',
+                1.0: '#006400'
+            }
+            
+            HeatMap(
+                heat_data,
+                name='NDRE',
+                min_opacity=0.5,
+                radius=25,
+                blur=20,
+                gradient=gradient_ndre
+            ).add_to(m)
+            
+            self._agregar_leyenda_ndre(m)
+            
+            if gdf_area is not None and not gdf_area.empty:
+                sw = [bounds[1], bounds[0]]
+                ne = [bounds[3], bounds[2]]
+                m.fit_bounds([sw, ne])
+            
+            return m
+        except Exception as e:
+            st.warning(f"Error al crear mapa de NDRE: {str(e)}")
+            return None
+    
+    def crear_mapa_calor_msavi(self, puntos_msavi, gdf_area=None):
+        """Crea mapa de calor para MSAVI (Modified Soil Adjusted Vegetation Index)"""
+        if not puntos_msavi or len(puntos_msavi) == 0:
+            return None
+        
+        try:
+            if gdf_area is not None and not gdf_area.empty:
+                bounds = gdf_area.total_bounds
+                centro = [(bounds[1] + bounds[3]) / 2, (bounds[0] + bounds[2]) / 2]
+            else:
+                centro = [puntos_msavi[0]['lat'], puntos_msavi[0]['lon']]
+                bounds = None
+            
+            m = folium.Map(
+                location=centro,
+                zoom_start=12,
+                tiles=self.capa_base,
+                attr='Esri, Maxar, Earthstar Geographics'
+            )
+            
+            if gdf_area is not None and not gdf_area.empty:
+                folium.GeoJson(
+                    gdf_area.geometry.iloc[0],
+                    style_function=lambda x: {
+                        'fillColor': '#3b82f6',
+                        'color': '#1d4ed8',
+                        'weight': 3,
+                        'fillOpacity': 0.1,
+                        'dashArray': '5, 5'
+                    }
+                ).add_to(m)
+            
+            heat_data = [[p['lat'], p['lon'], p['msavi']] for p in puntos_msavi]
+            
+            # Gradiente para MSAVI (de suelo desnudo a vegetación densa)
+            gradient_msavi = {
+                0.0: '#8b4513',
+                0.2: '#cd853f',
+                0.4: '#f4a460',
+                0.6: '#9acd32',
+                0.8: '#32cd32',
+                1.0: '#006400'
+            }
+            
+            HeatMap(
+                heat_data,
+                name='MSAVI',
+                min_opacity=0.5,
+                radius=25,
+                blur=20,
+                gradient=gradient_msavi
+            ).add_to(m)
+            
+            self._agregar_leyenda_msavi(m)
+            
+            if gdf_area is not None and not gdf_area.empty:
+                sw = [bounds[1], bounds[0]]
+                ne = [bounds[3], bounds[2]]
+                m.fit_bounds([sw, ne])
+            
+            return m
+        except Exception as e:
+            st.warning(f"Error al crear mapa de MSAVI: {str(e)}")
+            return None
+    
+    def crear_mapa_calor_evi(self, puntos_evi, gdf_area=None):
+        """Crea mapa de calor para EVI (Enhanced Vegetation Index)"""
+        if not puntos_evi or len(puntos_evi) == 0:
+            return None
+        
+        try:
+            if gdf_area is not None and not gdf_area.empty:
+                bounds = gdf_area.total_bounds
+                centro = [(bounds[1] + bounds[3]) / 2, (bounds[0] + bounds[2]) / 2]
+            else:
+                centro = [puntos_evi[0]['lat'], puntos_evi[0]['lon']]
+                bounds = None
+            
+            m = folium.Map(
+                location=centro,
+                zoom_start=12,
+                tiles=self.capa_base,
+                attr='Esri, Maxar, Earthstar Geographics'
+            )
+            
+            if gdf_area is not None and not gdf_area.empty:
+                folium.GeoJson(
+                    gdf_area.geometry.iloc[0],
+                    style_function=lambda x: {
+                        'fillColor': '#3b82f6',
+                        'color': '#1d4ed8',
+                        'weight': 3,
+                        'fillOpacity': 0.1,
+                        'dashArray': '5, 5'
+                    }
+                ).add_to(m)
+            
+            heat_data = [[p['lat'], p['lon'], p['evi']] for p in puntos_evi]
+            
+            # Gradiente para EVI (sensible a vegetación densa)
+            gradient_evi = {
+                0.0: '#8b0000',
+                0.2: '#ff6347',
+                0.4: '#ffd700',
+                0.6: '#7cfc00',
+                0.8: '#32cd32',
+                1.0: '#006400'
+            }
+            
+            HeatMap(
+                heat_data,
+                name='EVI',
+                min_opacity=0.5,
+                radius=25,
+                blur=20,
+                gradient=gradient_evi
+            ).add_to(m)
+            
+            self._agregar_leyenda_evi(m)
+            
+            if gdf_area is not None and not gdf_area.empty:
+                sw = [bounds[1], bounds[0]]
+                ne = [bounds[3], bounds[2]]
+                m.fit_bounds([sw, ne])
+            
+            return m
+        except Exception as e:
+            st.warning(f"Error al crear mapa de EVI: {str(e)}")
+            return None
+    
+    def crear_mapa_calor_forraje(self, puntos_forraje, gdf_area=None):
+        """Crea mapa de calor para productividad forrajera (kg MS/ha)"""
+        if not puntos_forraje or len(puntos_forraje) == 0:
+            return None
+        
+        try:
+            if gdf_area is not None and not gdf_area.empty:
+                bounds = gdf_area.total_bounds
+                centro = [(bounds[1] + bounds[3]) / 2, (bounds[0] + bounds[2]) / 2]
+            else:
+                centro = [puntos_forraje[0]['lat'], puntos_forraje[0]['lon']]
+                bounds = None
+            
+            m = folium.Map(
+                location=centro,
+                zoom_start=12,
+                tiles=self.capa_base,
+                attr='Esri, Maxar, Earthstar Geographics'
+            )
+            
+            if gdf_area is not None and not gdf_area.empty:
+                folium.GeoJson(
+                    gdf_area.geometry.iloc[0],
+                    style_function=lambda x: {
+                        'fillColor': '#3b82f6',
+                        'color': '#1d4ed8',
+                        'weight': 3,
+                        'fillOpacity': 0.1,
+                        'dashArray': '5, 5'
+                    }
+                ).add_to(m)
+            
+            heat_data = [[p['lat'], p['lon'], p['productividad_kg_ms_ha']] for p in puntos_forraje]
+            
+            # Gradiente para forraje (rojo = bajo, verde = alto)
+            # Normalizar valores entre 0 y 1 basado en el rango de datos
+            max_val = max(p['productividad_kg_ms_ha'] for p in puntos_forraje)
+            min_val = min(p['productividad_kg_ms_ha'] for p in puntos_forraje)
+            if max_val > min_val:
+                heat_data_norm = [[p[0], p[1], (p[2] - min_val) / (max_val - min_val)] for p in heat_data]
+            else:
+                heat_data_norm = heat_data
+            
+            gradient_forraje = {
+                0.0: '#8b4513',
+                0.2: '#cd853f',
+                0.4: '#f4a460',
+                0.6: '#9acd32',
+                0.8: '#32cd32',
+                1.0: '#006400'
+            }
+            
+            HeatMap(
+                heat_data_norm,
+                name='Productividad (kg MS/ha)',
+                min_opacity=0.5,
+                radius=25,
+                blur=20,
+                gradient=gradient_forraje
+            ).add_to(m)
+            
+            self._agregar_leyenda_forraje(m, min_val, max_val)
+            
+            if gdf_area is not None and not gdf_area.empty:
+                sw = [bounds[1], bounds[0]]
+                ne = [bounds[3], bounds[2]]
+                m.fit_bounds([sw, ne])
+            
+            return m
+        except Exception as e:
+            st.warning(f"Error al crear mapa de forraje: {str(e)}")
+            return None
+    
     def crear_mapa_combinado(self, puntos_carbono, puntos_ndvi, puntos_ndwi, puntos_biodiversidad, gdf_area=None):
         """Crea mapa con todas las capas de heatmap con zoom automático"""
         if not puntos_carbono or len(puntos_carbono) == 0:
@@ -1121,6 +1391,7 @@ class SistemaMapas:
             st.warning(f"Error al crear mapa combinado: {str(e)}")
             return None
     
+    # Métodos para agregar leyendas (modificados o nuevos)
     def _agregar_leyenda_carbono(self, mapa):
         """Agrega leyenda para el mapa de carbono"""
         try:
@@ -1263,6 +1534,140 @@ class SistemaMapas:
                     <div><span style="color: #f59e0b; font-weight: bold;">■</span> Moderada: 1.5 - 2.5</div>
                     <div><span style="color: #3b82f6; font-weight: bold;">■</span> Alta: 2.5 - 3.5</div>
                     <div><span style="color: #10b981; font-weight: bold;">■</span> Muy Alta: > 3.5</div>
+                </div>
+            </div>
+            '''
+            mapa.get_root().html.add_child(folium.Element(leyenda_html))
+        except:
+            pass
+    
+    def _agregar_leyenda_ndre(self, mapa):
+        """Leyenda para NDRE"""
+        try:
+            leyenda_html = '''
+            <div style="position: fixed; 
+                bottom: 50px; 
+                left: 50px; 
+                width: 250px;
+                background-color: white;
+                border: 2px solid #32cd32;
+                z-index: 9999;
+                padding: 10px;
+                border-radius: 5px;
+                box-shadow: 0 0 10px rgba(0,0,0,0.2);
+                font-family: Arial;">
+                <h4 style="margin-top: 0; color: #32cd32; border-bottom: 1px solid #ddd; padding-bottom: 5px;">
+                🌿 NDRE (Red Edge)
+                </h4>
+                <div style="margin: 10px 0;">
+                    <div style="height: 20px; background: linear-gradient(90deg, #8b0000, #ff4500, #ffd700, #7cfc00, #32cd32, #006400); border: 1px solid #666;"></div>
+                    <div style="display: flex; justify-content: space-between; margin-top: 5px; font-size: 11px;">
+                        <span>Bajo</span>
+                        <span>Alto</span>
+                    </div>
+                </div>
+                <div style="font-size: 12px; color: #666;">
+                    <div>Sensible a clorofila y vigor</div>
+                </div>
+            </div>
+            '''
+            mapa.get_root().html.add_child(folium.Element(leyenda_html))
+        except:
+            pass
+    
+    def _agregar_leyenda_msavi(self, mapa):
+        """Leyenda para MSAVI"""
+        try:
+            leyenda_html = '''
+            <div style="position: fixed; 
+                bottom: 50px; 
+                left: 50px; 
+                width: 250px;
+                background-color: white;
+                border: 2px solid #cd853f;
+                z-index: 9999;
+                padding: 10px;
+                border-radius: 5px;
+                box-shadow: 0 0 10px rgba(0,0,0,0.2);
+                font-family: Arial;">
+                <h4 style="margin-top: 0; color: #cd853f; border-bottom: 1px solid #ddd; padding-bottom: 5px;">
+                🏜️ MSAVI
+                </h4>
+                <div style="margin: 10px 0;">
+                    <div style="height: 20px; background: linear-gradient(90deg, #8b4513, #cd853f, #f4a460, #9acd32, #32cd32, #006400); border: 1px solid #666;"></div>
+                    <div style="display: flex; justify-content: space-between; margin-top: 5px; font-size: 11px;">
+                        <span>Suelo</span>
+                        <span>Vegetación</span>
+                    </div>
+                </div>
+            </div>
+            '''
+            mapa.get_root().html.add_child(folium.Element(leyenda_html))
+        except:
+            pass
+    
+    def _agregar_leyenda_evi(self, mapa):
+        """Leyenda para EVI"""
+        try:
+            leyenda_html = '''
+            <div style="position: fixed; 
+                bottom: 50px; 
+                left: 50px; 
+                width: 250px;
+                background-color: white;
+                border: 2px solid #32cd32;
+                z-index: 9999;
+                padding: 10px;
+                border-radius: 5px;
+                box-shadow: 0 0 10px rgba(0,0,0,0.2);
+                font-family: Arial;">
+                <h4 style="margin-top: 0; color: #32cd32; border-bottom: 1px solid #ddd; padding-bottom: 5px;">
+                🌳 EVI
+                </h4>
+                <div style="margin: 10px 0;">
+                    <div style="height: 20px; background: linear-gradient(90deg, #8b0000, #ff6347, #ffd700, #7cfc00, #32cd32, #006400); border: 1px solid #666;"></div>
+                    <div style="display: flex; justify-content: space-between; margin-top: 5px; font-size: 11px;">
+                        <span>Bajo</span>
+                        <span>Alto</span>
+                    </div>
+                </div>
+                <div style="font-size: 12px; color: #666;">
+                    <div>Corrige influencia atmosférica</div>
+                </div>
+            </div>
+            '''
+            mapa.get_root().html.add_child(folium.Element(leyenda_html))
+        except:
+            pass
+    
+    def _agregar_leyenda_forraje(self, mapa, min_val, max_val):
+        """Leyenda para productividad forrajera"""
+        try:
+            leyenda_html = f'''
+            <div style="position: fixed; 
+                bottom: 50px; 
+                left: 50px; 
+                width: 280px;
+                background-color: white;
+                border: 2px solid #8B4513;
+                z-index: 9999;
+                padding: 10px;
+                border-radius: 5px;
+                box-shadow: 0 0 10px rgba(0,0,0,0.2);
+                font-family: Arial;">
+                <h4 style="margin-top: 0; color: #8B4513; border-bottom: 1px solid #ddd; padding-bottom: 5px;">
+                🌿 Productividad Forrajera (kg MS/ha)
+                </h4>
+                <div style="margin: 10px 0;">
+                    <div style="height: 20px; background: linear-gradient(90deg, #8b4513, #cd853f, #f4a460, #9acd32, #32cd32, #006400); border: 1px solid #666;"></div>
+                    <div style="display: flex; justify-content: space-between; margin-top: 5px; font-size: 11px;">
+                        <span>{min_val:.0f}</span>
+                        <span>{max_val:.0f}</span>
+                    </div>
+                </div>
+                <div style="font-size: 12px; color: #666;">
+                    <div>🔴 Baja productividad</div>
+                    <div>🟢 Alta productividad</div>
                 </div>
             </div>
             '''
@@ -2499,7 +2904,7 @@ def cargar_archivo_parcela(uploaded_file):
         return None
 
 # ===============================
-# 🎨 INTERFAZ PRINCIPAL CON ANÁLISIS FORRAJERO
+# 🎨 INTERFAZ PRINCIPAL CON ANÁLISIS FORRAJERO (MODIFICADA PARA NUEVOS ÍNDICES)
 # ===============================
 def main():
     """Función principal de la aplicación"""
@@ -2659,9 +3064,10 @@ def main():
             3. **📈 NDVI** (Índice de Vegetación de Diferencia Normalizada)
             4. **💧 NDWI** (Índice de Agua de Diferencia Normalizada)
             5. **🐮 Análisis Forrajero** para manejo ganadero sostenible
-            6. **🗺️ Mapas de calor** interactivos para todas las variables
-            7. **📊 Visualizaciones comparativas** y análisis correlacionales
-            8. **🌍 Conexión con Google Earth Engine** para datos satelitales reales
+            6. **🌿 Nuevos índices forrajeros:** NDRE, MSAVI, EVI
+            7. **🗺️ Mapas de calor** interactivos para todas las variables
+            8. **📊 Visualizaciones comparativas** y análisis correlacionales
+            9. **🌍 Conexión con Google Earth Engine** para datos satelitales reales
             
             **Módulo de Análisis Forrajero:**
             - Estimación de disponibilidad forrajera (kg MS/ha)
@@ -2670,6 +3076,7 @@ def main():
             - Cálculo de días de permanencia por sublote
             - Recomendaciones de sistema de rotación
             - Planificación de pastoreo rotativo
+            - Mapas de productividad forrajera
             
             **Áreas de aplicación:**
             - Proyectos REDD+ y créditos de carbono
@@ -2686,7 +3093,7 @@ def main():
                 st.warning("**Google Earth Engine:** No disponible. Instale con: `pip install earthengine-api`")
     
     else:
-        # Mostrar pestañas - AGREGADA PESTAÑA DE ANÁLISIS FORRAJERO
+        # Mostrar pestañas - AGREGADA PESTAÑA DE ANÁLISIS FORRAJERO Y NUEVOS MAPAS
         tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
             "🗺️ Mapas de Calor", 
             "📊 Dashboard", 
@@ -2735,11 +3142,24 @@ def ejecutar_analisis_completo(gdf, tipo_ecosistema, num_puntos, usar_gee=False)
         biodiversidad = AnalisisBiodiversidad()
         forrajero = AnalisisForrajero()  # Nuevo módulo
         
+        # Seleccionar sistema forrajero según ecosistema
+        if tipo_ecosistema in ['pampa', 'seco']:
+            sistema_forrajero = 'pastizal_natural'
+        elif tipo_ecosistema in ['amazonia', 'choco']:
+            sistema_forrajero = 'silvopastoril'
+        else:
+            sistema_forrajero = 'pastizal_natural'
+        
         # Generar puntos de muestreo
         puntos_carbono = []
         puntos_biodiversidad = []
         puntos_ndvi = []
         puntos_ndwi = []
+        # Nuevos puntos para índices forrajeros
+        puntos_ndre = []
+        puntos_msavi = []
+        puntos_evi = []
+        puntos_forraje = []  # Productividad forrajera
         
         carbono_total = 0
         co2_total = 0
@@ -2774,6 +3194,15 @@ def ejecutar_analisis_completo(gdf, tipo_ecosistema, num_puntos, usar_gee=False)
                 ndwi = base_ndwi + random.uniform(-0.2, 0.2)
                 ndwi = max(-0.5, min(0.8, ndwi))
                 
+                # Simular NDRE (Red Edge) - sensible a clorofila, similar a NDVI pero ligeramente mayor en vegetación vigorosa
+                ndre = min(1.0, max(-1.0, ndvi * 0.95 + random.uniform(-0.05, 0.1)))
+                
+                # Simular MSAVI (Modified Soil Adjusted) - reduce influencia del suelo
+                msavi = min(1.0, max(0.0, ndvi * 0.85 + random.uniform(-0.1, 0.05)))
+                
+                # Simular EVI (Enhanced Vegetation Index) - corrige aerosol, más sensible a vegetación densa
+                evi = min(1.0, max(0.0, ndvi * 1.2 + random.uniform(-0.1, 0.1)))
+                
                 # Calcular carbono
                 carbono_info = verra.calcular_carbono_hectarea(ndvi, tipo_ecosistema, datos_clima['precipitacion'])
                 
@@ -2784,6 +3213,9 @@ def ejecutar_analisis_completo(gdf, tipo_ecosistema, num_puntos, usar_gee=False)
                     area_por_punto, 
                     datos_clima['precipitacion']
                 )
+                
+                # Calcular productividad forrajera (kg MS/ha)
+                forraje_info = forrajero.estimar_disponibilidad_forrajera(ndvi, sistema_forrajero, area_por_punto)
                 
                 # Acumular totales
                 carbono_total += carbono_info['carbono_total_ton_ha'] * area_por_punto
@@ -2820,6 +3252,34 @@ def ejecutar_analisis_completo(gdf, tipo_ecosistema, num_puntos, usar_gee=False)
                     'ndwi': ndwi
                 })
                 
+                # Guardar puntos para NDRE
+                puntos_ndre.append({
+                    'lat': lat,
+                    'lon': lon,
+                    'ndre': ndre
+                })
+                
+                # Guardar puntos para MSAVI
+                puntos_msavi.append({
+                    'lat': lat,
+                    'lon': lon,
+                    'msavi': msavi
+                })
+                
+                # Guardar puntos para EVI
+                puntos_evi.append({
+                    'lat': lat,
+                    'lon': lon,
+                    'evi': evi
+                })
+                
+                # Guardar puntos para productividad forrajera
+                puntos_forraje.append({
+                    'lat': lat,
+                    'lon': lon,
+                    'productividad_kg_ms_ha': forraje_info['productividad_kg_ms_ha']
+                })
+                
                 puntos_generados += 1
         
         # Calcular promedios
@@ -2832,15 +3292,7 @@ def ejecutar_analisis_completo(gdf, tipo_ecosistema, num_puntos, usar_gee=False)
         carbono_promedio = verra.calcular_carbono_hectarea(ndvi_promedio, tipo_ecosistema, 1500)
         
         # ===== ANÁLISIS FORRAJERO =====
-        # Seleccionar tipo de sistema forrajero basado en ecosistema
-        if tipo_ecosistema in ['pampa', 'seco']:
-            sistema_forrajero = 'pastizal_natural'
-        elif tipo_ecosistema in ['amazonia', 'choco']:
-            sistema_forrajero = 'silvopastoril'
-        else:
-            sistema_forrajero = 'pastizal_natural'
-        
-        # Estimar disponibilidad forrajera
+        # Estimar disponibilidad forrajera para el área total (usando NDVI promedio)
         disponibilidad_forrajera = forrajero.estimar_disponibilidad_forrajera(
             ndvi_promedio, 
             sistema_forrajero, 
@@ -2873,6 +3325,10 @@ def ejecutar_analisis_completo(gdf, tipo_ecosistema, num_puntos, usar_gee=False)
             'puntos_biodiversidad': puntos_biodiversidad,
             'puntos_ndvi': puntos_ndvi,
             'puntos_ndwi': puntos_ndwi,
+            'puntos_ndre': puntos_ndre,
+            'puntos_msavi': puntos_msavi,
+            'puntos_evi': puntos_evi,
+            'puntos_forraje': puntos_forraje,
             'tipo_ecosistema': tipo_ecosistema,
             'num_puntos': puntos_generados,
             'desglose_promedio': carbono_promedio['desglose'] if carbono_promedio else {},
@@ -3223,13 +3679,15 @@ def mostrar_mapas_calor():
     """Muestra todos los mapas de calor disponibles con zoom automático"""
     st.header("🗺️ Mapas de Calor - Análisis Multivariable")
     
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "🌍 Área de Estudio", 
+    # Pestañas principales
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+        "🌍 Área", 
         "🌳 Carbono", 
         "📈 NDVI", 
         "💧 NDWI", 
         "🦋 Biodiversidad",
-        "🎭 Combinado"
+        "🎭 Combinado",
+        "🌿 Forrajero"
     ])
     
     with tab1:
@@ -3382,6 +3840,84 @@ def mostrar_mapas_calor():
                 st.warning("No se pudo generar el mapa combinado.")
         else:
             st.info("Ejecute el análisis primero para ver el mapa combinado")
+    
+    with tab7:
+        st.subheader("🌿 Mapas de Calor Forrajeros")
+        if st.session_state.resultados:
+            sistema_mapas = SistemaMapas()
+            
+            # Sub-pestañas dentro de Forrajero
+            subtabs = st.tabs(["Productividad Forrajera", "NDRE", "MSAVI", "EVI"])
+            
+            with subtabs[0]:
+                if 'puntos_forraje' in st.session_state.resultados:
+                    mapa_forraje = sistema_mapas.crear_mapa_calor_forraje(
+                        st.session_state.resultados['puntos_forraje'],
+                        st.session_state.poligono_data
+                    )
+                    if mapa_forraje:
+                        folium_static(mapa_forraje, width=1000, height=600)
+                        
+                        # Métricas
+                        forraje_vals = [p['productividad_kg_ms_ha'] for p in st.session_state.resultados['puntos_forraje']]
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Productividad promedio", f"{np.mean(forraje_vals):,.0f} kg MS/ha")
+                        with col2:
+                            st.metric("Mínimo", f"{min(forraje_vals):,.0f} kg MS/ha")
+                        with col3:
+                            st.metric("Máximo", f"{max(forraje_vals):,.0f} kg MS/ha")
+                    else:
+                        st.warning("No se pudo generar el mapa de productividad forrajera.")
+                else:
+                    st.info("No hay datos de productividad forrajera")
+            
+            with subtabs[1]:
+                if 'puntos_ndre' in st.session_state.resultados:
+                    mapa_ndre = sistema_mapas.crear_mapa_calor_ndre(
+                        st.session_state.resultados['puntos_ndre'],
+                        st.session_state.poligono_data
+                    )
+                    if mapa_ndre:
+                        folium_static(mapa_ndre, width=1000, height=600)
+                        ndre_vals = [p['ndre'] for p in st.session_state.resultados['puntos_ndre']]
+                        st.metric("NDRE promedio", f"{np.mean(ndre_vals):.3f}")
+                    else:
+                        st.warning("No se pudo generar el mapa de NDRE.")
+                else:
+                    st.info("No hay datos de NDRE")
+            
+            with subtabs[2]:
+                if 'puntos_msavi' in st.session_state.resultados:
+                    mapa_msavi = sistema_mapas.crear_mapa_calor_msavi(
+                        st.session_state.resultados['puntos_msavi'],
+                        st.session_state.poligono_data
+                    )
+                    if mapa_msavi:
+                        folium_static(mapa_msavi, width=1000, height=600)
+                        msavi_vals = [p['msavi'] for p in st.session_state.resultados['puntos_msavi']]
+                        st.metric("MSAVI promedio", f"{np.mean(msavi_vals):.3f}")
+                    else:
+                        st.warning("No se pudo generar el mapa de MSAVI.")
+                else:
+                    st.info("No hay datos de MSAVI")
+            
+            with subtabs[3]:
+                if 'puntos_evi' in st.session_state.resultados:
+                    mapa_evi = sistema_mapas.crear_mapa_calor_evi(
+                        st.session_state.resultados['puntos_evi'],
+                        st.session_state.poligono_data
+                    )
+                    if mapa_evi:
+                        folium_static(mapa_evi, width=1000, height=600)
+                        evi_vals = [p['evi'] for p in st.session_state.resultados['puntos_evi']]
+                        st.metric("EVI promedio", f"{np.mean(evi_vals):.3f}")
+                    else:
+                        st.warning("No se pudo generar el mapa de EVI.")
+                else:
+                    st.info("No hay datos de EVI")
+        else:
+            st.info("Ejecute el análisis primero para ver los mapas forrajeros")
 
 def mostrar_dashboard():
     """Muestra dashboard ejecutivo"""
@@ -3853,8 +4389,9 @@ def mostrar_informe():
         - Métricas clave (KPI)
         - Análisis completo de carbono con metodología Verra VCS
         - Análisis de biodiversidad con Índice de Shannon
-        - Evaluación de índices espectrales (NDVI, NDWI)
+        - Evaluación de índices espectrales (NDVI, NDWI, NDRE, MSAVI, EVI)
         - Análisis forrajero y plan de rotación
+        - Mapas de productividad forrajera
         - Tablas detalladas y recomendaciones
         - Conclusiones y valoración económica
         """)
