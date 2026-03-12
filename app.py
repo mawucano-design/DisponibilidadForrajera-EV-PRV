@@ -831,7 +831,7 @@ class SistemaMapas:
             boundary_geom = gdf_area.geometry.iloc[0].boundary
             if boundary_geom and not boundary_geom.is_empty:
                 gpd.GeoSeries([boundary_geom]).plot(ax=ax, color='black', linewidth=1.5)
-        buf = io.BytesIO()
+        buf = BytesIO()  # CORREGIDO: io.BytesIO() -> BytesIO()
         plt.savefig(buf, format='png', dpi=dpi, bbox_inches='tight')
         plt.close(fig)
         buf.seek(0)
@@ -982,7 +982,7 @@ class GeneradorReportes:
             draw.text((width//2 - 100, height//2 - 20), "Mapa interactivo", fill='black')
             draw.text((width//2 - 150, height//2 + 10), "Disponible en la aplicación web", fill='gray')
             draw.rectangle([10, 10, width-10, height-10], outline='blue', width=3)
-            img_byte_arr = io.BytesIO()
+            img_byte_arr = BytesIO()  # CORREGIDO: io.BytesIO() -> BytesIO()
             img.save(img_byte_arr, format='PNG')
             img_byte_arr.seek(0)
             return img_byte_arr
@@ -1233,11 +1233,15 @@ class GeneradorReportes:
             # Conclusiones
             story.append(PageBreak())
             story.append(Paragraph("CONCLUSIONES Y RECOMENDACIONES", subtitulo_style))
+            if 'analisis_forrajero' in res:
+                forrajero_data = res['analisis_forrajero']
+            else:
+                forrajero_data = {}
             conclusiones = [
                 f"El área de estudio de {res.get('area_total_ha', 0):,.1f} hectáreas almacena {res.get('carbono_total_ton', 0):,.0f} ton C, equivalente a {res.get('co2_total_ton', 0):,.0f} ton CO₂e.",
                 f"El índice de Shannon promedio es {res.get('shannon_promedio', 0):.3f}, lo que indica una biodiversidad {res.get('puntos_biodiversidad', [{}])[0].get('categoria', 'N/A').lower()}.",
                 f"El NDVI promedio de {res.get('ndvi_promedio', 0):.3f} sugiere una cobertura vegetal moderada.",
-                f"La productividad forrajera estimada es de {forrajero_data['disponibilidad_forrajera'].get('productividad_kg_ms_ha', 0):,.0f} kg MS/ha, lo que permite recomendar una carga de {forrajero_data['equivalentes_vaca'].get('ev_recomendado', 0):.1f} EV para un período de 30 días."
+                f"La productividad forrajera estimada es de {forrajero_data.get('disponibilidad_forrajera', {}).get('productividad_kg_ms_ha', 0):,.0f} kg MS/ha, lo que permite recomendar una carga de {forrajero_data.get('equivalentes_vaca', {}).get('ev_recomendado', 0):.1f} EV para un período de 30 días."
             ]
             for conc in conclusiones:
                 story.append(Paragraph(conc, styles['Normal']))
@@ -1602,7 +1606,7 @@ def generar_reporte_ia(resultados, gdf, sistema_mapas=None):
             p.add_run(f"{key}: ").bold = True
             p.add_run(val)
 
-        docx_output = io.BytesIO()
+        docx_output = BytesIO()
         doc.save(docx_output)
         docx_output.seek(0)
         return docx_output
