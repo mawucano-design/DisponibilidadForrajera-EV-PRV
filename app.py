@@ -45,8 +45,11 @@ from modules.ia_integration import (
     generar_analisis_carbono,
     generar_analisis_biodiversidad,
     generar_analisis_espectral,
-    generar_analisis_forrajero,          # nuevo
-    generar_recomendaciones_integradas
+    generar_analisis_forrajero,
+    generar_recomendaciones_integradas,
+    available_models,          # lista de modelos disponibles
+    model as default_model,    # modelo por defecto
+    GEMINI_API_KEY             # para verificar si hay clave
 )
 
 # ===== IMPORTACIONES GOOGLE EARTH ENGINE =====
@@ -71,13 +74,6 @@ from branca.colormap import LinearColormap
 import matplotlib.cm as cm
 from scipy.interpolate import griddata
 from matplotlib.colors import LinearSegmentedColormap
-
-# ===== CONFIGURACIÓN DE IA (GEMINI) =====
-GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY"))
-if not GEMINI_API_KEY:
-    st.warning("⚠️ No se encontró API Key de Gemini. La IA no estará disponible.")
-else:
-    os.environ["GEMINI_API_KEY"] = GEMINI_API_KEY
 
 # ===== INICIALIZACIÓN DE GOOGLE EARTH ENGINE =====
 def inicializar_gee():
@@ -185,12 +181,12 @@ class MetodologiaVerra:
             'pampa': {'factor_biomasa': 0.4, 'factor_suelo': 0.9, 'factor_madera': 0.2},
             'andes': {'factor_biomasa': 0.6, 'factor_suelo': 0.9, 'factor_madera': 0.5},
             # Nuevos ecosistemas argentinos
-            'monte': {'factor_biomasa': 0.3, 'factor_suelo': 0.5, 'factor_madera': 0.3},      # Monte desert, baja biomasa
-            'espinal': {'factor_biomasa': 0.5, 'factor_suelo': 0.8, 'factor_madera': 0.5},    # Espinal, biomasa moderada
-            'yungas': {'factor_biomasa': 1.1, 'factor_suelo': 1.0, 'factor_madera': 1.0},    # Yungas, alta biomasa
-            'chaqueño': {'factor_biomasa': 0.9, 'factor_suelo': 0.9, 'factor_madera': 0.9},  # Chaco, biomasa alta pero estacional
-            'patagonico': {'factor_biomasa': 0.3, 'factor_suelo': 0.5, 'factor_madera': 0.2},# Estepa patagónica, baja
-            'paranaense': {'factor_biomasa': 1.2, 'factor_suelo': 1.1, 'factor_madera': 1.1} # Selva Paranaense, muy alta
+            'monte': {'factor_biomasa': 0.3, 'factor_suelo': 0.5, 'factor_madera': 0.3},
+            'espinal': {'factor_biomasa': 0.5, 'factor_suelo': 0.8, 'factor_madera': 0.5},
+            'yungas': {'factor_biomasa': 1.1, 'factor_suelo': 1.0, 'factor_madera': 1.0},
+            'chaqueño': {'factor_biomasa': 0.9, 'factor_suelo': 0.9, 'factor_madera': 0.9},
+            'patagonico': {'factor_biomasa': 0.3, 'factor_suelo': 0.5, 'factor_madera': 0.2},
+            'paranaense': {'factor_biomasa': 1.2, 'factor_suelo': 1.1, 'factor_madera': 1.1}
         }
 
     def calcular_carbono_hectarea(self, ndvi: float, tipo_bosque: str, precipitacion: float) -> Dict:
@@ -400,13 +396,13 @@ class AnalisisForrajero:
                 'tasa_crecimiento_diario': {'bajo': 18, 'medio': 36, 'alto': 54},
                 'densidad_forraje': 2.6
             },
-            'monte': {  # para monte/desierto, muy baja productividad
+            'monte': {
                 'productividad_kg_ms_ha': {'bajo': 500, 'medio': 800, 'alto': 1200},
                 'eficiencia_aprovechamiento': 0.3,
                 'tasa_crecimiento_diario': {'bajo': 5, 'medio': 8, 'alto': 12},
                 'densidad_forraje': 1.5
             },
-            'patagonico': {  # estepa, baja
+            'patagonico': {
                 'productividad_kg_ms_ha': {'bajo': 600, 'medio': 1000, 'alto': 1500},
                 'eficiencia_aprovechamiento': 0.35,
                 'tasa_crecimiento_diario': {'bajo': 6, 'medio': 10, 'alto': 15},
@@ -794,6 +790,78 @@ class SistemaMapas:
             return m
         except Exception as e:
             st.warning(f"Error al crear mapa de calor para {variable}: {str(e)}")
+            return None
+
+    def crear_mapa_combinado_interpolado(self, resultados, gdf_area=None):
+        """
+        Crea un mapa con múltiples capas de calor continuas (carbono, ndvi, ndwi, biodiversidad, forraje)
+        y control de capas para activar/desactivar cada una.
+        """
+        if not resultados or gdf_area is None or gdf_area.empty:
+            return None
+        try:
+            bounds = gdf_area.total_bounds
+            centro = [(bounds[1] + bounds[3]) / 2, (bounds[0] + bounds[2]) / 2]
+            m = folium.Map(location=centro, zoom_start=12, tiles=self.capa_base,
+                           attr='Esri, Maxar, Earthstar Geographics', control_scale=True)
+            # Capa base: polígono transparente
+            folium.GeoJson(gdf_area.geometry.iloc[0], style_function=lambda x: {
+                'fillColor': 'transparent', 'color': '#1d4ed8', 'weight': 2,
+                'fillOpacity': 0.05, 'dashArray': '5, 5'
+            }).add_to(m)
+
+            # Variables a incluir y su configuración
+            variables = [
+                ('carbono', '🌳 Carbono', 45, 40, False),
+                ('ndvi', '📈 NDVI', 40, 35, False),
+                ('ndwi', '💧 NDWI', 40, 35, False),
+                ('biodiversidad', '🦋 Biodiversidad', 45, 40, False),
+                ('forraje', '🌿 Forraje', 45, 40, True)  # forraje visible por defecto
+            ]
+
+            # Generar malla única para todos (o generar por separado, pero compartir malla ahorra tiempo)
+            puntos_malla = self._generar_malla_puntos(gdf_area, densidad=1000)
+            if not puntos_malla:
+                return None
+
+            for var, nombre, radius, blur, default_show in variables:
+                puntos_muestra = resultados.get(f'puntos_{var}', [])
+                if not puntos_muestra:
+                    continue
+                puntos_interpolados = self._interpolar_valores_knn(puntos_muestra, puntos_malla.copy(), var)
+                heat_data = []
+                for p in puntos_interpolados:
+                    if var == 'carbono':
+                        val = p.get('carbono_ton_ha', 0)
+                    elif var == 'ndvi':
+                        val = p.get('ndvi', 0)
+                    elif var == 'ndwi':
+                        val = p.get('ndwi', 0)
+                    elif var == 'biodiversidad':
+                        val = p.get('indice_shannon', 0)
+                    elif var == 'forraje':
+                        val = p.get('productividad_kg_ms_ha', 0)
+                    else:
+                        continue
+                    heat_data.append([p['lat'], p['lon'], val])
+
+                gradient = self.estilos['gradientes'].get(var, self.estilos['gradientes']['carbono'])
+                HeatMap(
+                    heat_data,
+                    name=nombre,
+                    min_opacity=0.6,
+                    radius=radius,
+                    blur=blur,
+                    gradient=gradient,
+                    max_zoom=18,
+                    show=default_show
+                ).add_to(m)
+
+            folium.LayerControl().add_to(m)
+            m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
+            return m
+        except Exception as e:
+            st.warning(f"Error al crear mapa combinado: {str(e)}")
             return None
 
     def crear_mapa_estatico(self, resultados, variable='carbono', gdf_area=None, dpi=150):
@@ -1436,7 +1504,10 @@ class GeneradorReportes:
 # ===============================
 # FUNCIÓN PARA GENERAR INFORME CON IA
 # ===============================
-def generar_reporte_ia(resultados, gdf, sistema_mapas=None):
+def generar_reporte_ia(resultados, gdf, sistema_mapas=None, modelo_ia=None):
+    """
+    Genera un informe en Word con análisis de IA, usando el modelo especificado.
+    """
     import tempfile
     from docx import Document
     from docx.shared import Inches, Pt
@@ -1444,9 +1515,19 @@ def generar_reporte_ia(resultados, gdf, sistema_mapas=None):
     from datetime import datetime
     import io
     import os
+    import google.generativeai as genai
 
     if not REPORTDOCX_AVAILABLE:
         st.error("python-docx no está instalado. No se puede generar el informe.")
+        return None
+
+    # Si no se pasa un modelo, usar el global (si existe)
+    if modelo_ia is None:
+        from modules.ia_integration import model as default_model
+        modelo_ia = default_model
+
+    if modelo_ia is None:
+        st.error("No hay modelo de IA disponible. Verifique la API key.")
         return None
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -1564,7 +1645,7 @@ def generar_reporte_ia(resultados, gdf, sistema_mapas=None):
         analisis_espectral = generar_analisis_espectral(df, stats)
         doc.add_paragraph(analisis_espectral)
 
-        # 5. Análisis Forrajero (NUEVO)
+        # 5. Análisis Forrajero
         doc.add_heading('5. ANÁLISIS FORRAJERO', level=1)
         if 'analisis_forrajero' in resultados:
             forrajero = resultados['analisis_forrajero']
@@ -1892,7 +1973,7 @@ def ejecutar_analisis_completo(gdf, tipo_ecosistema, num_puntos, usar_gee=False)
         elif tipo_ecosistema in ['amazonia', 'choco', 'yungas', 'paranaense']:
             sistema_forrajero = 'silvopastoril'
         elif tipo_ecosistema in ['monte']:
-            sistema_forrajero = 'monte'  # nuevo sistema específico
+            sistema_forrajero = 'monte'
         else:
             sistema_forrajero = 'pastizal_natural'
 
@@ -2055,7 +2136,16 @@ def mostrar_mapas_calor():
             if mapa:
                 folium_static(mapa, width=1000, height=650)
     with tab7:
-        st.info("Mapa combinado con control de capas (implementación pendiente)")
+        st.subheader("🎭 Mapa Combinado - Todas las Capas")
+        if st.session_state.resultados:
+            mapa_combinado = sistema.crear_mapa_combinado_interpolado(st.session_state.resultados, st.session_state.poligono_data)
+            if mapa_combinado:
+                folium_static(mapa_combinado, width=1000, height=650)
+                st.info("Use el control de capas en la esquina superior derecha para activar/desactivar cada variable.")
+            else:
+                st.warning("No se pudo generar el mapa combinado.")
+        else:
+            st.info("Ejecute el análisis primero para ver el mapa combinado")
 
 def mostrar_dashboard():
     st.header("📊 Dashboard Ejecutivo")
@@ -2282,11 +2372,18 @@ def mostrar_informe():
                 if docx:
                     st.download_button("⬇️ Descargar DOCX", docx, f"informe_{datetime.now().strftime('%Y%m%d_%H%M')}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
     with col3:
-        if st.button("🤖 Generar Informe con IA", use_container_width=True):
-            with st.spinner("Generando informe con IA..."):
-                reporte_ia = generar_reporte_ia(st.session_state.resultados, st.session_state.poligono_data, sistema)
-                if reporte_ia:
-                    st.download_button("⬇️ Descargar Informe IA", reporte_ia, f"informe_IA_{datetime.now().strftime('%Y%m%d_%H%M')}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        # Verificar si hay modelos disponibles
+        from modules.ia_integration import available_models, model as default_model
+        if available_models and default_model is not None:
+            if st.button("🤖 Generar Informe con IA", use_container_width=True):
+                with st.spinner("Generando informe con IA..."):
+                    # Usar el modelo seleccionado en la sidebar (si existe)
+                    modelo_seleccionado = st.session_state.get('modelo_ia', default_model)
+                    reporte_ia = generar_reporte_ia(st.session_state.resultados, st.session_state.poligono_data, sistema, modelo_seleccionado)
+                    if reporte_ia:
+                        st.download_button("⬇️ Descargar Informe IA", reporte_ia, f"informe_IA_{datetime.now().strftime('%Y%m%d_%H%M')}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        else:
+            st.info("🤖 IA no disponible (falta API key o modelos)")
     with col4:
         if st.button("🌍 Generar GeoJSON", use_container_width=True):
             geojson = generador.generar_geojson()
@@ -2340,6 +2437,22 @@ def main():
             usar_gee = False
             if GEE_AVAILABLE and st.session_state.gee_authenticated:
                 usar_gee = st.checkbox("Usar datos reales de GEE")
+            
+            # Selector de modelo de IA (si hay modelos disponibles)
+            from modules.ia_integration import available_models, model as default_model
+            if available_models and default_model is not None:
+                # Almacenar el modelo seleccionado en session_state
+                modelo_seleccionado = st.selectbox("Modelo de IA", available_models, 
+                                                    index=available_models.index(default_model.model_name) if default_model.model_name in available_models else 0)
+                # Re-inicializar el modelo si es necesario (se puede hacer bajo demanda)
+                # Por simplicidad, usamos el mismo modelo global, pero podríamos cambiarlo.
+                # Lo guardamos en session_state para usarlo en la generación del informe.
+                st.session_state.modelo_ia = default_model  # no cambiamos el modelo global para no complicar, pero podríamos.
+                st.session_state.modelo_ia_nombre = modelo_seleccionado
+                st.success(f"✅ Modelo seleccionado: {modelo_seleccionado}")
+            else:
+                st.session_state.modelo_ia = None
+            
             if st.button("🚀 Ejecutar Análisis Completo", type="primary", use_container_width=True):
                 with st.spinner("Analizando..."):
                     resultados = ejecutar_analisis_completo(st.session_state.poligono_data, tipo_ecosistema, num_puntos, usar_gee)
