@@ -16,6 +16,9 @@ openpyxl>=3.1.0
 pyproj>=3.6.0
 pillow>=10.0.0
 requests>=2.31.0
-google.generativeai
-griddata
-scipy.interpolate
+google-generativeai 
+python-docx
+kaleido 
+matplotlib
+scipy
+reportlab
