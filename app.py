@@ -162,7 +162,7 @@ class ConectorClimaticoTropical:
             return {'precipitacion': 1200 + random.uniform(-200, 200), 'temperatura': 22 + random.uniform(-2, 2)}
 
 # ===============================
-# 🌳 METODOLOGÍA VERRA (ajustada para cultivos)
+# 🌳 METODOLOGÍA VERRA (ajustada para cultivos y ecosistemas argentinos)
 # ===============================
 class MetodologiaVerra:
     def __init__(self):
@@ -175,6 +175,7 @@ class MetodologiaVerra:
             'carbono_suelo': 2.5
         }
         self.factores_vegetacion = {
+            # Ecosistemas originales
             'amazonia': {'factor_biomasa': 1.2, 'factor_suelo': 1.0, 'factor_madera': 1.0},
             'choco': {'factor_biomasa': 1.3, 'factor_suelo': 1.1, 'factor_madera': 1.0},
             'seco': {'factor_biomasa': 0.8, 'factor_suelo': 0.7, 'factor_madera': 0.8},
@@ -182,7 +183,14 @@ class MetodologiaVerra:
             'cultivo': {'factor_biomasa': 0.2, 'factor_suelo': 0.7, 'factor_madera': 0.1},
             'agricola': {'factor_biomasa': 0.25, 'factor_suelo': 0.8, 'factor_madera': 0.1},
             'pampa': {'factor_biomasa': 0.4, 'factor_suelo': 0.9, 'factor_madera': 0.2},
-            'andes': {'factor_biomasa': 0.6, 'factor_suelo': 0.9, 'factor_madera': 0.5}
+            'andes': {'factor_biomasa': 0.6, 'factor_suelo': 0.9, 'factor_madera': 0.5},
+            # Nuevos ecosistemas argentinos
+            'monte': {'factor_biomasa': 0.3, 'factor_suelo': 0.5, 'factor_madera': 0.3},      # Monte desert, baja biomasa
+            'espinal': {'factor_biomasa': 0.5, 'factor_suelo': 0.8, 'factor_madera': 0.5},    # Espinal, biomasa moderada
+            'yungas': {'factor_biomasa': 1.1, 'factor_suelo': 1.0, 'factor_madera': 1.0},    # Yungas, alta biomasa
+            'chaqueño': {'factor_biomasa': 0.9, 'factor_suelo': 0.9, 'factor_madera': 0.9},  # Chaco, biomasa alta pero estacional
+            'patagonico': {'factor_biomasa': 0.3, 'factor_suelo': 0.5, 'factor_madera': 0.2},# Estepa patagónica, baja
+            'paranaense': {'factor_biomasa': 1.2, 'factor_suelo': 1.1, 'factor_madera': 1.1} # Selva Paranaense, muy alta
         }
 
     def calcular_carbono_hectarea(self, ndvi: float, tipo_bosque: str, precipitacion: float) -> Dict:
@@ -253,7 +261,7 @@ class MetodologiaVerra:
         }
 
 # ===============================
-# 🦋 ANÁLISIS DE BIODIVERSIDAD
+# 🦋 ANÁLISIS DE BIODIVERSIDAD (con nuevos ecosistemas)
 # ===============================
 class AnalisisBiodiversidad:
     def __init__(self):
@@ -265,7 +273,14 @@ class AnalisisBiodiversidad:
             'seco': {'riqueza_base': 40, 'abundancia_base': 200, 'factor_ndvi': 0.8, 'es_cultivo': False},
             'cultivo': {'riqueza_base': 10, 'abundancia_base': 50, 'factor_ndvi': 0.2, 'es_cultivo': True},
             'vid': {'riqueza_base': 8, 'abundancia_base': 40, 'factor_ndvi': 0.1, 'es_cultivo': True},
-            'agricola': {'riqueza_base': 15, 'abundancia_base': 60, 'factor_ndvi': 0.3, 'es_cultivo': True}
+            'agricola': {'riqueza_base': 15, 'abundancia_base': 60, 'factor_ndvi': 0.3, 'es_cultivo': True},
+            # Nuevos ecosistemas argentinos
+            'monte': {'riqueza_base': 20, 'abundancia_base': 100, 'factor_ndvi': 0.5, 'es_cultivo': False},
+            'espinal': {'riqueza_base': 40, 'abundancia_base': 200, 'factor_ndvi': 0.6, 'es_cultivo': False},
+            'yungas': {'riqueza_base': 120, 'abundancia_base': 800, 'factor_ndvi': 0.8, 'es_cultivo': False},
+            'chaqueño': {'riqueza_base': 80, 'abundancia_base': 500, 'factor_ndvi': 0.7, 'es_cultivo': False},
+            'patagonico': {'riqueza_base': 20, 'abundancia_base': 150, 'factor_ndvi': 0.4, 'es_cultivo': False},
+            'paranaense': {'riqueza_base': 150, 'abundancia_base': 1000, 'factor_ndvi': 0.8, 'es_cultivo': False}
         }
 
     def calcular_shannon(self, ndvi: float, tipo_ecosistema: str, area_ha: float, precipitacion: float) -> Dict:
@@ -275,7 +290,7 @@ class AnalisisBiodiversidad:
             factor_area = min(1.3, math.log10(area_ha + 1) * 0.2 + 1)
         else:
             factor_area = min(2.0, math.log10(area_ha + 1) * 0.5 + 1)
-        if tipo_ecosistema in ['amazonia', 'choco']:
+        if tipo_ecosistema in ['amazonia', 'choco', 'yungas', 'paranaense']:
             factor_precip = min(1.5, precipitacion / 2000)
         elif params['es_cultivo']:
             factor_precip = 1.0 + (precipitacion / 2000 * 0.3)
@@ -384,6 +399,18 @@ class AnalisisForrajero:
                 'eficiencia_aprovechamiento': 0.45,
                 'tasa_crecimiento_diario': {'bajo': 18, 'medio': 36, 'alto': 54},
                 'densidad_forraje': 2.6
+            },
+            'monte': {  # para monte/desierto, muy baja productividad
+                'productividad_kg_ms_ha': {'bajo': 500, 'medio': 800, 'alto': 1200},
+                'eficiencia_aprovechamiento': 0.3,
+                'tasa_crecimiento_diario': {'bajo': 5, 'medio': 8, 'alto': 12},
+                'densidad_forraje': 1.5
+            },
+            'patagonico': {  # estepa, baja
+                'productividad_kg_ms_ha': {'bajo': 600, 'medio': 1000, 'alto': 1500},
+                'eficiencia_aprovechamiento': 0.35,
+                'tasa_crecimiento_diario': {'bajo': 6, 'medio': 10, 'alto': 15},
+                'densidad_forraje': 1.8
             }
         }
         self.consumo_animal = {
@@ -831,7 +858,7 @@ class SistemaMapas:
             boundary_geom = gdf_area.geometry.iloc[0].boundary
             if boundary_geom and not boundary_geom.is_empty:
                 gpd.GeoSeries([boundary_geom]).plot(ax=ax, color='black', linewidth=1.5)
-        buf = BytesIO()  # CORREGIDO: io.BytesIO() -> BytesIO()
+        buf = BytesIO()
         plt.savefig(buf, format='png', dpi=dpi, bbox_inches='tight')
         plt.close(fig)
         buf.seek(0)
@@ -982,7 +1009,7 @@ class GeneradorReportes:
             draw.text((width//2 - 100, height//2 - 20), "Mapa interactivo", fill='black')
             draw.text((width//2 - 150, height//2 + 10), "Disponible en la aplicación web", fill='gray')
             draw.rectangle([10, 10, width-10, height-10], outline='blue', width=3)
-            img_byte_arr = BytesIO()  # CORREGIDO: io.BytesIO() -> BytesIO()
+            img_byte_arr = BytesIO()
             img.save(img_byte_arr, format='PNG')
             img_byte_arr.seek(0)
             return img_byte_arr
@@ -1571,7 +1598,7 @@ def generar_reporte_ia(resultados, gdf, sistema_mapas=None):
                     pass
 
         doc.add_heading('5.1 Interpretación técnica', level=2)
-        analisis_forrajero = generar_analisis_forrajero(df, stats)  # función nueva
+        analisis_forrajero = generar_analisis_forrajero(df, stats)
         doc.add_paragraph(analisis_forrajero)
 
         # 6. Mapas de calor
@@ -1859,10 +1886,13 @@ def ejecutar_analisis_completo(gdf, tipo_ecosistema, num_puntos, usar_gee=False)
         biodiversidad = AnalisisBiodiversidad()
         forrajero = AnalisisForrajero()
 
-        if tipo_ecosistema in ['pampa', 'seco']:
+        # Asignar sistema forrajero según ecosistema
+        if tipo_ecosistema in ['pampa', 'seco', 'espinal', 'patagonico']:
             sistema_forrajero = 'pastizal_natural'
-        elif tipo_ecosistema in ['amazonia', 'choco']:
+        elif tipo_ecosistema in ['amazonia', 'choco', 'yungas', 'paranaense']:
             sistema_forrajero = 'silvopastoril'
+        elif tipo_ecosistema in ['monte']:
+            sistema_forrajero = 'monte'  # nuevo sistema específico
         else:
             sistema_forrajero = 'pastizal_natural'
 
@@ -2299,7 +2329,13 @@ def main():
 
         if st.session_state.poligono_data is not None:
             st.header("⚙️ Configuración")
-            tipo_ecosistema = st.selectbox("Tipo de ecosistema", ['amazonia', 'choco', 'andes', 'pampa', 'seco', 'cultivo', 'vid', 'agricola'])
+            # Lista de ecosistemas actualizada con los nuevos de Argentina
+            ecosistemas = [
+                'amazonia', 'choco', 'andes', 'pampa', 'seco', 
+                'cultivo', 'vid', 'agricola',
+                'monte', 'espinal', 'yungas', 'chaqueño', 'patagonico', 'paranaense'
+            ]
+            tipo_ecosistema = st.selectbox("Tipo de ecosistema", ecosistemas)
             num_puntos = st.slider("Número de puntos de muestreo", 10, 200, 50)
             usar_gee = False
             if GEE_AVAILABLE and st.session_state.gee_authenticated:
@@ -2324,6 +2360,7 @@ def main():
             - 🗺️ Mapas de calor continuos con interpolación KNN
             - 📊 Dashboard interactivo y gráficos
             - 📄 Informes PDF/DOCX/GeoJSON y con IA (Gemini)
+            - 🌍 Ecosistemas argentinos incluidos: monte, espinal, yungas, chaqueño, patagonico, paranaense
             """)
     else:
         tabs = st.tabs(["🗺️ Mapas", "📊 Dashboard", "🌳 Carbono", "🦋 Biodiversidad", "🐮 Forrajero", "📈 Comparación", "📥 Informe"])
