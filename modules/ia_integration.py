@@ -30,23 +30,37 @@ else:
 if GEMINI_API_KEY:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
-        # Probar con gemini-pro (más estable) y si falla intentar con gemini-1.5-flash
-        try:
-            model = genai.GenerativeModel('gemini-pro')
-            # Prueba rápida para verificar que funciona
-            response = model.generate_content("Responde con OK")
-            if response and response.text:
-                st.success("✅ Gemini configurado correctamente (modelo gemini-pro).")
-        except Exception as e:
-            st.warning(f"⚠️ Error con gemini-pro, intentando gemini-1.5-flash: {e}")
-            try:
-                model = genai.GenerativeModel('gemini-1.5-flash')
-                response = model.generate_content("Responde con OK")
-                if response and response.text:
-                    st.success("✅ Gemini configurado correctamente (modelo gemini-1.5-flash).")
-            except Exception as e2:
-                st.error(f"❌ No se pudo inicializar ningún modelo Gemini: {e2}")
-                model = None
+        # Listar modelos disponibles para elegir uno adecuado
+        modelos_disponibles = []
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                modelos_disponibles.append(m.name)
+        st.info(f"Modelos disponibles para generateContent: {modelos_disponibles}")
+        
+        # Orden de preferencia de modelos
+        preferencias = [
+            'models/gemini-1.5-pro',
+            'models/gemini-1.5-flash',
+            'models/gemini-1.0-pro',
+            'models/gemini-pro',
+            'models/gemini-1.0-pro-latest',
+            'models/gemini-1.5-pro-latest'
+        ]
+        modelo_elegido = None
+        for pref in preferencias:
+            if pref in modelos_disponibles:
+                modelo_elegido = pref
+                break
+        if modelo_elegido is None and modelos_disponibles:
+            # Si no hay preferencia, tomar el primero
+            modelo_elegido = modelos_disponibles[0]
+        
+        if modelo_elegido:
+            model = genai.GenerativeModel(modelo_elegido)
+            st.success(f"✅ Gemini configurado correctamente (modelo: {modelo_elegido}).")
+        else:
+            st.error("❌ No se encontró ningún modelo que soporte generateContent.")
+            model = None
     except Exception as e:
         st.error(f"❌ Error al configurar Gemini: {e}")
         model = None
@@ -93,7 +107,7 @@ def preparar_resumen(resultados):
 
 def generar_analisis_carbono(df, stats):
     if model is None:
-        return "**IA no disponible.** La generación de análisis con IA requiere una API key de Gemini válida. Configure la clave en los secrets de Streamlit o en la variable de entorno GEMINI_API_KEY."
+        return "**IA no disponible.** La generación de análisis con IA requiere una API key de Gemini válida y un modelo disponible. Configure la clave en los secrets de Streamlit o en la variable de entorno GEMINI_API_KEY."
     
     desglose = stats.get('desglose', {})
     desglose_str = "\n".join([f"   - {k}: {v:.2f} ton C/ha" for k, v in desglose.items()])
@@ -125,7 +139,7 @@ def generar_analisis_carbono(df, stats):
 
 def generar_analisis_biodiversidad(df, stats):
     if model is None:
-        return "**IA no disponible.** La generación de análisis con IA requiere una API key de Gemini válida. Configure la clave en los secrets de Streamlit o en la variable de entorno GEMINI_API_KEY."
+        return "**IA no disponible.** La generación de análisis con IA requiere una API key de Gemini válida y un modelo disponible. Configure la clave en los secrets de Streamlit o en la variable de entorno GEMINI_API_KEY."
     
     prompt = f"""
     Eres un ecólogo experto en índices de biodiversidad, especialmente el índice de Shannon. Con base en los siguientes datos de un área de estudio, genera un análisis técnico detallado y concreto sobre la biodiversidad. El análisis debe seguir el estilo del informe proporcionado (biomap.pdf), incluyendo categorización, implicaciones ecológicas y comparaciones con otros sistemas. No incluyas especulaciones; utiliza únicamente los valores proporcionados.
@@ -152,7 +166,7 @@ def generar_analisis_biodiversidad(df, stats):
 
 def generar_analisis_espectral(df, stats):
     if model is None:
-        return "**IA no disponible.** La generación de análisis con IA requiere una API key de Gemini válida. Configure la clave en los secrets de Streamlit o en la variable de entorno GEMINI_API_KEY."
+        return "**IA no disponible.** La generación de análisis con IA requiere una API key de Gemini válida y un modelo disponible. Configure la clave en los secrets de Streamlit o en la variable de entorno GEMINI_API_KEY."
     
     prompt = f"""
     Eres un especialista en teledetección y análisis espectral. Con base en los siguientes datos de un área de estudio, genera un análisis técnico detallado y concreto sobre los índices espectrales. El análisis debe seguir el estilo del informe proporcionado (biomap.pdf), incluyendo interpretación de cada índice, variabilidad y correlaciones con otras variables. No incluyas especulaciones; utiliza únicamente los valores proporcionados.
@@ -179,7 +193,7 @@ def generar_analisis_espectral(df, stats):
 
 def generar_analisis_forrajero(df, stats):
     if model is None:
-        return "**IA no disponible.** La generación de análisis con IA requiere una API key de Gemini válida. Configure la clave en los secrets de Streamlit o en la variable de entorno GEMINI_API_KEY."
+        return "**IA no disponible.** La generación de análisis con IA requiere una API key de Gemini válida y un modelo disponible. Configure la clave en los secrets de Streamlit o en la variable de entorno GEMINI_API_KEY."
     
     # Información de sublotes si está disponible
     sublotes_info = ""
@@ -218,7 +232,7 @@ def generar_analisis_forrajero(df, stats):
 
 def generar_recomendaciones_integradas(df, stats):
     if model is None:
-        return "**IA no disponible.** La generación de análisis con IA requiere una API key de Gemini válida. Configure la clave en los secrets de Streamlit o en la variable de entorno GEMINI_API_KEY."
+        return "**IA no disponible.** La generación de análisis con IA requiere una API key de Gemini válida y un modelo disponible. Configure la clave en los secrets de Streamlit o en la variable de entorno GEMINI_API_KEY."
     
     prompt = f"""
     Eres un consultor ambiental senior especializado en proyectos de carbono, biodiversidad y manejo ganadero sostenible. Con base en todos los datos proporcionados, genera un conjunto de recomendaciones integradas para el área de estudio. Las recomendaciones deben ser concretas, basadas en los datos y orientadas a la acción, siguiendo el estilo del informe biomap.pdf (incluye estrategias de agricultura de conservación, mejora de biodiversidad, monitoreo y potencial de créditos de carbono). No incluyas especulaciones.
