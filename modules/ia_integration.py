@@ -14,6 +14,7 @@ import google.generativeai as genai
 # === CONFIGURACIÓN DE GEMINI ===
 GEMINI_API_KEY = None
 model = None
+available_models = []
 
 # Intentar obtener la API key desde secrets de Streamlit o variables de entorno
 if "GEMINI_API_KEY" in st.secrets:
@@ -30,37 +31,27 @@ else:
 if GEMINI_API_KEY:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
-        # Listar modelos disponibles para elegir uno adecuado
-        modelos_disponibles = []
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                modelos_disponibles.append(m.name)
-        st.info(f"Modelos disponibles para generateContent: {modelos_disponibles}")
-        
-        # Orden de preferencia de modelos
-        preferencias = [
-            'models/gemini-1.5-pro',
-            'models/gemini-1.5-flash',
-            'models/gemini-1.0-pro',
-            'models/gemini-pro',
-            'models/gemini-1.0-pro-latest',
-            'models/gemini-1.5-pro-latest'
-        ]
-        modelo_elegido = None
-        for pref in preferencias:
-            if pref in modelos_disponibles:
-                modelo_elegido = pref
-                break
-        if modelo_elegido is None and modelos_disponibles:
-            # Si no hay preferencia, tomar el primero
-            modelo_elegido = modelos_disponibles[0]
-        
-        if modelo_elegido:
-            model = genai.GenerativeModel(modelo_elegido)
-            st.success(f"✅ Gemini configurado correctamente (modelo: {modelo_elegido}).")
+        # Listar modelos disponibles
+        models = genai.list_models()
+        # Filtrar modelos que soporten generateContent
+        available_models = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
+        if available_models:
+            st.info(f"Modelos disponibles para generar contenido: {', '.join(available_models)}")
+            # Usar el primer modelo disponible por defecto
+            default_model = available_models[0]
+            # Permitir al usuario seleccionar el modelo en la interfaz (esto se hará en la sidebar)
+            # Aquí solo inicializamos con el primero; luego en la función main de app.py se puede agregar un selector
+            try:
+                model = genai.GenerativeModel(default_model)
+                # Prueba rápida
+                response = model.generate_content("Responde con OK")
+                if response and response.text:
+                    st.success(f"✅ Gemini configurado correctamente con modelo {default_model}.")
+            except Exception as e:
+                st.error(f"❌ Error al inicializar el modelo {default_model}: {e}")
+                model = None
         else:
-            st.error("❌ No se encontró ningún modelo que soporte generateContent.")
-            model = None
+            st.error("❌ No se encontraron modelos que soporten generateContent.")
     except Exception as e:
         st.error(f"❌ Error al configurar Gemini: {e}")
         model = None
