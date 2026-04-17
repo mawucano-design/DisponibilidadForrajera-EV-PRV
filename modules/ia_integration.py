@@ -1,17 +1,8 @@
-# modules/ia_integration.py
-# ===============================
-# MÓDULO DE INTEGRACIÓN CON IA (GROQ)
-# Funciones para generar análisis técnicos basados en datos
-# Siguiendo el formato del informe biomap.pdf
-# ===============================
-
+# modules/ia_integration.py (versión con depuración)
 import streamlit as st
-import pandas as pd
-import numpy as np
 import os
 from groq import Groq
 
-# === CONFIGURACIÓN DE GROQ ===
 GROQ_API_KEY = None
 client = None
 available_models = [
@@ -23,7 +14,8 @@ available_models = [
     "llama-3.1-8b-instant"
 ]
 
-# Intentar obtener la API key desde secrets de Streamlit o variables de entorno
+# Intentar obtener la API key desde secrets o variables de entorno
+st.info("🔍 Buscando API key de Groq...")
 if "GROQ_API_KEY" in st.secrets:
     GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
     st.success("✅ API key de Groq cargada desde secrets de Streamlit.")
@@ -32,7 +24,34 @@ else:
     if GROQ_API_KEY:
         st.success("✅ API key de Groq cargada desde variable de entorno.")
     else:
-        st.error("⚠️ No se encontró la API Key de Groq. La IA no estará disponible.")
+        st.error("❌ No se encontró la API Key de Groq. La IA no estará disponible.")
+
+# Configurar Groq si la clave existe
+if GROQ_API_KEY:
+    st.info("🔧 Inicializando cliente de Groq...")
+    try:
+        client = Groq(api_key=GROQ_API_KEY)
+        st.success("✅ Cliente Groq creado correctamente.")
+        
+        # Prueba opcional (comentada para evitar fallos de red)
+        # st.info("📡 Probando conectividad con Groq...")
+        # test_model = available_models[0]
+        # test_response = client.chat.completions.create(
+        #     model=test_model,
+        #     messages=[{"role": "user", "content": "OK"}],
+        #     max_tokens=2
+        # )
+        # if test_response and test_response.choices[0].message.content:
+        #     st.success(f"✅ Conexión exitosa con modelo {test_model}.")
+        # else:
+        #     st.error("❌ La respuesta de prueba de Groq no fue válida.")
+        #     client = None
+        st.success("✅ Cliente listo (prueba de conectividad desactivada).")
+    except Exception as e:
+        st.error(f"❌ Error al crear el cliente Groq: {str(e)}")
+        client = None
+else:
+    st.error("⚠️ No se proporcionó API key. La IA no estará disponible.")
 
 # Configurar Groq si la clave existe
 if GROQ_API_KEY:
