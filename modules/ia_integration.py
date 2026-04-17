@@ -1,6 +1,6 @@
 # modules/ia_integration.py
 # ===============================
-# MÓDULO DE INTEGRACIÓN CON IA (GEMINI)
+# MÓDULO DE INTEGRACIÓN CON IA (GROQ)
 # Funciones para generar análisis técnicos basados en datos
 # Siguiendo el formato del informe biomap.pdf
 # ===============================
@@ -9,52 +9,68 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import os
-import google.generativeai as genai
+from groq import Groq
 
-# === CONFIGURACIÓN DE GEMINI ===
-GEMINI_API_KEY = None
-model = None
-available_models = []
+# === CONFIGURACIÓN DE GROQ ===
+GROQ_API_KEY = None
+client = None
+available_models = [
+    "llama3-70b-8192",
+    "llama3-8b-8192",
+    "mixtral-8x7b-32768",
+    "gemma2-9b-it",
+    "llama-3.1-70b-versatile",
+    "llama-3.1-8b-instant"
+]
 
 # Intentar obtener la API key desde secrets de Streamlit o variables de entorno
-if "GEMINI_API_KEY" in st.secrets:
-    GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
-    st.success("✅ API key de Gemini cargada desde secrets de Streamlit.")
+if "GROQ_API_KEY" in st.secrets:
+    GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
+    st.success("✅ API key de Groq cargada desde secrets de Streamlit.")
 else:
-    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-    if GEMINI_API_KEY:
-        st.success("✅ API key de Gemini cargada desde variable de entorno.")
+    GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+    if GROQ_API_KEY:
+        st.success("✅ API key de Groq cargada desde variable de entorno.")
     else:
-        st.error("⚠️ No se encontró la API Key de Gemini. La IA no estará disponible.")
+        st.error("⚠️ No se encontró la API Key de Groq. La IA no estará disponible.")
 
-# Configurar Gemini si la clave existe
-if GEMINI_API_KEY:
+# Configurar Groq si la clave existe
+if GROQ_API_KEY:
     try:
-        genai.configure(api_key=GEMINI_API_KEY)
-        # Listar modelos disponibles
-        models = genai.list_models()
-        # Filtrar modelos que soporten generateContent
-        available_models = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
-        if available_models:
-            st.info(f"Modelos disponibles para generar contenido: {', '.join(available_models)}")
-            # Usar el primer modelo disponible por defecto
-            default_model = available_models[0]
-            # Permitir al usuario seleccionar el modelo en la interfaz (esto se hará en la sidebar)
-            # Aquí solo inicializamos con el primero; luego en la función main de app.py se puede agregar un selector
-            try:
-                model = genai.GenerativeModel(default_model)
-                # Prueba rápida
-                response = model.generate_content("Responde con OK")
-                if response and response.text:
-                    st.success(f"✅ Gemini configurado correctamente con modelo {default_model}.")
-            except Exception as e:
-                st.error(f"❌ Error al inicializar el modelo {default_model}: {e}")
-                model = None
+        client = Groq(api_key=GROQ_API_KEY)
+        # Probar conectividad con una llamada rápida (usando el primer modelo)
+        test_model = available_models[0]
+        test_response = client.chat.completions.create(
+            model=test_model,
+            messages=[{"role": "user", "content": "Responde con OK"}],
+            max_tokens=5
+        )
+        if test_response and test_response.choices[0].message.content:
+            st.success(f"✅ Groq configurado correctamente. Modelos disponibles: {', '.join(available_models)}")
         else:
-            st.error("❌ No se encontraron modelos que soporten generateContent.")
+            st.error("❌ La respuesta de prueba de Groq no fue válida.")
+            client = None
     except Exception as e:
-        st.error(f"❌ Error al configurar Gemini: {e}")
-        model = None
+        st.error(f"❌ Error al configurar Groq: {e}")
+        client = None
+
+def get_groq_response(prompt, model_name="llama3-70b-8192", temperature=0.7):
+    """
+    Envía un prompt a Groq y retorna la respuesta de texto.
+    """
+    if client is None:
+        return "**IA no disponible.** La generación de análisis con IA requiere una API key de Groq válida. Configure la clave en los secrets de Streamlit o en la variable de entorno GROQ_API_KEY."
+    
+    try:
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=temperature,
+            max_tokens=2048  # Suficiente para análisis detallados
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"**Error al consultar Groq:** {str(e)}"
 
 def preparar_resumen(resultados):
     """
@@ -97,8 +113,8 @@ def preparar_resumen(resultados):
     return df, stats
 
 def generar_analisis_carbono(df, stats):
-    if model is None:
-        return "**IA no disponible.** La generación de análisis con IA requiere una API key de Gemini válida y un modelo disponible. Configure la clave en los secrets de Streamlit o en la variable de entorno GEMINI_API_KEY."
+    if client is None:
+        return "**IA no disponible.** La generación de análisis con IA requiere una API key de Groq válida. Configure la clave en los secrets de Streamlit o en la variable de entorno GROQ_API_KEY."
     
     desglose = stats.get('desglose', {})
     desglose_str = "\n".join([f"   - {k}: {v:.2f} ton C/ha" for k, v in desglose.items()])
@@ -125,12 +141,11 @@ def generar_analisis_carbono(df, stats):
     4. Potencial para proyectos de carbono bajo estándar VCS, mencionando la adicionalidad y permanencia. ¿Qué prácticas podrían aumentar el secuestro?
     5. Recomendaciones para mejorar la precisión en futuras mediciones.
     """
-    response = model.generate_content(prompt)
-    return response.text
+    return get_groq_response(prompt)
 
 def generar_analisis_biodiversidad(df, stats):
-    if model is None:
-        return "**IA no disponible.** La generación de análisis con IA requiere una API key de Gemini válida y un modelo disponible. Configure la clave en los secrets de Streamlit o en la variable de entorno GEMINI_API_KEY."
+    if client is None:
+        return "**IA no disponible.** La generación de análisis con IA requiere una API key de Groq válida. Configure la clave en los secrets de Streamlit o en la variable de entorno GROQ_API_KEY."
     
     prompt = f"""
     Eres un ecólogo experto en índices de biodiversidad, especialmente el índice de Shannon. Con base en los siguientes datos de un área de estudio, genera un análisis técnico detallado y concreto sobre la biodiversidad. El análisis debe seguir el estilo del informe proporcionado (biomap.pdf), incluyendo categorización, implicaciones ecológicas y comparaciones con otros sistemas. No incluyas especulaciones; utiliza únicamente los valores proporcionados.
@@ -152,12 +167,11 @@ def generar_analisis_biodiversidad(df, stats):
     4. Análisis de la variabilidad espacial: ¿qué indican los rangos observados de Shannon, NDVI y NDWI sobre la heterogeneidad del área?
     5. Recomendaciones concretas para conservar o mejorar la biodiversidad, basadas en los datos (ej. creación de hábitats, diversificación de cultivos, reducción de pesticidas).
     """
-    response = model.generate_content(prompt)
-    return response.text
+    return get_groq_response(prompt)
 
 def generar_analisis_espectral(df, stats):
-    if model is None:
-        return "**IA no disponible.** La generación de análisis con IA requiere una API key de Gemini válida y un modelo disponible. Configure la clave en los secrets de Streamlit o en la variable de entorno GEMINI_API_KEY."
+    if client is None:
+        return "**IA no disponible.** La generación de análisis con IA requiere una API key de Groq válida. Configure la clave en los secrets de Streamlit o en la variable de entorno GROQ_API_KEY."
     
     prompt = f"""
     Eres un especialista en teledetección y análisis espectral. Con base en los siguientes datos de un área de estudio, genera un análisis técnico detallado y concreto sobre los índices espectrales. El análisis debe seguir el estilo del informe proporcionado (biomap.pdf), incluyendo interpretación de cada índice, variabilidad y correlaciones con otras variables. No incluyas especulaciones; utiliza únicamente los valores proporcionados.
@@ -179,12 +193,11 @@ def generar_analisis_espectral(df, stats):
     5. Correlación entre NDVI/NDWI y biodiversidad (Shannon): ¿se observa alguna relación? ¿Las áreas más verdes o más húmedas son más diversas?
     6. Conclusiones sobre el estado general del ecosistema basado en estos índices.
     """
-    response = model.generate_content(prompt)
-    return response.text
+    return get_groq_response(prompt)
 
 def generar_analisis_forrajero(df, stats):
-    if model is None:
-        return "**IA no disponible.** La generación de análisis con IA requiere una API key de Gemini válida y un modelo disponible. Configure la clave en los secrets de Streamlit o en la variable de entorno GEMINI_API_KEY."
+    if client is None:
+        return "**IA no disponible.** La generación de análisis con IA requiere una API key de Groq válida. Configure la clave en los secrets de Streamlit o en la variable de entorno GROQ_API_KEY."
     
     # Información de sublotes si está disponible
     sublotes_info = ""
@@ -218,12 +231,11 @@ def generar_analisis_forrajero(df, stats):
     5. Plan de rotación sugerido, incluyendo tiempos de ocupación y descanso para cada sublote, basado en la productividad.
     6. Estrategias para aumentar la resiliencia del sistema frente a sequías o cambios climáticos.
     """
-    response = model.generate_content(prompt)
-    return response.text
+    return get_groq_response(prompt)
 
 def generar_recomendaciones_integradas(df, stats):
-    if model is None:
-        return "**IA no disponible.** La generación de análisis con IA requiere una API key de Gemini válida y un modelo disponible. Configure la clave en los secrets de Streamlit o en la variable de entorno GEMINI_API_KEY."
+    if client is None:
+        return "**IA no disponible.** La generación de análisis con IA requiere una API key de Groq válida. Configure la clave en los secrets de Streamlit o en la variable de entorno GROQ_API_KEY."
     
     prompt = f"""
     Eres un consultor ambiental senior especializado en proyectos de carbono, biodiversidad y manejo ganadero sostenible. Con base en todos los datos proporcionados, genera un conjunto de recomendaciones integradas para el área de estudio. Las recomendaciones deben ser concretas, basadas en los datos y orientadas a la acción, siguiendo el estilo del informe biomap.pdf (incluye estrategias de agricultura de conservación, mejora de biodiversidad, monitoreo y potencial de créditos de carbono). No incluyas especulaciones.
@@ -278,5 +290,4 @@ def generar_recomendaciones_integradas(df, stats):
        - Estudios de suelo detallados.
        - Consulta con comunidades locales y actores clave.
     """
-    response = model.generate_content(prompt)
-    return response.text
+    return get_groq_response(prompt)
