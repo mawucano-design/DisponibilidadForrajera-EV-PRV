@@ -47,9 +47,9 @@ from modules.ia_integration import (
     generar_analisis_espectral,
     generar_analisis_forrajero,
     generar_recomendaciones_integradas,
-    available_models,          # lista de modelos Groq
-    client as groq_client,     # cliente de Groq
-    GROQ_API_KEY               # clave API de Groq
+    available_models,
+    client as groq_client,
+    GROQ_API_KEY
 )
 
 # ===== IMPORTACIONES GOOGLE EARTH ENGINE =====
