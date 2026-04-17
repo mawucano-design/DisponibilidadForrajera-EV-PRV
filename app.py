@@ -39,7 +39,6 @@ import xml.etree.ElementTree as ET
 from typing import Optional, Dict, Any, List, Tuple
 import random
 
-# ===== IMPORTACIÓN DE MÓDULOS IA =====
 from modules.ia_integration import (
     preparar_resumen,
     generar_analisis_carbono,
@@ -47,9 +46,9 @@ from modules.ia_integration import (
     generar_analisis_espectral,
     generar_analisis_forrajero,
     generar_recomendaciones_integradas,
-    available_models,          # lista de modelos disponibles
-    model as default_model,    # modelo por defecto
-    GEMINI_API_KEY             # para verificar si hay clave
+    available_models,          # ✅ sigue existiendo (lista de modelos Groq)
+    client as groq_client,     # 🔁 antes era "model", ahora es "client"
+    GROQ_API_KEY               # 🔁 antes GEMINI_API_KEY, ahora GROQ_API_KEY
 )
 
 # ===== IMPORTACIONES GOOGLE EARTH ENGINE =====
