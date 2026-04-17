@@ -1547,7 +1547,7 @@ def generar_reporte_ia(resultados, gdf, sistema_mapas=None):
         metricas = [
             ('Área total', f"{stats['area_total_ha']:,.1f} ha", 'Superficie del área de estudio'),
             ('Carbono total', f"{stats['carbono_total_ton']:,.0f} ton C", 'Almacenamiento total de carbono'),
-            ('CO₂ equivalente', f"{stats['co2_total_ton']:,.0f} ton CO₂e', 'Potencial de créditos de carbono'),
+            ('CO₂ equivalente', f"{stats['co2_total_ton']:,.0f} ton CO₂e", 'Potencial de créditos de carbono'),
             ('Índice Shannon', f"{stats['shannon_promedio']:.3f}", 'Nivel de biodiversidad'),
             ('NDVI promedio', f"{stats['ndvi_promedio']:.3f}", 'Salud de la vegetación'),
             ('NDWI promedio', f"{stats['ndwi_promedio']:.3f}", 'Contenido de agua'),
