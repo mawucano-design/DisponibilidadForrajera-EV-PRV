@@ -2,7 +2,7 @@
 # ===============================
 # SISTEMA SATELITAL DE ANÁLISIS AMBIENTAL INTEGRAL
 # Carbono + Biodiversidad + Análisis Forrajero
-# Con mapas continuos, dashboard interactivo e informe con IA (Gemini)
+# Con mapas continuos, dashboard interactivo e informe con IA (Groq)
 # ===============================
 
 # ✅ ABSOLUTAMENTE PRIMERO: Importar streamlit
@@ -39,6 +39,7 @@ import xml.etree.ElementTree as ET
 from typing import Optional, Dict, Any, List, Tuple
 import random
 
+# ✅ IMPORTACIÓN DEL MÓDULO IA (ahora con Groq)
 from modules.ia_integration import (
     preparar_resumen,
     generar_analisis_carbono,
@@ -46,9 +47,9 @@ from modules.ia_integration import (
     generar_analisis_espectral,
     generar_analisis_forrajero,
     generar_recomendaciones_integradas,
-    available_models,          # ✅ sigue existiendo (lista de modelos Groq)
-    client as groq_client,     # 🔁 antes era "model", ahora es "client"
-    GROQ_API_KEY               # 🔁 antes GEMINI_API_KEY, ahora GROQ_API_KEY
+    available_models,          # lista de modelos Groq
+    client as groq_client,     # cliente de Groq
+    GROQ_API_KEY               # clave API de Groq
 )
 
 # ===== IMPORTACIONES GOOGLE EARTH ENGINE =====
@@ -1501,11 +1502,11 @@ class GeneradorReportes:
             return json.dumps({"error": str(e)})
 
 # ===============================
-# FUNCIÓN PARA GENERAR INFORME CON IA
+# FUNCIÓN PARA GENERAR INFORME CON IA (ahora usando Groq)
 # ===============================
-def generar_reporte_ia(resultados, gdf, sistema_mapas=None, modelo_ia=None):
+def generar_reporte_ia(resultados, gdf, sistema_mapas=None):
     """
-    Genera un informe en Word con análisis de IA, usando el modelo especificado.
+    Genera un informe en Word con análisis de IA usando Groq.
     """
     import tempfile
     from docx import Document
@@ -1514,19 +1515,9 @@ def generar_reporte_ia(resultados, gdf, sistema_mapas=None, modelo_ia=None):
     from datetime import datetime
     import io
     import os
-    import google.generativeai as genai
 
     if not REPORTDOCX_AVAILABLE:
         st.error("python-docx no está instalado. No se puede generar el informe.")
-        return None
-
-    # Si no se pasa un modelo, usar el global (si existe)
-    if modelo_ia is None:
-        from modules.ia_integration import model as default_model
-        modelo_ia = default_model
-
-    if modelo_ia is None:
-        st.error("No hay modelo de IA disponible. Verifique la API key.")
         return None
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -1537,7 +1528,7 @@ def generar_reporte_ia(resultados, gdf, sistema_mapas=None, modelo_ia=None):
         section.top_margin = Inches(1)
         section.bottom_margin = Inches(1)
 
-        title = doc.add_heading('INFORME AMBIENTAL CON ANÁLISIS DE IA', 0)
+        title = doc.add_heading('INFORME AMBIENTAL CON ANÁLISIS DE IA (GROQ)', 0)
         title.alignment = WD_ALIGN_PARAGRAPH.CENTER
         subtitle = doc.add_paragraph(f'Fecha: {datetime.now().strftime("%d/%m/%Y %H:%M")}')
         subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -1556,7 +1547,7 @@ def generar_reporte_ia(resultados, gdf, sistema_mapas=None, modelo_ia=None):
         metricas = [
             ('Área total', f"{stats['area_total_ha']:,.1f} ha", 'Superficie del área de estudio'),
             ('Carbono total', f"{stats['carbono_total_ton']:,.0f} ton C", 'Almacenamiento total de carbono'),
-            ('CO₂ equivalente', f"{stats['co2_total_ton']:,.0f} ton CO₂e", 'Potencial de créditos de carbono'),
+            ('CO₂ equivalente', f"{stats['co2_total_ton']:,.0f} ton CO₂e', 'Potencial de créditos de carbono'),
             ('Índice Shannon', f"{stats['shannon_promedio']:.3f}", 'Nivel de biodiversidad'),
             ('NDVI promedio', f"{stats['ndvi_promedio']:.3f}", 'Salud de la vegetación'),
             ('NDWI promedio', f"{stats['ndwi_promedio']:.3f}", 'Contenido de agua'),
@@ -1570,7 +1561,7 @@ def generar_reporte_ia(resultados, gdf, sistema_mapas=None, modelo_ia=None):
             row[2].text = interp
         doc.add_paragraph()
 
-        # 2. Análisis de Carbono
+        # 2. Análisis de Carbono (usando función de ia_integration)
         doc.add_heading('2. ANÁLISIS DE CARBONO', level=1)
         if resultados.get('desglose_promedio'):
             doc.add_heading('Distribución por pools', level=2)
@@ -1704,7 +1695,7 @@ def generar_reporte_ia(resultados, gdf, sistema_mapas=None, modelo_ia=None):
         # 8. Metadatos
         doc.add_heading('8. METADATOS', level=1)
         metadatos = [
-            ('Generado por', 'Sistema Satelital de Análisis Ambiental v3.0 con IA Gemini'),
+            ('Generado por', 'Sistema Satelital de Análisis Ambiental v3.0 con IA Groq'),
             ('Fecha de generación', datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
             ('Número de puntos', str(stats['num_puntos']))
         ]
@@ -2371,18 +2362,15 @@ def mostrar_informe():
                 if docx:
                     st.download_button("⬇️ Descargar DOCX", docx, f"informe_{datetime.now().strftime('%Y%m%d_%H%M')}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
     with col3:
-        # Verificar si hay modelos disponibles
-        from modules.ia_integration import available_models, model as default_model
-        if available_models and default_model is not None:
-            if st.button("🤖 Generar Informe con IA", use_container_width=True):
-                with st.spinner("Generando informe con IA..."):
-                    # Usar el modelo seleccionado en la sidebar (si existe)
-                    modelo_seleccionado = st.session_state.get('modelo_ia', default_model)
-                    reporte_ia = generar_reporte_ia(st.session_state.resultados, st.session_state.poligono_data, sistema, modelo_seleccionado)
+        # Verificar si la IA está disponible (cliente y API key)
+        if GROQ_API_KEY is not None and groq_client is not None:
+            if st.button("🤖 Generar Informe con IA (Groq)", use_container_width=True):
+                with st.spinner("Generando informe con IA (Groq)..."):
+                    reporte_ia = generar_reporte_ia(st.session_state.resultados, st.session_state.poligono_data, sistema)
                     if reporte_ia:
                         st.download_button("⬇️ Descargar Informe IA", reporte_ia, f"informe_IA_{datetime.now().strftime('%Y%m%d_%H%M')}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
         else:
-            st.info("🤖 IA no disponible (falta API key o modelos)")
+            st.info("🤖 IA no disponible (falta API key de Groq o cliente no configurado)")
     with col4:
         if st.button("🌍 Generar GeoJSON", use_container_width=True):
             geojson = generador.generar_geojson()
@@ -2404,6 +2392,9 @@ def main():
         st.session_state.resultados = None
     if 'mapa' not in st.session_state:
         st.session_state.mapa = None
+    # Inicializar modelo seleccionado por defecto
+    if 'selected_model' not in st.session_state:
+        st.session_state.selected_model = available_models[0] if available_models else "llama3-70b-8192"
 
     st.title("🌎 Sistema Satelital de Análisis Ambiental Integral")
     st.markdown("### Carbono + Biodiversidad + Análisis Forrajero")
@@ -2437,20 +2428,17 @@ def main():
             if GEE_AVAILABLE and st.session_state.gee_authenticated:
                 usar_gee = st.checkbox("Usar datos reales de GEE")
             
-            # Selector de modelo de IA (si hay modelos disponibles)
-            from modules.ia_integration import available_models, model as default_model
-            if available_models and default_model is not None:
-                # Almacenar el modelo seleccionado en session_state
-                modelo_seleccionado = st.selectbox("Modelo de IA", available_models, 
-                                                    index=available_models.index(default_model.model_name) if default_model.model_name in available_models else 0)
-                # Re-inicializar el modelo si es necesario (se puede hacer bajo demanda)
-                # Por simplicidad, usamos el mismo modelo global, pero podríamos cambiarlo.
-                # Lo guardamos en session_state para usarlo en la generación del informe.
-                st.session_state.modelo_ia = default_model  # no cambiamos el modelo global para no complicar, pero podríamos.
-                st.session_state.modelo_ia_nombre = modelo_seleccionado
-                st.success(f"✅ Modelo seleccionado: {modelo_seleccionado}")
+            # Selector de modelo de IA (Groq)
+            if available_models:
+                st.session_state.selected_model = st.selectbox(
+                    "Modelo de IA (Groq)",
+                    available_models,
+                    index=available_models.index(st.session_state.selected_model) if st.session_state.selected_model in available_models else 0,
+                    help="Selecciona el modelo para los análisis con IA. Los más potentes son llama3-70b-8192 y mixtral-8x7b-32768."
+                )
+                st.success(f"✅ Modelo seleccionado: {st.session_state.selected_model}")
             else:
-                st.session_state.modelo_ia = None
+                st.warning("No hay modelos disponibles. Verifique la API key de Groq.")
             
             if st.button("🚀 Ejecutar Análisis Completo", type="primary", use_container_width=True):
                 with st.spinner("Analizando..."):
@@ -2471,7 +2459,7 @@ def main():
             - 🐮 Análisis forrajero (productividad, EV, rotación)
             - 🗺️ Mapas de calor continuos con interpolación KNN
             - 📊 Dashboard interactivo y gráficos
-            - 📄 Informes PDF/DOCX/GeoJSON y con IA (Gemini)
+            - 📄 Informes PDF/DOCX/GeoJSON y con IA (Groq)
             - 🌍 Ecosistemas argentinos incluidos: monte, espinal, yungas, chaqueño, patagonico, paranaense
             """)
     else:
